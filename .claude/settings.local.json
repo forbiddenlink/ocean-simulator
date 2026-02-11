@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "WebSearch",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(npm run dev:*)",
+      "Bash(find:*)",
+      "Bash(tree:*)",
+      "Bash(wc:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:onlinelibrary.wiley.com)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:blog.maximeheckel.com)",
+      "WebFetch(domain:www.ben-sims.com)",
+      "WebFetch(domain:tympanus.net)",
+      "WebFetch(domain:nitinchotia.medium.com)",
+      "WebFetch(domain:water-simulation.vercel.app)",
+      "WebFetch(domain:www.utsubo.com)",
+      "WebFetch(domain:threejsroadmap.com)",
+      "WebFetch(domain:discourse.threejs.org)",
+      "WebFetch(domain:snayss.medium.com)",
+      "Bash(npx vite build:*)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "Bash(curl:*)",
+      "Bash(npm install:*)",
+      "mcp__plugin_playwright_playwright__browser_wait_for",
+      "mcp__plugin_playwright_playwright__browser_press_key",
+      "mcp__plugin_playwright_playwright__browser_snapshot"
+    ]
+  }
+}
