@@ -24,6 +24,13 @@ dist-ssr
 *.sln
 *.sw?
 
+# Claude Code caches
+.claude/cache/
+.claude/tsc-cache/
+.claude/settings.local.json
+
+# Screenshots/debug images
+*.png
 
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
