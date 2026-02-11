@@ -175,6 +175,9 @@ export class SimpleFishGeometry {
     const mergedPositions = new Float32Array(totalVertices * 3);
     const mergedColors = new Float32Array(totalVertices * 3);
     const mergedNormals = new Float32Array(totalVertices * 3);
+    // Fin type attribute for GPU animation:
+    // 0 = body (no fin animation), 1 = tail, 2 = dorsal/anal, 3 = pectoral
+    const mergedFinTypes = new Float32Array(totalVertices);
 
     let offset = 0;
 
@@ -182,8 +185,16 @@ export class SimpleFishGeometry {
       const positions = item.geo.getAttribute('position');
       const normals = item.geo.getAttribute('normal');
       const isEye = item.name === 'eye';
-      const isFin = item.name.includes('dorsal') || item.name.includes('tail') ||
-                    item.name.includes('anal') || item.name.includes('pectoral');
+      const isTail = item.name === 'tail';
+      const isDorsalAnal = item.name === 'dorsal' || item.name === 'anal';
+      const isPectoral = item.name.includes('pectoral');
+      const isFin = isTail || isDorsalAnal || isPectoral;
+
+      // Determine fin type for animation
+      let finType = 0; // body
+      if (isTail) finType = 1;
+      else if (isDorsalAnal) finType = 2;
+      else if (isPectoral) finType = 3;
 
       for (let i = 0; i < positions.count; i++) {
         // Position
@@ -197,6 +208,9 @@ export class SimpleFishGeometry {
           mergedNormals[offset * 3 + 1] = normals.getY(i);
           mergedNormals[offset * 3 + 2] = normals.getZ(i);
         }
+
+        // Fin type for GPU animation
+        mergedFinTypes[offset] = finType;
 
         // Vertex colors for countershading
         const y = positions.getY(i);
@@ -227,6 +241,7 @@ export class SimpleFishGeometry {
     mergedGeometry.setAttribute('position', new THREE.BufferAttribute(mergedPositions, 3));
     mergedGeometry.setAttribute('color', new THREE.BufferAttribute(mergedColors, 3));
     mergedGeometry.setAttribute('normal', new THREE.BufferAttribute(mergedNormals, 3));
+    mergedGeometry.setAttribute('finType', new THREE.BufferAttribute(mergedFinTypes, 1));
 
     return mergedGeometry;
   }

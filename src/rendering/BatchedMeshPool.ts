@@ -84,12 +84,13 @@ export class BatchedMeshPool {
 
     // Inject GPU swimming animation into vertex shader
     (this.fishMaterial as THREE.MeshPhysicalMaterial).onBeforeCompile = (shader) => {
-      // Add instance attributes as varyings
+      // Add instance attributes and geometry attributes
       shader.vertexShader = shader.vertexShader.replace(
         '#include <common>',
         `#include <common>
 attribute float animPhase;
 attribute float animSpeed;
+attribute float finType;
 `
       );
 
@@ -105,6 +106,39 @@ attribute float animSpeed;
   float amplitude = ampEnvelope * animSpeed * 0.08;
   float lateralDisp = sin(posAlongBody * 6.28318 - animPhase) * amplitude;
   transformed.z += lateralDisp;
+
+  // Fin animations based on finType attribute
+  // 0 = body (handled above), 1 = tail, 2 = dorsal/anal, 3 = pectoral
+
+  if (finType > 0.5 && finType < 1.5) {
+    // TAIL FIN: Horizontal sweep following body wave, amplified
+    // Tail is at positive X, amplitude increases toward tip
+    float tailProgress = clamp((position.x - 0.3) / 0.25, 0.0, 1.0);
+    float tailAmp = tailProgress * animSpeed * 0.15;
+    float tailWave = sin(animPhase * 1.2) * tailAmp;
+    transformed.z += tailWave;
+  }
+  else if (finType > 1.5 && finType < 2.5) {
+    // DORSAL/ANAL FIN: Slight lateral sway, follows body but reduced
+    float finSway = sin(animPhase * 0.8 + position.y * 2.0) * animSpeed * 0.02;
+    transformed.z += finSway;
+  }
+  else if (finType > 2.5) {
+    // PECTORAL FINS: Up/down flapping for steering
+    // Use position.z to determine left vs right fin (opposite phase)
+    float side = sign(position.z);
+    float flapPhase = animPhase * 2.0 + side * 1.57; // 90 degree offset between sides
+    float flapAmp = animSpeed * 0.06;
+    // Rotate around X axis (flap up/down)
+    float flapAngle = sin(flapPhase) * flapAmp;
+    // Apply rotation to Y and Z (simplified rotation around X)
+    float cosF = cos(flapAngle);
+    float sinF = sin(flapAngle);
+    float newY = transformed.y * cosF - transformed.z * sinF * side;
+    float newZ = transformed.y * sinF * side + transformed.z * cosF;
+    transformed.y = newY;
+    transformed.z = newZ;
+  }
 }
 `
       );
