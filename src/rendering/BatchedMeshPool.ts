@@ -6,7 +6,7 @@ import { CreatureType } from '../components/Biology';
 import type { OceanWorld } from '../core/World';
 import { RenderingEngine } from './RenderingEngine';
 import { ProceduralFishGeometry } from '../creatures/ProceduralFishGeometry';
-import { SimpleFishGeometry } from '../creatures/SimpleFishGeometry';
+import { SimpleFishGeometry, FishBodyType } from '../creatures/SimpleFishGeometry';
 import { SpecializedCreatureGeometry } from '../creatures/SpecializedCreatureGeometry';
 import { JellyfishGeometry } from '../creatures/JellyfishGeometry';
 import { TurtleGeometry } from '../creatures/TurtleGeometry';
@@ -22,6 +22,7 @@ import { applyBiomechanicalAnimationToMesh } from '../systems/BiomechanicalAnima
 interface InstanceData {
   eid: number;
   instanceId: number;
+  bodyType: number; // Which body type mesh this instance belongs to
   matrix: THREE.Matrix4;
   color: THREE.Color;
   velocityHistory: Array<{ x: number; y: number; z: number }>;
@@ -29,62 +30,105 @@ interface InstanceData {
   lastQuaternion: THREE.Quaternion;
 }
 
+// Body type names for logging
+const BODY_TYPE_NAMES = ['standard', 'slender', 'disc', 'chunky'];
+
 export class BatchedMeshPool {
   private renderEngine: RenderingEngine;
 
-  // Instanced mesh for fish (most numerous creatures)
-  private fishInstancedMesh: THREE.InstancedMesh | null = null;
+  // Instanced meshes for fish - one per body type for visual variety
+  private fishInstancedMeshes: THREE.InstancedMesh[] = [];
   private fishInstances: Map<number, InstanceData> = new Map(); // eid -> instance data
-  private fishInstanceCount: number = 0;
-  private readonly MAX_FISH_INSTANCES = 2000;
+  private fishInstanceCounts: number[] = [0, 0, 0, 0]; // Count per body type
+  private readonly MAX_FISH_PER_TYPE = 500; // 500 per type = 2000 total
 
   // Individual meshes for complex creatures (sharks, dolphins, rays, jellyfish)
   private individualMeshes: Map<number, THREE.Mesh | THREE.Group> = new Map();
 
-  // Shared resources
-  private fishGeometry: THREE.BufferGeometry;
-  private fishMaterial: THREE.Material; // Can be ShaderMaterial or MeshPhysicalMaterial
+  // Shared resources - geometries and materials per body type
+  private fishGeometries: THREE.BufferGeometry[] = [];
+  private fishMaterials: THREE.Material[] = [];
   private tempMatrix: THREE.Matrix4 = new THREE.Matrix4();
   private tempPosition: THREE.Vector3 = new THREE.Vector3();
   private tempQuaternion: THREE.Quaternion = new THREE.Quaternion();
   private tempScale: THREE.Vector3 = new THREE.Vector3(1, 1, 1);
   private tempEuler: THREE.Euler = new THREE.Euler();
-  private animPhaseAttribute: THREE.InstancedBufferAttribute | null = null;
-  private animSpeedAttribute: THREE.InstancedBufferAttribute | null = null;
+  private animPhaseAttributes: THREE.InstancedBufferAttribute[] = [];
+  private animSpeedAttributes: THREE.InstancedBufferAttribute[] = [];
 
   constructor(renderEngine: RenderingEngine) {
     this.renderEngine = renderEngine;
 
-    // Use SimpleFishGeometry for clearly recognizable fish shapes
-    // with obvious body, tail fin, dorsal fin, and eyes
-    this.fishGeometry = SimpleFishGeometry.createFish({
-      length: 1.0,
-      bodyHeight: 0.4
-    });
+    // Create 4 different fish body types for visual variety
+    const bodyTypes = [
+      FishBodyType.STANDARD,
+      FishBodyType.SLENDER,
+      FishBodyType.DISC,
+      FishBodyType.CHUNKY
+    ];
 
-    // Use MeshPhysicalMaterial for realistic fish rendering with iridescence
-    // Color set to WHITE so instance colors display at full brightness
-    // Instance colors multiply with base color, so white = full instance color
-    this.fishMaterial = new THREE.MeshPhysicalMaterial({
-      color: 0xffffff, // White base so instance colors show properly
-      metalness: 0.15, // Slight metalness for sheen
-      roughness: 0.5, // Smoother surface for better color reflection
+    for (let i = 0; i < 4; i++) {
+      // Create geometry for this body type
+      const geometry = SimpleFishGeometry.createByType(bodyTypes[i], {
+        length: 1.0,
+        bodyHeight: 0.4
+      });
+      this.fishGeometries.push(geometry);
+
+      // Create material with GPU swimming animation
+      const material = this.createFishMaterial();
+      this.fishMaterials.push(material);
+
+      // Create instanced mesh for this body type
+      const instancedMesh = new THREE.InstancedMesh(
+        geometry,
+        material,
+        this.MAX_FISH_PER_TYPE
+      );
+      instancedMesh.castShadow = true;
+      instancedMesh.receiveShadow = true;
+      instancedMesh.count = 0;
+      instancedMesh.name = `fish_${BODY_TYPE_NAMES[i]}`;
+
+      // Swimming animation attributes (per-instance)
+      const animPhaseArray = new Float32Array(this.MAX_FISH_PER_TYPE);
+      const animSpeedArray = new Float32Array(this.MAX_FISH_PER_TYPE);
+      const animPhaseAttr = new THREE.InstancedBufferAttribute(animPhaseArray, 1);
+      const animSpeedAttr = new THREE.InstancedBufferAttribute(animSpeedArray, 1);
+      instancedMesh.geometry.setAttribute('animPhase', animPhaseAttr);
+      instancedMesh.geometry.setAttribute('animSpeed', animSpeedAttr);
+      this.animPhaseAttributes.push(animPhaseAttr);
+      this.animSpeedAttributes.push(animSpeedAttr);
+
+      this.fishInstancedMeshes.push(instancedMesh);
+      this.renderEngine.scene.add(instancedMesh);
+    }
+
+    const totalCapacity = this.MAX_FISH_PER_TYPE * 4;
+    console.log(`🐟 Created 4 instanced mesh pools (${BODY_TYPE_NAMES.join(', ')}) for ${totalCapacity} total fish`);
+  }
+
+  /**
+   * Create fish material with GPU swimming animation
+   */
+  private createFishMaterial(): THREE.MeshPhysicalMaterial {
+    const material = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      metalness: 0.15,
+      roughness: 0.5,
       flatShading: false,
-      side: THREE.DoubleSide, // Show fins from both sides
-      // NEUTRAL emissive so it doesn't overpower instance colors
-      // Using warm white instead of cyan-blue to let fish colors show
-      emissive: new THREE.Color(0x888888), // Neutral gray emissive
-      emissiveIntensity: 0.3, // Reduced intensity - let instance colors dominate
-      iridescence: 0.4, // More prominent fish scale shimmer
+      side: THREE.DoubleSide,
+      emissive: new THREE.Color(0x888888),
+      emissiveIntensity: 0.3,
+      iridescence: 0.4,
       iridescenceIOR: 1.4,
       iridescenceThicknessRange: [100, 400],
-      clearcoat: 0.2, // Wet fish look
+      clearcoat: 0.2,
       clearcoatRoughness: 0.3,
     });
 
     // Inject GPU swimming animation into vertex shader
-    (this.fishMaterial as THREE.MeshPhysicalMaterial).onBeforeCompile = (shader) => {
-      // Add instance attributes and geometry attributes
+    material.onBeforeCompile = (shader) => {
       shader.vertexShader = shader.vertexShader.replace(
         '#include <common>',
         `#include <common>
@@ -94,44 +138,31 @@ attribute float finType;
 `
       );
 
-      // Inject swimming displacement after begin_vertex
       shader.vertexShader = shader.vertexShader.replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
 {
-  // Swimming S-curve: displacement increases from head to tail
-  // Fish geometry extends along X axis; normalize to [0,1] range
   float posAlongBody = clamp((position.x + 0.4) / 0.8, 0.0, 1.0);
   float ampEnvelope = smoothstep(0.0, 1.0, posAlongBody);
   float amplitude = ampEnvelope * animSpeed * 0.08;
   float lateralDisp = sin(posAlongBody * 6.28318 - animPhase) * amplitude;
   transformed.z += lateralDisp;
 
-  // Fin animations based on finType attribute
-  // 0 = body (handled above), 1 = tail, 2 = dorsal/anal, 3 = pectoral
-
   if (finType > 0.5 && finType < 1.5) {
-    // TAIL FIN: Horizontal sweep following body wave, amplified
-    // Tail is at positive X, amplitude increases toward tip
     float tailProgress = clamp((position.x - 0.3) / 0.25, 0.0, 1.0);
     float tailAmp = tailProgress * animSpeed * 0.15;
     float tailWave = sin(animPhase * 1.2) * tailAmp;
     transformed.z += tailWave;
   }
   else if (finType > 1.5 && finType < 2.5) {
-    // DORSAL/ANAL FIN: Slight lateral sway, follows body but reduced
     float finSway = sin(animPhase * 0.8 + position.y * 2.0) * animSpeed * 0.02;
     transformed.z += finSway;
   }
   else if (finType > 2.5) {
-    // PECTORAL FINS: Up/down flapping for steering
-    // Use position.z to determine left vs right fin (opposite phase)
     float side = sign(position.z);
-    float flapPhase = animPhase * 2.0 + side * 1.57; // 90 degree offset between sides
+    float flapPhase = animPhase * 2.0 + side * 1.57;
     float flapAmp = animSpeed * 0.06;
-    // Rotate around X axis (flap up/down)
     float flapAngle = sin(flapPhase) * flapAmp;
-    // Apply rotation to Y and Z (simplified rotation around X)
     float cosF = cos(flapAngle);
     float sinF = sin(flapAngle);
     float newY = transformed.y * cosF - transformed.z * sinF * side;
@@ -144,58 +175,46 @@ attribute float finType;
       );
     };
 
-    // Create instanced mesh for fish
-    this.fishInstancedMesh = new THREE.InstancedMesh(
-      this.fishGeometry,
-      this.fishMaterial,
-      this.MAX_FISH_INSTANCES
-    );
-    this.fishInstancedMesh.castShadow = true;
-    this.fishInstancedMesh.receiveShadow = true;
-    this.fishInstancedMesh.count = 0; // Start with 0 instances
-
-    // Swimming animation attributes (per-instance)
-    const animPhaseArray = new Float32Array(this.MAX_FISH_INSTANCES);
-    const animSpeedArray = new Float32Array(this.MAX_FISH_INSTANCES);
-    this.animPhaseAttribute = new THREE.InstancedBufferAttribute(animPhaseArray, 1);
-    this.animSpeedAttribute = new THREE.InstancedBufferAttribute(animSpeedArray, 1);
-    this.fishInstancedMesh.geometry.setAttribute('animPhase', this.animPhaseAttribute);
-    this.fishInstancedMesh.geometry.setAttribute('animSpeed', this.animSpeedAttribute);
-
-    this.renderEngine.scene.add(this.fishInstancedMesh);    console.log(`🐟 Created instanced mesh pool for ${this.MAX_FISH_INSTANCES} fish`);  }
+    return material;
+  }
 
   /**
-   * Add a fish entity to the instanced mesh
+   * Add a fish entity to the appropriate instanced mesh based on body type
    */
   private addFishInstance(eid: number): void {
     if (this.fishInstances.has(eid)) return;
-    if (this.fishInstanceCount >= this.MAX_FISH_INSTANCES) {
-      console.warn('Max fish instances reached');
+
+    // Determine body type from creature variant (0-3)
+    const bodyType = (CreatureType.variant[eid] ?? 0) % 4;
+
+    if (this.fishInstanceCounts[bodyType] >= this.MAX_FISH_PER_TYPE) {
+      console.warn(`Max fish instances reached for body type ${BODY_TYPE_NAMES[bodyType]}`);
       return;
     }
 
-    const instanceId = this.fishInstanceCount++;
+    const instanceId = this.fishInstanceCounts[bodyType]++;
     const color = new THREE.Color(Color.r[eid], Color.g[eid], Color.b[eid]);
 
     this.fishInstances.set(eid, {
       eid,
       instanceId,
+      bodyType,
       matrix: new THREE.Matrix4(),
       color,
       velocityHistory: [],
       lastQuaternion: new THREE.Quaternion()
     });
 
-    // Set instance color
-    this.fishInstancedMesh!.setColorAt(instanceId, color);
+    // Set instance color on the correct mesh
+    const mesh = this.fishInstancedMeshes[bodyType];
+    mesh.setColorAt(instanceId, color);
 
-    // Mark instance color buffer for update
-    if (this.fishInstancedMesh!.instanceColor) {
-      this.fishInstancedMesh!.instanceColor.needsUpdate = true;
+    if (mesh.instanceColor) {
+      mesh.instanceColor.needsUpdate = true;
     }
 
-    // Update instance count
-    this.fishInstancedMesh!.count = this.fishInstanceCount;
+    // Update instance count for this body type
+    mesh.count = this.fishInstanceCounts[bodyType];
   }
 
   /**
@@ -204,6 +223,11 @@ attribute float finType;
   private updateFishInstance(eid: number, _world: OceanWorld): void {
     const instance = this.fishInstances.get(eid);
     if (!instance) return;
+
+    const { bodyType, instanceId } = instance;
+    const mesh = this.fishInstancedMeshes[bodyType];
+    const animPhaseAttr = this.animPhaseAttributes[bodyType];
+    const animSpeedAttr = this.animSpeedAttributes[bodyType];
 
     // Position
     this.tempPosition.set(Position.x[eid], Position.y[eid], Position.z[eid]);
@@ -215,13 +239,11 @@ attribute float finType;
     const speed = Math.sqrt(vx * vx + vy * vy + vz * vz);
 
     if (speed > 0.01) {
-      // Add to velocity history for smoothing
       instance.velocityHistory.push({ x: vx, y: vy, z: vz });
       if (instance.velocityHistory.length > 4) {
         instance.velocityHistory.shift();
       }
 
-      // Calculate smoothed velocity
       let smoothVx = 0, smoothVy = 0, smoothVz = 0;
       for (const v of instance.velocityHistory) {
         smoothVx += v.x;
@@ -233,17 +255,11 @@ attribute float finType;
       smoothVy /= count;
       smoothVz /= count;
 
-      // Calculate rotation
-      // Fish geometry has head at -X, tail at +X
-      // Add PI to flip fish so head points in direction of travel
       const yaw = Math.atan2(smoothVx, smoothVz) + Math.PI;
       const horizontalSpeed = Math.sqrt(smoothVx * smoothVx + smoothVz * smoothVz);
-      // Clamp pitch to realistic fish angles (max ~30 degrees = 0.52 rad)
-      // Real fish swim mostly horizontally and only tilt slightly when changing depth
-      let pitch = -Math.atan2(smoothVy, horizontalSpeed); // Negative for correct pitch
-      pitch = Math.max(-0.52, Math.min(0.52, pitch)); // Limit to ±30 degrees
+      let pitch = -Math.atan2(smoothVy, horizontalSpeed);
+      pitch = Math.max(-0.52, Math.min(0.52, pitch));
 
-      // Banking based on turn rate
       let roll = 0;
       if (instance.lastYaw !== undefined) {
         let yawDelta = yaw - instance.lastYaw;
@@ -260,37 +276,30 @@ attribute float finType;
       this.tempQuaternion.copy(instance.lastQuaternion);
     }
 
-    // Apply entity scale
     this.tempScale.set(Scale.x[eid] || 1, Scale.y[eid] || 1, Scale.z[eid] || 1);
-
-    // Build matrix
     this.tempMatrix.compose(this.tempPosition, this.tempQuaternion, this.tempScale);
 
-    // Set instance matrix
-    this.fishInstancedMesh!.setMatrixAt(instance.instanceId, this.tempMatrix);
-
-    // Mark for update
-    this.fishInstancedMesh!.instanceMatrix.needsUpdate = true;
+    mesh.setMatrixAt(instanceId, this.tempMatrix);
+    mesh.instanceMatrix.needsUpdate = true;
 
     // Update swimming animation attributes
-    if (this.animPhaseAttribute && this.animSpeedAttribute) {
+    if (animPhaseAttr && animSpeedAttr) {
       const dt = _world.time.delta;
-      const maxSpeed = 3.0; // Reference max speed for normalization
+      const maxSpeed = 3.0;
       const normalizedSpeed = Math.min(1.0, speed / maxSpeed);
 
-      // Phase accumulates: 2.5Hz idle + up to 5Hz more at full speed
-      const currentPhase = this.animPhaseAttribute.array[instance.instanceId] as number || 0;
-      (this.animPhaseAttribute.array as Float32Array)[instance.instanceId] = currentPhase + (2.5 + normalizedSpeed * 5.0) * dt * Math.PI * 2;
-      (this.animSpeedAttribute.array as Float32Array)[instance.instanceId] = normalizedSpeed;
+      const currentPhase = animPhaseAttr.array[instanceId] as number || 0;
+      (animPhaseAttr.array as Float32Array)[instanceId] = currentPhase + (2.5 + normalizedSpeed * 5.0) * dt * Math.PI * 2;
+      (animSpeedAttr.array as Float32Array)[instanceId] = normalizedSpeed;
     }
 
     // Update color if changed
     const currentColor = new THREE.Color(Color.r[eid], Color.g[eid], Color.b[eid]);
     if (!instance.color.equals(currentColor)) {
       instance.color.copy(currentColor);
-      this.fishInstancedMesh!.setColorAt(instance.instanceId, currentColor);
-      if (this.fishInstancedMesh!.instanceColor) {
-        this.fishInstancedMesh!.instanceColor.needsUpdate = true;
+      mesh.setColorAt(instanceId, currentColor);
+      if (mesh.instanceColor) {
+        mesh.instanceColor.needsUpdate = true;
       }
     }
   }
@@ -664,26 +673,32 @@ attribute float finType;
 
     // DEBUG: Log occasionally
     if (Math.random() < 0.01) {
+      const totalFishInstanced = this.fishInstanceCounts.reduce((a, b) => a + b, 0);
       const individualCount = typeCounts.shark + typeCounts.dolphin + typeCounts.jellyfish + typeCounts.ray + typeCounts.turtle + typeCounts.crab + typeCounts.starfish + typeCounts.seaUrchin + typeCounts.whale;
-      console.log(`🐟 Mesh Pool: ${typeCounts.fish} fish (instanced: ${this.fishInstanceCount}), ${individualCount} individual (${this.individualMeshes.size} in scene)`);
+      const bodyTypeCounts = BODY_TYPE_NAMES.map((name, i) => `${name}:${this.fishInstanceCounts[i]}`).join(', ');
+      console.log(`🐟 Mesh Pool: ${typeCounts.fish} fish (${bodyTypeCounts}, total:${totalFishInstanced}), ${individualCount} individual`);
     }
 
-    // Mark animation attributes for GPU upload (once per frame, not per instance)
-    if (this.animPhaseAttribute) this.animPhaseAttribute.needsUpdate = true;
-    if (this.animSpeedAttribute) this.animSpeedAttribute.needsUpdate = true;
+    // Mark animation attributes for GPU upload (once per frame, for all body types)
+    for (let i = 0; i < 4; i++) {
+      if (this.animPhaseAttributes[i]) this.animPhaseAttributes[i].needsUpdate = true;
+      if (this.animSpeedAttributes[i]) this.animSpeedAttributes[i].needsUpdate = true;
+    }
   }
 
   /**
    * Update shader time uniform (disabled for simple material)
    */
   public updateTime(time: number): void {
-    // Update time uniforms for EnhancedFishMaterial animation
-    const shaderMat = this.fishMaterial as THREE.ShaderMaterial;
-    if (shaderMat.uniforms?.time) {
-      shaderMat.uniforms.time.value = time;
-    }
-    if (shaderMat.uniforms?.swimPhase) {
-      shaderMat.uniforms.swimPhase.value = time;
+    // Update time uniforms for all fish materials
+    for (const material of this.fishMaterials) {
+      const shaderMat = material as THREE.ShaderMaterial;
+      if (shaderMat.uniforms?.time) {
+        shaderMat.uniforms.time.value = time;
+      }
+      if (shaderMat.uniforms?.swimPhase) {
+        shaderMat.uniforms.swimPhase.value = time;
+      }
     }
   }
 
@@ -691,10 +706,10 @@ attribute float finType;
    * Cleanup
    */
   public dispose(): void {
-    // Dispose instanced mesh
-    if (this.fishInstancedMesh) {
-      this.renderEngine.scene.remove(this.fishInstancedMesh);
-      this.fishInstancedMesh.dispose();
+    // Dispose all instanced meshes
+    for (const mesh of this.fishInstancedMeshes) {
+      this.renderEngine.scene.remove(mesh);
+      mesh.dispose();
     }
 
     // Dispose individual meshes
@@ -711,12 +726,19 @@ attribute float finType;
     });
 
     // Dispose shared resources
-    this.fishGeometry.dispose();
-    this.fishMaterial.dispose();
+    for (const geometry of this.fishGeometries) {
+      geometry.dispose();
+    }
+    for (const material of this.fishMaterials) {
+      material.dispose();
+    }
 
-    // Clear maps
+    // Clear collections
     this.fishInstances.clear();
     this.individualMeshes.clear();
+    this.fishInstancedMeshes.length = 0;
+    this.fishGeometries.length = 0;
+    this.fishMaterials.length = 0;
   }
 }
 
