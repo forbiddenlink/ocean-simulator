@@ -70,8 +70,8 @@ export class BatchedMeshPool {
       metalness: 0.1, // Low metalness for diffuse color visibility
       roughness: 0.65, // Rough surface for diffuse light spread
       flatShading: false,
-      emissive: new THREE.Color(0x446688), // Blue-cyan emissive matching underwater light
-      emissiveIntensity: 0.35, // Moderate emissive for visibility without washing out
+      emissive: new THREE.Color(0x6699bb), // Brighter cyan-blue emissive (Phase 2 visual fix)
+      emissiveIntensity: 0.5, // Stronger glow for visibility in dark underwater
       iridescence: 0.25, // Subtle fish scale shimmer
       iridescenceIOR: 1.3,
       iridescenceThicknessRange: [100, 400],
@@ -198,7 +198,10 @@ attribute float animSpeed;
       // Fish geometry has head at -X, so we need to rotate 180° (Math.PI) to face forward
       const yaw = Math.atan2(smoothVx, smoothVz); // Swapped for correct orientation
       const horizontalSpeed = Math.sqrt(smoothVx * smoothVx + smoothVz * smoothVz);
-      const pitch = -Math.atan2(smoothVy, horizontalSpeed); // Negative for correct pitch
+      // Clamp pitch to realistic fish angles (max ~30 degrees = 0.52 rad)
+      // Real fish swim mostly horizontally and only tilt slightly when changing depth
+      let pitch = -Math.atan2(smoothVy, horizontalSpeed); // Negative for correct pitch
+      pitch = Math.max(-0.52, Math.min(0.52, pitch)); // Limit to ±30 degrees
 
       // Banking based on turn rate
       let roll = 0;
@@ -331,89 +334,89 @@ attribute float animSpeed;
     const type = CreatureType.type[eid];
 
     switch (type) {
-      case 1: // Shark - slate gray, rough skin
+      case 1: // Shark - slate gray, rough skin (Phase 4: brighter)
         return new THREE.MeshPhysicalMaterial({
-          color: 0x8090a0,
+          color: 0x9aa8b8, // Brighter base
           roughness: 0.65,
           metalness: 0.15,
-          emissive: new THREE.Color(0x304050),
-          emissiveIntensity: 0.25,
+          emissive: new THREE.Color(0x4a5a6a),
+          emissiveIntensity: 0.4, // Increased from 0.25
         });
 
-      case 2: // Dolphin - blue-gray, smoother skin with slight sheen
+      case 2: // Dolphin - blue-gray, smoother skin (Phase 4: brighter)
         return new THREE.MeshPhysicalMaterial({
-          color: 0x90a0b0,
+          color: 0xa0b0c0, // Brighter base
           roughness: 0.35,
           metalness: 0.2,
-          emissive: new THREE.Color(0x405060),
-          emissiveIntensity: 0.25,
+          emissive: new THREE.Color(0x5a6a7a),
+          emissiveIntensity: 0.4, // Increased from 0.25
         });
 
-      case 3: // Jellyfish - translucent pale blue with stronger glow
+      case 3: // Jellyfish - translucent pale blue (Phase 4: stronger glow)
         return new THREE.MeshPhysicalMaterial({
-          color: 0xaaccee,
+          color: 0xbbddff, // Brighter base
           roughness: 0.2,
           metalness: 0.0,
           transmission: 0.6,
           thickness: 0.5,
           transparent: true,
           opacity: 0.8,
-          emissive: new THREE.Color(0x5588aa),
-          emissiveIntensity: 0.5,
+          emissive: new THREE.Color(0x6699bb),
+          emissiveIntensity: 0.6, // Increased from 0.5
         });
 
-      case 4: // Ray - olive-brown, moderate roughness
+      case 4: // Ray - olive-brown (Phase 4: brighter)
         return new THREE.MeshPhysicalMaterial({
-          color: 0x778877,
+          color: 0x889988, // Brighter base
           roughness: 0.5,
           metalness: 0.1,
-          emissive: new THREE.Color(0x334433),
-          emissiveIntensity: 0.25,
+          emissive: new THREE.Color(0x445544),
+          emissiveIntensity: 0.4, // Increased from 0.25
         });
 
-      case 5: // Turtle - green-brown, rough shell
+      case 5: // Turtle - green-brown (Phase 4: brighter)
         return new THREE.MeshPhysicalMaterial({
-          color: 0x7a9a6a,
+          color: 0x8aaa7a, // Brighter base
           roughness: 0.7,
           metalness: 0.1,
-          emissive: new THREE.Color(0x354530),
-          emissiveIntensity: 0.25,
+          emissive: new THREE.Color(0x456540),
+          emissiveIntensity: 0.4, // Increased from 0.25
         });
 
-      case 6: // Crab - reddish-brown
+      case 6: // Crab - reddish-brown (Phase 4: brighter)
         return new THREE.MeshPhysicalMaterial({
-          color: 0xcc7755,
+          color: 0xdd8866, // Brighter base
           roughness: 0.6,
           metalness: 0.15,
-          emissive: new THREE.Color(0x553322),
-          emissiveIntensity: 0.3,
+          emissive: new THREE.Color(0x664433),
+          emissiveIntensity: 0.45, // Increased from 0.3
         });
 
-      case 7: // Starfish - orange-red
+      case 7: // Starfish - orange-red (Phase 4: brighter)
         return new THREE.MeshPhysicalMaterial({
-          color: 0xee8866,
+          color: 0xff9977, // Brighter base
           roughness: 0.5,
           metalness: 0.1,
-          emissive: new THREE.Color(0x664422),
-          emissiveIntensity: 0.35,
+          emissive: new THREE.Color(0x775533),
+          emissiveIntensity: 0.5, // Increased from 0.35
         });
 
-      case 8: // Sea Urchin - dark purple-black, very rough
+      case 8: // Sea Urchin - dark purple (Phase 4: brighter)
         return new THREE.MeshPhysicalMaterial({
-          color: 0x4a3a4a,
+          color: 0x5a4a5a, // Brighter base
           roughness: 0.8,
           metalness: 0.1,
-          emissive: new THREE.Color(0x221a25),
-          emissiveIntensity: 0.2,
+          emissive: new THREE.Color(0x332a35),
+          emissiveIntensity: 0.35, // Increased from 0.2
         });
 
-      case 9: // Whale - dark blue-gray, matte
+      case 9: // Whale - dark blue-gray (Phase 4: brighter)
         return new THREE.MeshPhysicalMaterial({
-          color: 0x607080,
+          color: 0x708090, // Brighter base
           roughness: 0.75,
           metalness: 0.1,
-          emissive: new THREE.Color(0x203040),
-          emissiveIntensity: 0.2,
+          emissive: new THREE.Color(0x304050),
+          emissiveIntensity: 0.35, // Increased from 0.2
         });
 
       default: // Fallback fish material (for individual non-instanced fish)
@@ -515,7 +518,9 @@ attribute float animSpeed;
       // Fish/creature geometry has head at -X, swap args for correct orientation
       const yaw = Math.atan2(smoothVx, smoothVz);
       const horizontalSpeed = Math.sqrt(smoothVx * smoothVx + smoothVz * smoothVz);
-      const pitch = -Math.atan2(smoothVy, horizontalSpeed); // Negative for correct pitch
+      // Clamp pitch to realistic angles (max ~30 degrees = 0.52 rad)
+      let pitch = -Math.atan2(smoothVy, horizontalSpeed); // Negative for correct pitch
+      pitch = Math.max(-0.52, Math.min(0.52, pitch)); // Limit to ±30 degrees
 
       let roll = 0;
       if (mesh.userData.lastYaw !== undefined) {

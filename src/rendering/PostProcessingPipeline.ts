@@ -26,9 +26,9 @@ const underwaterColorGradingShader = /* glsl */ `
   void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
     vec3 color = inputColor.rgb;
 
-    // Gentle depth-based desaturation (keep colors vibrant underwater)
+    // Gentle depth-based desaturation (Phase 6: reduced effect to keep colors vibrant)
     float depthFactor = clamp(cameraDepth / 60.0, 0.0, 1.0);
-    float saturation = 1.0 - depthFactor * 0.2;
+    float saturation = 1.0 - depthFactor * 0.1; // Reduced from 0.2
     float luminance = dot(color, vec3(0.299, 0.587, 0.114));
     color = mix(vec3(luminance), color, saturation);
 
@@ -37,8 +37,8 @@ const underwaterColorGradingShader = /* glsl */ `
     color.g *= 1.0 - depthFactor * 0.02;
     color.b *= 1.0 + depthFactor * 0.05;
 
-    // Very subtle contrast reduction at depth
-    float contrast = 1.0 - depthFactor * 0.1;
+    // Very subtle contrast reduction at depth (Phase 6: reduced effect)
+    float contrast = 1.0 - depthFactor * 0.05; // Reduced from 0.1
     color = mix(vec3(0.5), color, contrast);
 
     // Very subtle blue-green tint
@@ -107,10 +107,10 @@ export class PostProcessingPipeline {
     this.createSunMesh(scene);
 
     // Bloom effect - for glowing highlights and bioluminescence
-    // Phase 8: lowered luminanceThreshold, increased luminanceSmoothing
+    // Phase 5 visual fix: reduced intensity and higher threshold for less harsh contrast
     this.bloomEffect = new BloomEffect({
-      intensity: 0.8,
-      luminanceThreshold: 0.4,
+      intensity: 0.5, // Reduced from 0.8
+      luminanceThreshold: 0.6, // Increased from 0.4
       luminanceSmoothing: 0.8,
       mipmapBlur: true,
       kernelSize: KernelSize.MEDIUM,

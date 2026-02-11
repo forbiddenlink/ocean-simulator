@@ -181,16 +181,16 @@ export class RenderingEngine {
     this.sunLight.shadow.camera.far = 500;
     this.scene.add(this.sunLight);
 
-    // Ambient light - more neutral to let fish colors show through
-    const ambientLight = new THREE.AmbientLight(0x5588aa, 1.0); // Brighter, less saturated blue
+    // Ambient light - brighter to illuminate creatures (Phase 3 visual fix)
+    const ambientLight = new THREE.AmbientLight(0x6699bb, 1.4); // Brighter, warmer blue
     this.scene.add(ambientLight);
 
     // Hemisphere light - provides natural gradient from above
-    // Sky color is slightly warmer to help fish colors pop
+    // Brighter sky color and ground color for better creature visibility (Phase 3)
     const hemiLight = new THREE.HemisphereLight(
-      0x88aacc, // Sky color (warmer blue-white from filtered sunlight)
-      0x0a1a2a, // Ground color (very dark blue-black from depths below)
-      0.8
+      0x99bbdd, // Sky color (brighter blue-white)
+      0x1a3a4a, // Ground color (slightly brighter for fill)
+      1.0 // Increased intensity
     );
     this.scene.add(hemiLight);
 
@@ -200,8 +200,8 @@ export class RenderingEngine {
     fillLight.position.set(0, -30, 0);
     this.scene.add(fillLight);
 
-    // Camera-attached fill light so creatures aren't pitch black on shadow side
-    const cameraFillLight = new THREE.PointLight(0x5577aa, 0.4);
+    // Camera-attached fill light - stronger for creature visibility (Phase 3 visual fix)
+    const cameraFillLight = new THREE.PointLight(0x7799cc, 0.7);
     this.camera.add(cameraFillLight);
     this.scene.add(this.camera); // Camera must be in scene graph for child lights to work
 

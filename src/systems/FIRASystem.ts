@@ -79,7 +79,7 @@ export const firaSystem = (world: OceanWorld) => {
     const phi = Wander.verticalAngle[eid];
 
     const sphereX = wanderRad * Math.sin(phi) * Math.cos(theta);
-    const sphereY = wanderRad * Math.sin(phi) * Math.sin(theta) * 0.5; // Reduce vertical wander
+    const sphereY = wanderRad * Math.sin(phi) * Math.sin(theta) * 0.2; // Much reduced vertical wander for realistic swimming
     const sphereZ = wanderRad * Math.cos(phi);
 
     const wanderX = forwardX * wanderDist + sphereX;
