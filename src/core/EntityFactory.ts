@@ -119,26 +119,28 @@ export function createFish(
   Mesh.visible[eid] = 1;
 
   addComponent(world, eid, Color);
-  // Realistic tropical fish color palettes
+  // Vibrant tropical fish color palettes - highly saturated for underwater visibility
   const colorPalettes = [
-    { r: 1.0, g: 0.5, b: 0.1 },   // Clownfish orange
-    { r: 0.0, g: 0.6, b: 0.9 },   // Blue tang
-    { r: 1.0, g: 0.9, b: 0.2 },   // Yellow tang
-    { r: 0.9, g: 0.2, b: 0.3 },   // Red snapper
-    { r: 0.2, g: 0.8, b: 0.4 },   // Green chromis
-    { r: 0.6, g: 0.3, b: 0.8 },   // Purple anthias
-    { r: 0.9, g: 0.6, b: 0.2 },   // Butterflyfish
-    { r: 0.3, g: 0.5, b: 0.7 },   // Silver/blue schooling fish
-    { r: 0.8, g: 0.8, b: 0.9 },   // Silver barracuda
-    { r: 0.95, g: 0.75, b: 0.3 }, // Goldfish orange
-    { r: 0.1, g: 0.4, b: 0.6 },   // Deep blue tuna
-    { r: 0.7, g: 0.9, b: 0.3 },   // Lime green wrasse
+    { r: 1.0, g: 0.4, b: 0.0 },   // Clownfish orange (more saturated)
+    { r: 0.0, g: 0.5, b: 1.0 },   // Blue tang (vivid blue)
+    { r: 1.0, g: 0.95, b: 0.0 },  // Yellow tang (bright yellow)
+    { r: 1.0, g: 0.1, b: 0.2 },   // Red snapper (vivid red)
+    { r: 0.0, g: 1.0, b: 0.4 },   // Green chromis (bright green)
+    { r: 0.7, g: 0.2, b: 1.0 },   // Purple anthias (vivid purple)
+    { r: 1.0, g: 0.5, b: 0.0 },   // Butterflyfish (orange-gold)
+    { r: 0.2, g: 0.6, b: 1.0 },   // Blue schooling fish
+    { r: 1.0, g: 0.3, b: 0.5 },   // Pink anthias
+    { r: 1.0, g: 0.8, b: 0.0 },   // Goldfish (bright gold)
+    { r: 0.0, g: 0.8, b: 0.8 },   // Cyan damselfish
+    { r: 0.5, g: 1.0, b: 0.2 },   // Lime green wrasse
+    { r: 1.0, g: 0.6, b: 0.8 },   // Pink parrotfish
+    { r: 0.3, g: 0.3, b: 1.0 },   // Electric blue damsel
   ];
   const palette = colorPalettes[Math.floor(Math.random() * colorPalettes.length)];
   // Add slight variation within the palette
-  Color.r[eid] = Math.max(0, Math.min(1, palette.r + (Math.random() - 0.5) * 0.15));
-  Color.g[eid] = Math.max(0, Math.min(1, palette.g + (Math.random() - 0.5) * 0.15));
-  Color.b[eid] = Math.max(0, Math.min(1, palette.b + (Math.random() - 0.5) * 0.15));
+  Color.r[eid] = Math.max(0, Math.min(1, palette.r + (Math.random() - 0.5) * 0.1));
+  Color.g[eid] = Math.max(0, Math.min(1, palette.g + (Math.random() - 0.5) * 0.1));
+  Color.b[eid] = Math.max(0, Math.min(1, palette.b + (Math.random() - 0.5) * 0.1));
   Color.a[eid] = 1.0;
 
   addComponent(world, eid, Animation);

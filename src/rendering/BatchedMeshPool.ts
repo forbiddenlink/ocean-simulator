@@ -67,14 +67,18 @@ export class BatchedMeshPool {
     // Instance colors multiply with base color, so white = full instance color
     this.fishMaterial = new THREE.MeshPhysicalMaterial({
       color: 0xffffff, // White base so instance colors show properly
-      metalness: 0.1, // Low metalness for diffuse color visibility
-      roughness: 0.65, // Rough surface for diffuse light spread
+      metalness: 0.15, // Slight metalness for sheen
+      roughness: 0.5, // Smoother surface for better color reflection
       flatShading: false,
-      emissive: new THREE.Color(0x6699bb), // Brighter cyan-blue emissive (Phase 2 visual fix)
-      emissiveIntensity: 0.5, // Stronger glow for visibility in dark underwater
-      iridescence: 0.25, // Subtle fish scale shimmer
-      iridescenceIOR: 1.3,
+      // NEUTRAL emissive so it doesn't overpower instance colors
+      // Using warm white instead of cyan-blue to let fish colors show
+      emissive: new THREE.Color(0x888888), // Neutral gray emissive
+      emissiveIntensity: 0.3, // Reduced intensity - let instance colors dominate
+      iridescence: 0.4, // More prominent fish scale shimmer
+      iridescenceIOR: 1.4,
       iridescenceThicknessRange: [100, 400],
+      clearcoat: 0.2, // Wet fish look
+      clearcoatRoughness: 0.3,
     });
 
     // Inject GPU swimming animation into vertex shader
