@@ -15,54 +15,95 @@ import {
   BlendFunction,
 } from 'postprocessing';
 
-// Custom underwater color grading effect shader
+// Custom underwater spectral absorption effect shader
+// Implements Beer-Lambert law for realistic wavelength-dependent light absorption
 const underwaterColorGradingShader = /* glsl */ `
   uniform float absorptionR;
   uniform float absorptionG;
   uniform float absorptionB;
   uniform float turbidity;
   uniform float cameraDepth;
+  uniform float cameraNear;
+  uniform float cameraFar;
+
+  // Read depth from the depth buffer (provided by postprocessing library)
+  float readDepth(sampler2D depthSampler, vec2 coord) {
+    float fragCoordZ = texture2D(depthSampler, coord).x;
+    float viewZ = perspectiveDepthToViewZ(fragCoordZ, cameraNear, cameraFar);
+    return viewZToOrthographicDepth(viewZ, cameraNear, cameraFar) * cameraFar;
+  }
 
   void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
     vec3 color = inputColor.rgb;
 
-    // Gentle depth-based desaturation (Phase 6: reduced effect to keep colors vibrant)
+    // Get distance from camera to this pixel using depth buffer
+    float pixelDistance = readDepth(depthBuffer, uv);
+
+    // Clamp distance to prevent extreme values
+    pixelDistance = clamp(pixelDistance, 0.0, 100.0);
+
+    // === BEER-LAMBERT SPECTRAL ABSORPTION ===
+    // Light traveling through water is absorbed at different rates per wavelength
+    // Red light is absorbed fastest, blue light penetrates deepest
+    // I(λ) = I₀(λ) * e^(-k(λ) * distance)
+
+    // Absorption coefficients (per meter): Red=0.45, Green=0.15, Blue=0.05
+    // Scale factor controls overall effect strength
+    float absorptionScale = 0.08; // Tuned for visual appeal while maintaining realism
+
+    vec3 absorption = vec3(absorptionR, absorptionG, absorptionB) * absorptionScale;
+    vec3 transmission = exp(-absorption * pixelDistance);
+
+    // Apply spectral absorption - red fades first, then green, blue persists
+    color *= transmission;
+
+    // === DEPTH-BASED SCATTERING ===
+    // Water scatters light, adding a blue-green tint at distance
+    // This simulates light scattered from the water itself into the view
+    float scatterFactor = 1.0 - exp(-pixelDistance * 0.03);
+    vec3 scatterColor = vec3(0.1, 0.25, 0.35) * (1.0 + cameraDepth * 0.01);
+    color = mix(color, scatterColor, scatterFactor * 0.5);
+
+    // === CAMERA DEPTH EFFECTS ===
+    // Additional effects based on how deep the camera is
     float depthFactor = clamp(cameraDepth / 60.0, 0.0, 1.0);
-    float saturation = 1.0 - depthFactor * 0.1; // Reduced from 0.2
+
+    // Gentle desaturation at extreme depth
+    float saturation = 1.0 - depthFactor * 0.15;
     float luminance = dot(color, vec3(0.299, 0.587, 0.114));
     color = mix(vec3(luminance), color, saturation);
 
-    // Subtle blue shift - gentle underwater tinting
-    color.r *= 1.0 - depthFactor * 0.08;
-    color.g *= 1.0 - depthFactor * 0.02;
-    color.b *= 1.0 + depthFactor * 0.05;
+    // Subtle contrast reduction at depth
+    float contrast = 1.0 - depthFactor * 0.08;
+    color = mix(vec3(0.4), color, contrast);
 
-    // Very subtle contrast reduction at depth (Phase 6: reduced effect)
-    float contrast = 1.0 - depthFactor * 0.05; // Reduced from 0.1
-    color = mix(vec3(0.5), color, contrast);
-
-    // Very subtle blue-green tint
-    color += vec3(-0.005, 0.003, 0.01) * turbidity;
+    // Turbidity adds slight blue-green tint (suspended particles)
+    color += vec3(-0.01, 0.005, 0.015) * turbidity * (1.0 + pixelDistance * 0.02);
 
     outputColor = vec4(color, inputColor.a);
   }
 `;
 
 /**
- * Custom underwater color grading post-processing effect.
- * Applies depth-based desaturation, blue shift, contrast reduction,
- * and a subtle blue-green tint to simulate underwater light absorption.
+ * Custom underwater spectral absorption post-processing effect.
+ * Implements Beer-Lambert law for realistic wavelength-dependent light absorption.
+ * Red light fades first, then green, leaving blue at distance - just like real underwater.
  */
 class UnderwaterColorGradingEffect extends Effect {
   constructor() {
     super('UnderwaterColorGrading', underwaterColorGradingShader, {
       blendFunction: BlendFunction.NORMAL,
       uniforms: new Map<string, THREE.Uniform>([
+        // Beer-Lambert absorption coefficients (per meter)
+        // Red absorbed fastest (0.45/m), blue slowest (0.05/m)
         ['absorptionR', new THREE.Uniform(0.45)],
         ['absorptionG', new THREE.Uniform(0.15)],
         ['absorptionB', new THREE.Uniform(0.05)],
         ['turbidity', new THREE.Uniform(0.5)],
         ['cameraDepth', new THREE.Uniform(12.0)],
+        // Camera projection parameters for depth buffer reading
+        ['cameraNear', new THREE.Uniform(0.1)],
+        ['cameraFar', new THREE.Uniform(1000.0)],
       ]),
     });
   }
@@ -74,6 +115,15 @@ class UnderwaterColorGradingEffect extends Effect {
   updateDepth(cameraY: number): void {
     const depth = Math.max(0, -cameraY);
     (this.uniforms.get('cameraDepth') as THREE.Uniform).value = depth;
+  }
+
+  /**
+   * Update camera projection parameters for accurate depth reading.
+   * @param camera - The scene camera
+   */
+  updateCamera(camera: THREE.PerspectiveCamera): void {
+    (this.uniforms.get('cameraNear') as THREE.Uniform).value = camera.near;
+    (this.uniforms.get('cameraFar') as THREE.Uniform).value = camera.far;
   }
 }
 
@@ -237,6 +287,14 @@ export class PostProcessingPipeline {
    */
   updateCameraDepth(cameraY: number): void {
     this.underwaterColorGrading.updateDepth(cameraY);
+  }
+
+  /**
+   * Update camera parameters for accurate depth-based effects.
+   * @param camera - The scene camera
+   */
+  updateCamera(camera: THREE.PerspectiveCamera): void {
+    this.underwaterColorGrading.updateCamera(camera);
   }
 
   /**

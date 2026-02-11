@@ -303,6 +303,8 @@ export class RenderingEngine {
 
     // Update underwater color grading based on camera depth
     this.postProcessing.updateCameraDepth(this.camera.position.y);
+    // Update camera parameters for spectral absorption depth buffer reading
+    this.postProcessing.updateCamera(this.camera);
   }
 
   /**
