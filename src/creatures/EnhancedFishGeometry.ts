@@ -119,12 +119,12 @@ export class EnhancedFishGeometry {
       },
       tropical: {
         bodyHeight: 0.45, // Taller, more compressed
-        bodyWidth: 0.15,
+        bodyWidth: 0.18, // Slightly wider for visibility
         headLength: 0.2,
         tailTaper: 0.65,
-        dorsalHeight: 0.6, // Larger dorsal
-        caudalSpread: 0.7,
-        caudalFork: 0.2
+        dorsalHeight: 0.8, // Much larger dorsal fin for visibility
+        caudalSpread: 0.9, // Larger tail fin
+        caudalFork: 0.35 // More forked tail
       },
       tuna: {
         bodyHeight: 0.25, // Streamlined
@@ -550,7 +550,7 @@ export class EnhancedFishGeometry {
    * Create pectoral fin with fan shape and rays
    */
   private static createPectoralFinWithRays(length: number, _proportions: any, rayCount: number): THREE.Mesh {
-    const finLength = length * 0.28;
+    const finLength = length * 0.4; // Larger pectoral fins for visibility
 
     const positions: number[] = [];
     const colors: number[] = [];

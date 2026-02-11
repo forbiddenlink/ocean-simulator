@@ -5,8 +5,8 @@ import { Mesh as MeshComponent, Color } from '../components/Rendering';
 import { CreatureType } from '../components/Biology';
 import type { OceanWorld } from '../core/World';
 import { RenderingEngine } from './RenderingEngine';
-import { EnhancedFishGeometry } from '../creatures/EnhancedFishGeometry';
-import { ProceduralFishGeometry } from '../creatures/ProceduralFishGeometry'; // TESTING: Use simple fish
+import { ProceduralFishGeometry } from '../creatures/ProceduralFishGeometry';
+import { SimpleFishGeometry } from '../creatures/SimpleFishGeometry';
 import { SpecializedCreatureGeometry } from '../creatures/SpecializedCreatureGeometry';
 import { JellyfishGeometry } from '../creatures/JellyfishGeometry';
 import { TurtleGeometry } from '../creatures/TurtleGeometry';
@@ -55,11 +55,11 @@ export class BatchedMeshPool {
   constructor(renderEngine: RenderingEngine) {
     this.renderEngine = renderEngine;
 
-    // Use EnhancedFishGeometry for photorealistic, detailed fish
-    this.fishGeometry = EnhancedFishGeometry.createFish({
-      length: 0.8,
-      species: 'tropical',
-      quality: 'high'
+    // Use SimpleFishGeometry for clearly recognizable fish shapes
+    // with obvious body, tail fin, dorsal fin, and eyes
+    this.fishGeometry = SimpleFishGeometry.createFish({
+      length: 1.0,
+      bodyHeight: 0.4
     });
 
     // Use MeshPhysicalMaterial for realistic fish rendering with iridescence
@@ -70,6 +70,7 @@ export class BatchedMeshPool {
       metalness: 0.15, // Slight metalness for sheen
       roughness: 0.5, // Smoother surface for better color reflection
       flatShading: false,
+      side: THREE.DoubleSide, // Show fins from both sides
       // NEUTRAL emissive so it doesn't overpower instance colors
       // Using warm white instead of cyan-blue to let fish colors show
       emissive: new THREE.Color(0x888888), // Neutral gray emissive
@@ -199,8 +200,9 @@ attribute float animSpeed;
       smoothVz /= count;
 
       // Calculate rotation
-      // Fish geometry has head at -X, so we need to rotate 180° (Math.PI) to face forward
-      const yaw = Math.atan2(smoothVx, smoothVz); // Swapped for correct orientation
+      // Fish geometry has head at -X, tail at +X
+      // Add PI to flip fish so head points in direction of travel
+      const yaw = Math.atan2(smoothVx, smoothVz) + Math.PI;
       const horizontalSpeed = Math.sqrt(smoothVx * smoothVx + smoothVz * smoothVz);
       // Clamp pitch to realistic fish angles (max ~30 degrees = 0.52 rad)
       // Real fish swim mostly horizontally and only tilt slightly when changing depth
@@ -519,8 +521,9 @@ attribute float animSpeed;
       smoothVy /= count;
       smoothVz /= count;
 
-      // Fish/creature geometry has head at -X, swap args for correct orientation
-      const yaw = Math.atan2(smoothVx, smoothVz);
+      // Fish/creature geometry has head at -X, tail at +X
+      // Add PI to flip creature so head points in direction of travel
+      const yaw = Math.atan2(smoothVx, smoothVz) + Math.PI;
       const horizontalSpeed = Math.sqrt(smoothVx * smoothVx + smoothVz * smoothVz);
       // Clamp pitch to realistic angles (max ~30 degrees = 0.52 rad)
       let pitch = -Math.atan2(smoothVy, horizontalSpeed); // Negative for correct pitch
