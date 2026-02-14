@@ -603,23 +603,27 @@ export class FFTOcean {
     // Store current state
     const oldResolution = this.resolution;
     this.resolution = newResolution;
-    
+
+    // Update spectrum and tiling prevention with new resolution
+    this.spectrum.setResolution(newResolution);
+    this.tilingPrevention.setResolution(newResolution);
+
     // Recreate geometry with new resolution
     this.geometry.dispose();
     this.geometry = new THREE.PlaneGeometry(this.size, this.size, newResolution - 1, newResolution - 1);
     this.geometry.rotateX(-Math.PI / 2);
     this.mesh.geometry = this.geometry;
-    
+
     // Recreate FFT data arrays
     this.heightField = new Float32Array(newResolution * newResolution);
     this.displacementX = new Float32Array(newResolution * newResolution);
     this.displacementZ = new Float32Array(newResolution * newResolution);
-    
+
     // Recreate textures
     this.heightTexture.dispose();
     this.normalTexture.dispose();
     this.displacementTexture.dispose();
-    
+
     this.heightTexture = new THREE.DataTexture(
       this.heightField,
       newResolution,
@@ -628,7 +632,7 @@ export class FFTOcean {
       THREE.FloatType
     );
     this.heightTexture.needsUpdate = true;
-    
+
     const normalData = new Float32Array(newResolution * newResolution * 4);
     this.normalTexture = new THREE.DataTexture(
       normalData,
@@ -638,7 +642,7 @@ export class FFTOcean {
       THREE.FloatType
     );
     this.normalTexture.needsUpdate = true;
-    
+
     const displacementData = new Float32Array(newResolution * newResolution * 4);
     this.displacementTexture = new THREE.DataTexture(
       displacementData,
@@ -648,16 +652,16 @@ export class FFTOcean {
       THREE.FloatType
     );
     this.displacementTexture.needsUpdate = true;
-    
+
     // Update material uniforms
     this.material.uniforms.resolution.value = newResolution;
     this.material.uniforms.heightMap.value = this.heightTexture;
     this.material.uniforms.normalMap.value = this.normalTexture;
     this.material.uniforms.displacementMap.value = this.displacementTexture;
-    
+
     // Regenerate ocean data
     this.updateFFT(this.time);
-    
+
     console.log(`🌊 FFT Ocean resolution updated: ${oldResolution} → ${newResolution}`);
   }
 

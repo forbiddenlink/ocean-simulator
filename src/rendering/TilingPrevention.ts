@@ -226,6 +226,19 @@ export class TilingPrevention {
   }
 
   /**
+   * Set resolution (regenerates textures)
+   */
+  public setResolution(newResolution: number): void {
+    // Dispose old textures
+    this.noiseTexture.dispose();
+    this.blendTexture.dispose();
+
+    // Generate new textures with updated resolution
+    this.noiseTexture = this.generateNoiseTexture(newResolution);
+    this.blendTexture = this.generateBlendTexture(newResolution);
+  }
+
+  /**
    * Cleanup
    */
   public dispose(): void {

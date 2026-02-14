@@ -230,4 +230,27 @@ export class OceanSpectrum {
   public getWindDirection(): THREE.Vector2 {
     return this.windDirection.clone();
   }
+
+  /**
+   * Get wind speed
+   */
+  public getWindSpeed(): number {
+    return this.windSpeed;
+  }
+
+  /**
+   * Set resolution (recreates internal arrays)
+   */
+  public setResolution(newResolution: number): void {
+    this.resolution = newResolution;
+
+    // Reallocate arrays with new size
+    const dataSize = newResolution * newResolution * 2;
+    this.h0 = new Float32Array(dataSize);
+    this.h0Conj = new Float32Array(dataSize);
+    this.omega = new Float32Array(newResolution * newResolution);
+
+    // Regenerate spectrum with new resolution
+    this.generateSpectrum();
+  }
 }
