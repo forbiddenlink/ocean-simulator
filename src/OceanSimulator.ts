@@ -479,36 +479,64 @@ export class OceanSimulator {
   }
   
   /**
-   * Apply quality preset
+   * Apply quality preset - adjusts rendering parameters for performance vs quality
    */
   private applyQualityPreset(preset: string): void {
-    // Quality presets adjust various rendering parameters
-    // Full implementation would adjust FFT resolution, particle counts, etc.
-    
-    const presets: Record<string, any> = {
+    interface QualityConfig {
+      message: string;
+      fftResolution: number;
+      choppiness: number;
+      amplitude: number;
+      pixelRatio: number;
+    }
+
+    const presets: Record<string, QualityConfig> = {
       'low': {
         message: 'Low quality (best performance)',
-        // Would set: FFT resolution 128, fewer particles, simpler effects
+        fftResolution: 128,
+        choppiness: 1.5,
+        amplitude: 1.5,
+        pixelRatio: 1.0,
       },
       'medium': {
         message: 'Medium quality (balanced)',
-        // Current default settings
+        fftResolution: 256,
+        choppiness: 2.0,
+        amplitude: 2.0,
+        pixelRatio: Math.min(window.devicePixelRatio, 1.5),
       },
       'high': {
         message: 'High quality (better visuals)',
-        // Would set: FFT resolution 512, more particles
+        fftResolution: 512,
+        choppiness: 2.0,
+        amplitude: 2.5,
+        pixelRatio: Math.min(window.devicePixelRatio, 2.0),
       },
       'ultra': {
         message: 'Ultra quality (photorealistic)',
-        // Would set: FFT resolution 1024, maximum particles
+        fftResolution: 512, // 1024 is too expensive for real-time
+        choppiness: 2.5,
+        amplitude: 3.0,
+        pixelRatio: window.devicePixelRatio,
       }
     };
-    
+
     const config = presets[preset];
     if (config) {
       console.log(`✨ ${config.message}`);
-      // In a full implementation, this would adjust rendering parameters
-      // For now, the settings are baked into the FFT ocean initialization
+
+      // Apply FFT ocean parameters
+      this.renderEngine.setOceanParam('resolution', config.fftResolution);
+      this.renderEngine.setOceanParam('choppiness', config.choppiness);
+      this.renderEngine.setOceanParam('amplitude', config.amplitude);
+
+      // Adjust renderer pixel ratio
+      this.renderEngine.renderer.setPixelRatio(config.pixelRatio);
+
+      console.log(`   FFT Resolution: ${config.fftResolution}`);
+      console.log(`   Choppiness: ${config.choppiness}`);
+      console.log(`   Wave Amplitude: ${config.amplitude}`);
+      console.log(`   Pixel Ratio: ${config.pixelRatio.toFixed(1)}`);
     }
   }
 }
