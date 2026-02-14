@@ -35,3 +35,6 @@ dist-ssr
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
 thoughts/
+
+# Specter knowledge graph cache
+.specter/

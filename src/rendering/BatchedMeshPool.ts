@@ -40,6 +40,7 @@ export class BatchedMeshPool {
   private fishInstancedMeshes: THREE.InstancedMesh[] = [];
   private fishInstances: Map<number, InstanceData> = new Map(); // eid -> instance data
   private fishInstanceCounts: number[] = [0, 0, 0, 0]; // Count per body type
+  private freeInstanceSlots: number[][] = [[], [], [], []]; // Reusable slots per body type
   private readonly MAX_FISH_PER_TYPE = 500; // 500 per type = 2000 total
 
   // Individual meshes for complex creatures (sharks, dolphins, rays, jellyfish)
@@ -187,12 +188,18 @@ attribute float finType;
     // Determine body type from creature variant (0-3)
     const bodyType = (CreatureType.variant[eid] ?? 0) % 4;
 
-    if (this.fishInstanceCounts[bodyType] >= this.MAX_FISH_PER_TYPE) {
-      console.warn(`Max fish instances reached for body type ${BODY_TYPE_NAMES[bodyType]}`);
-      return;
+    // Try to reuse a free slot first, otherwise allocate new
+    let instanceId: number;
+    if (this.freeInstanceSlots[bodyType].length > 0) {
+      instanceId = this.freeInstanceSlots[bodyType].pop()!;
+    } else {
+      if (this.fishInstanceCounts[bodyType] >= this.MAX_FISH_PER_TYPE) {
+        console.warn(`Max fish instances reached for body type ${BODY_TYPE_NAMES[bodyType]}`);
+        return;
+      }
+      instanceId = this.fishInstanceCounts[bodyType]++;
     }
 
-    const instanceId = this.fishInstanceCounts[bodyType]++;
     const color = new THREE.Color(Color.r[eid], Color.g[eid], Color.b[eid]);
 
     this.fishInstances.set(eid, {
@@ -213,7 +220,7 @@ attribute float finType;
       mesh.instanceColor.needsUpdate = true;
     }
 
-    // Update instance count for this body type
+    // Update instance count for this body type (mesh.count tracks highest used index + 1)
     mesh.count = this.fishInstanceCounts[bodyType];
   }
 
@@ -662,12 +669,12 @@ attribute float finType;
       }
     }
 
-    // Clean up fish instances (mark removed instances for reuse)
-    for (const [eid, _instance] of this.fishInstances) {
+    // Clean up fish instances (add freed slots to reuse pool)
+    for (const [eid, instance] of this.fishInstances) {
       if (!existingEntities.has(eid)) {
+        // Add the instance slot to the free pool for reuse
+        this.freeInstanceSlots[instance.bodyType].push(instance.instanceId);
         this.fishInstances.delete(eid);
-        // Note: Instance slot will be reused when new fish are added
-        // For simplicity, we don't compact the instance array here
       }
     }
 

@@ -123,8 +123,16 @@ export function createHuntingSystem(_world: OceanWorld) {
         }
       }
       
-      // Pursue active target
+      // Pursue active target (verify target still exists and is alive)
       if (currentTarget > 0 && TargetMemory.timeSinceSeen[predatorEid] < HUNT_CONFIG.TARGET_FORGET_TIME) {
+        // Check if target still exists (health > 0 means entity is alive)
+        if (Health.current[currentTarget] === undefined || Health.current[currentTarget] <= 0) {
+          // Target was removed or died - clear it
+          TargetMemory.targetEid[predatorEid] = 0;
+          TargetMemory.huntingMode[predatorEid] = 0;
+          continue;
+        }
+
         const preyPos = tempVec3b.set(
           Position.x[currentTarget],
           Position.y[currentTarget],
@@ -192,7 +200,7 @@ export function createHuntingSystem(_world: OceanWorld) {
       );
       
       let nearestThreat = tempVec3b.set(0, 0, 0);
-      let hasThread = false;
+      let hasThreat = false;
       let minThreatDist = Infinity;
 
       // Use spatial grid to check for nearby predators within fear radius
@@ -219,13 +227,13 @@ export function createHuntingSystem(_world: OceanWorld) {
 
         if (dist < minThreatDist) {
           nearestThreat.copy(predatorPos);
-          hasThread = true;
+          hasThreat = true;
           minThreatDist = dist;
         }
       }
-      
+
       // Flee from nearest threat
-      if (hasThread) {
+      if (hasThreat) {
         TargetMemory.huntingMode[preyEid] = 3; // fleeing
         
         // Calculate flee direction (away from threat)
