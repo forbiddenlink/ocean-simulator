@@ -46,9 +46,21 @@ export class OceanSimulator {
     separationWeight: 2.0,
     alignmentWeight: 1.0,
     cohesionWeight: 1.0,
+
+    // Cinematic / Post
+    bloomIntensity: 0.55,
+    bloomThreshold: 0.55,
+    absorptionScale: 0.065, // tropical-clear: slightly less absorption
+    turbidity: 0.35,
+    vignetteOffset: 0.32,
+    vignetteDarkness: 0.28,
+    chromaX: 0.0007,
+    chromaY: 0.00045,
+
     // Lighting
     ambientIntensity: 0.35,
     sunIntensity: 1.8,
+
     // Camera
     cameraX: 0,
     cameraY: -12,
@@ -98,6 +110,14 @@ export class OceanSimulator {
     this.debugGui = new GUI({ title: 'Ocean Simulator Debug' });
     this.setupDebugGui();
 
+    // Apply cinematic defaults (tropical-clear)
+    this.renderEngine.postProcessing.setBloomIntensity(this.debugParams.bloomIntensity);
+    this.renderEngine.postProcessing.setBloomThreshold(this.debugParams.bloomThreshold, 0.8);
+    this.renderEngine.postProcessing.setAbsorptionScale(this.debugParams.absorptionScale);
+    this.renderEngine.postProcessing.setTurbidity(this.debugParams.turbidity);
+    this.renderEngine.postProcessing.setVignette(this.debugParams.vignetteOffset, this.debugParams.vignetteDarkness);
+    this.renderEngine.postProcessing.setChromaticAberration(this.debugParams.chromaX, this.debugParams.chromaY);
+
     console.log('🌊 Ocean Simulator initialized');
     console.log(`📊 Entities: ${getAllEntities(this.world).length}`);
   }
@@ -121,6 +141,34 @@ export class OceanSimulator {
       this.applyFishParam('cohesionWeight', value);
     });
     fishFolder.open();
+
+    // Cinematic folder (tropical-clear wow)
+    const cineFolder = this.debugGui.addFolder('Cinematic');
+    cineFolder.add(this.debugParams, 'bloomIntensity', 0, 2).name('Bloom Intensity').onChange((v: number) => {
+      this.renderEngine.postProcessing.setBloomIntensity(v);
+    });
+    cineFolder.add(this.debugParams, 'bloomThreshold', 0, 1).name('Bloom Threshold').onChange((v: number) => {
+      this.renderEngine.postProcessing.setBloomThreshold(v, 0.8);
+    });
+    cineFolder.add(this.debugParams, 'absorptionScale', 0.02, 0.12).name('Absorption').onChange((v: number) => {
+      this.renderEngine.postProcessing.setAbsorptionScale(v);
+    });
+    cineFolder.add(this.debugParams, 'turbidity', 0.0, 1.0).name('Turbidity').onChange((v: number) => {
+      this.renderEngine.postProcessing.setTurbidity(v);
+    });
+    cineFolder.add(this.debugParams, 'vignetteOffset', 0.0, 1.0).name('Vignette Offset').onChange((v: number) => {
+      this.renderEngine.postProcessing.setVignette(v, this.debugParams.vignetteDarkness);
+    });
+    cineFolder.add(this.debugParams, 'vignetteDarkness', 0.0, 1.0).name('Vignette Dark').onChange((v: number) => {
+      this.renderEngine.postProcessing.setVignette(this.debugParams.vignetteOffset, v);
+    });
+    cineFolder.add(this.debugParams, 'chromaX', 0.0, 0.003).name('Chroma X').onChange((v: number) => {
+      this.renderEngine.postProcessing.setChromaticAberration(v, this.debugParams.chromaY);
+    });
+    cineFolder.add(this.debugParams, 'chromaY', 0.0, 0.003).name('Chroma Y').onChange((v: number) => {
+      this.renderEngine.postProcessing.setChromaticAberration(this.debugParams.chromaX, v);
+    });
+    cineFolder.open();
 
     // Lighting folder
     const lightFolder = this.debugGui.addFolder('Lighting');

@@ -21,6 +21,7 @@ const underwaterColorGradingShader = /* glsl */ `
   uniform float absorptionR;
   uniform float absorptionG;
   uniform float absorptionB;
+  uniform float absorptionScale;
   uniform float turbidity;
   uniform float cameraDepth;
   uniform float cameraNear;
@@ -48,9 +49,7 @@ const underwaterColorGradingShader = /* glsl */ `
     // I(λ) = I₀(λ) * e^(-k(λ) * distance)
 
     // Absorption coefficients (per meter): Red=0.45, Green=0.15, Blue=0.05
-    // Scale factor controls overall effect strength
-    float absorptionScale = 0.08; // Tuned for visual appeal while maintaining realism
-
+    // absorptionScale controls overall strength (tunable for cinematic look)
     vec3 absorption = vec3(absorptionR, absorptionG, absorptionB) * absorptionScale;
     vec3 transmission = exp(-absorption * pixelDistance);
 
@@ -99,6 +98,7 @@ class UnderwaterColorGradingEffect extends Effect {
         ['absorptionR', new THREE.Uniform(0.45)],
         ['absorptionG', new THREE.Uniform(0.15)],
         ['absorptionB', new THREE.Uniform(0.05)],
+        ['absorptionScale', new THREE.Uniform(0.08)],
         ['turbidity', new THREE.Uniform(0.5)],
         ['cameraDepth', new THREE.Uniform(12.0)],
         // Camera projection parameters for depth buffer reading
@@ -138,6 +138,8 @@ export class PostProcessingPipeline {
   private bloomEffect: BloomEffect;
   private sunMesh?: THREE.Mesh;
   private underwaterColorGrading: UnderwaterColorGradingEffect;
+  private vignetteEffect: VignetteEffect;
+  private chromaAberration: ChromaticAberrationEffect;
 
   constructor(
     renderer: THREE.WebGLRenderer,
@@ -196,14 +198,14 @@ export class PostProcessingPipeline {
     });
 
     // Chromatic aberration for subtle underwater lens distortion
-    const chromaAberration = new ChromaticAberrationEffect({
+    this.chromaAberration = new ChromaticAberrationEffect({
       offset: new THREE.Vector2(0.0008, 0.0005),
       radialModulation: false,
       modulationOffset: 0.15,
     });
 
     // Vignette for cinematic look - subtle darkening at edges
-    const vignetteEffect = new VignetteEffect({
+    this.vignetteEffect = new VignetteEffect({
       offset: 0.35,
       darkness: 0.35,
     });
@@ -225,7 +227,7 @@ export class PostProcessingPipeline {
     mainEffects.push(
       this.underwaterColorGrading,
       toneMappingEffect,
-      vignetteEffect,
+      this.vignetteEffect,
     );
 
     // SMAA goes with the main non-convolution effects
@@ -236,7 +238,7 @@ export class PostProcessingPipeline {
     this.composer.addPass(mainEffectPass);
 
     // Chromatic aberration is a convolution effect - must be in its own pass
-    const chromaPass = new EffectPass(camera, chromaAberration);
+    const chromaPass = new EffectPass(camera, this.chromaAberration);
     this.composer.addPass(chromaPass);
   }
 
@@ -302,6 +304,35 @@ export class PostProcessingPipeline {
    */
   setBloomIntensity(intensity: number): void {
     this.bloomEffect.intensity = intensity;
+  }
+
+  /**
+   * Set bloom threshold/smoothing to control "wow" highlights
+   */
+  setBloomThreshold(luminanceThreshold: number, luminanceSmoothing: number = 0.8): void {
+    this.bloomEffect.luminanceMaterial.threshold = luminanceThreshold;
+    this.bloomEffect.luminanceMaterial.smoothing = luminanceSmoothing;
+  }
+
+  /**
+   * Underwater absorption strength (Beer-Lambert scale).
+   * Higher = more red/green lost at distance (more underwater feel).
+   */
+  setAbsorptionScale(scale: number): void {
+    (this.underwaterColorGrading.uniforms.get('absorptionScale') as THREE.Uniform).value = scale;
+  }
+
+  setTurbidity(turbidity: number): void {
+    (this.underwaterColorGrading.uniforms.get('turbidity') as THREE.Uniform).value = turbidity;
+  }
+
+  setVignette(offset: number, darkness: number): void {
+    this.vignetteEffect.offset = offset;
+    this.vignetteEffect.darkness = darkness;
+  }
+
+  setChromaticAberration(x: number, y: number): void {
+    this.chromaAberration.offset.set(x, y);
   }
 
   /**
