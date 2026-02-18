@@ -262,7 +262,10 @@ attribute float finType;
       smoothVy /= count;
       smoothVz /= count;
 
-      const yaw = Math.atan2(smoothVx, smoothVz) + Math.PI;
+      // Model forward axis: head is at -X, tail at +X.
+      // We want local -X to point along the velocity direction.
+      // yaw should rotate local -X into (vx, vz) => yaw = atan2(vz, vx) + PI
+      const yaw = Math.atan2(smoothVz, smoothVx) + Math.PI;
       const horizontalSpeed = Math.sqrt(smoothVx * smoothVx + smoothVz * smoothVz);
       let pitch = -Math.atan2(smoothVy, horizontalSpeed);
       pitch = Math.max(-0.52, Math.min(0.52, pitch));
@@ -571,9 +574,9 @@ attribute float finType;
       smoothVy /= count;
       smoothVz /= count;
 
-      // Fish/creature geometry has head at -X, tail at +X
-      // Add PI to flip creature so head points in direction of travel
-      const yaw = Math.atan2(smoothVx, smoothVz) + Math.PI;
+      // Model forward axis: head is at -X, tail at +X
+      // yaw should rotate local -X into (vx, vz)
+      const yaw = Math.atan2(smoothVz, smoothVx) + Math.PI;
       const horizontalSpeed = Math.sqrt(smoothVx * smoothVx + smoothVz * smoothVz);
       // Clamp pitch to realistic angles (max ~30 degrees = 0.52 rad)
       let pitch = -Math.atan2(smoothVy, horizontalSpeed); // Negative for correct pitch
