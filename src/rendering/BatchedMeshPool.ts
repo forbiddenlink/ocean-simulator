@@ -296,10 +296,15 @@ attribute float finType;
     if (animPhaseAttr && animSpeedAttr) {
       const dt = _world.time.delta;
       const maxSpeed = 3.0;
-      const normalizedSpeed = Math.min(1.0, speed / maxSpeed);
+      const raw = Math.min(1.0, speed / maxSpeed);
 
-      const currentPhase = animPhaseAttr.array[instanceId] as number || 0;
-      (animPhaseAttr.array as Float32Array)[instanceId] = currentPhase + (2.5 + normalizedSpeed * 5.0) * dt * Math.PI * 2;
+      // Visual animation should still read at low cruising speeds.
+      // Keep a baseline so fish don't look "frozen" when they slow down.
+      const normalizedSpeed = Math.min(1.0, 0.25 + raw * 0.75);
+
+      const currentPhase = (animPhaseAttr.array as Float32Array)[instanceId] || 0;
+      (animPhaseAttr.array as Float32Array)[instanceId] =
+        currentPhase + (2.0 + normalizedSpeed * 6.0) * dt * Math.PI * 2;
       (animSpeedAttr.array as Float32Array)[instanceId] = normalizedSpeed;
     }
 
