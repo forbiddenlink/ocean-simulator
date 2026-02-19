@@ -47,6 +47,9 @@ export class OceanSimulator {
     alignmentWeight: 1.0,
     cohesionWeight: 1.0,
 
+    // Look preset
+    lookPreset: 'tropical-clear' as 'tropical-clear' | 'inky-cinematic',
+
     // Cinematic / Post
     bloomIntensity: 0.55,
     bloomThreshold: 0.55,
@@ -110,7 +113,46 @@ export class OceanSimulator {
     this.debugGui = new GUI({ title: 'Ocean Simulator Debug' });
     this.setupDebugGui();
 
-    // Apply cinematic defaults (tropical-clear)
+    // Apply initial look preset
+    this.applyLookPreset(this.debugParams.lookPreset);
+
+    console.log('🌊 Ocean Simulator initialized');
+    console.log(`📊 Entities: ${getAllEntities(this.world).length}`);
+  }
+
+  private applyLookPreset(preset: 'tropical-clear' | 'inky-cinematic'): void {
+    // Defaults tuned for “stylized art piece” mode (but with a clear preset toggle)
+    const presets: Record<typeof preset, Partial<typeof this.debugParams>> = {
+      'tropical-clear': {
+        bloomIntensity: 0.55,
+        bloomThreshold: 0.55,
+        absorptionScale: 0.065,
+        turbidity: 0.35,
+        vignetteOffset: 0.32,
+        vignetteDarkness: 0.28,
+        chromaX: 0.0007,
+        chromaY: 0.00045,
+        ambientIntensity: 0.35,
+        sunIntensity: 1.8,
+      },
+      'inky-cinematic': {
+        bloomIntensity: 0.35,
+        bloomThreshold: 0.7,
+        absorptionScale: 0.095,
+        turbidity: 0.75,
+        vignetteOffset: 0.28,
+        vignetteDarkness: 0.55,
+        chromaX: 0.0012,
+        chromaY: 0.0009,
+        ambientIntensity: 0.2,
+        sunIntensity: 1.35,
+      },
+    };
+
+    const next = presets[preset];
+    Object.assign(this.debugParams, next);
+
+    // Post FX
     this.renderEngine.postProcessing.setBloomIntensity(this.debugParams.bloomIntensity);
     this.renderEngine.postProcessing.setBloomThreshold(this.debugParams.bloomThreshold, 0.8);
     this.renderEngine.postProcessing.setAbsorptionScale(this.debugParams.absorptionScale);
@@ -118,8 +160,21 @@ export class OceanSimulator {
     this.renderEngine.postProcessing.setVignette(this.debugParams.vignetteOffset, this.debugParams.vignetteDarkness);
     this.renderEngine.postProcessing.setChromaticAberration(this.debugParams.chromaX, this.debugParams.chromaY);
 
-    console.log('🌊 Ocean Simulator initialized');
-    console.log(`📊 Entities: ${getAllEntities(this.world).length}`);
+    // Lighting
+    const ambientLight = this.renderEngine.scene.children.find(
+      (child) => child.type === 'AmbientLight'
+    ) as THREE.AmbientLight | undefined;
+    if (ambientLight) ambientLight.intensity = this.debugParams.ambientIntensity;
+
+    const sunLight = this.renderEngine.getSunLight();
+    if (sunLight) sunLight.intensity = this.debugParams.sunIntensity;
+
+    // Background
+    this.renderEngine.scene.background =
+      preset === 'inky-cinematic' ? new THREE.Color(0x05090f) : new THREE.Color(0x4da6c7);
+
+    this.debugGui?.controllersRecursive().forEach((c) => c.updateDisplay());
+    console.log(`🎬 Applied look preset: ${preset}`);
   }
 
   /**
@@ -142,8 +197,14 @@ export class OceanSimulator {
     });
     fishFolder.open();
 
-    // Cinematic folder (tropical-clear wow)
+    // Cinematic folder (art direction)
     const cineFolder = this.debugGui.addFolder('Cinematic');
+    cineFolder
+      .add(this.debugParams, 'lookPreset', ['tropical-clear', 'inky-cinematic'])
+      .name('Look Preset')
+      .onChange((preset: 'tropical-clear' | 'inky-cinematic') => {
+        this.applyLookPreset(preset);
+      });
     cineFolder.add(this.debugParams, 'bloomIntensity', 0, 2).name('Bloom Intensity').onChange((v: number) => {
       this.renderEngine.postProcessing.setBloomIntensity(v);
     });
