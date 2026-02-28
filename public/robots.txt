@@ -1,0 +1,6 @@
+# Robots.txt for Ocean Ecosystem Simulator
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://ocean-simulator.vercel.app/sitemap.xml

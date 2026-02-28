@@ -2,12 +2,63 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ocean-simulator</title>
+    <title>Ocean Ecosystem Simulator | Interactive 3D Underwater World</title>
+    <meta name="description" content="Dive into a photorealistic 3D ocean ecosystem with 500+ marine creatures, realistic physics, FFT ocean waves, and stunning underwater lighting. Built with Three.js." />
+
+    <!-- Open Graph / Social -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Ocean Ecosystem Simulator | Interactive 3D Underwater World" />
+    <meta property="og:description" content="Dive into a photorealistic 3D ocean ecosystem with 500+ marine creatures, realistic physics, and stunning underwater lighting." />
+    <meta property="og:image" content="https://ocean-simulator.vercel.app/og-image.png" />
+    <meta property="og:url" content="https://ocean-simulator.vercel.app/" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Ocean Ecosystem Simulator | Interactive 3D Underwater World" />
+    <meta name="twitter:description" content="Dive into a photorealistic 3D ocean ecosystem with 500+ marine creatures, realistic physics, and stunning underwater lighting." />
+    <meta name="twitter:image" content="https://ocean-simulator.vercel.app/og-image.png" />
+
+    <!-- Canonical URL -->
+    <link rel="canonical" href="https://ocean-simulator.vercel.app/" />
+
+    <!-- Theme color -->
+    <meta name="theme-color" content="#1a5f7a" />
   </head>
   <body>
-    <div id="app"></div>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    <main id="main-content" role="main">
+      <h1 class="visually-hidden">Ocean Ecosystem Simulator</h1>
+      <div id="app" aria-label="3D Ocean Simulation Canvas"></div>
+    </main>
     <script type="module" src="/src/main.ts"></script>
+    <style>
+      .skip-link {
+        position: absolute;
+        top: -40px;
+        left: 0;
+        background: #1a5f7a;
+        color: white;
+        padding: 8px 16px;
+        z-index: 100;
+        text-decoration: none;
+      }
+      .skip-link:focus {
+        top: 0;
+      }
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+    </style>
   </body>
 </html>
