@@ -76,15 +76,14 @@ export function createFish(
   CreatureType.type[eid] = 0; // Fish (0 = fish, 1 = shark, 2 = dolphin, 3 = jellyfish, 4 = ray)
   CreatureType.variant[eid] = speciesId % 4; // Different fish species
 
-  // Behavior - FIRA algorithm
-  // Behavior - FIRA algorithm
+  // Behavior - FIRA algorithm (tuned for tight schooling)
   addComponent(world, eid, FIRA);
-  FIRA.separationWeight[eid] = 2.0;    // Moderate separation
-  FIRA.alignmentWeight[eid] = 3.0;     // Strong alignment
-  FIRA.cohesionWeight[eid] = 0.8;      // Mild cohesion
-  FIRA.wanderWeight[eid] = 0.3;        // Minimal wander
-  FIRA.perceptionRadius[eid] = 15.0;   // Wider perception
-  FIRA.separationRadius[eid] = 3.0;    // More space
+  FIRA.separationWeight[eid] = 1.8;    // Reduced separation for tighter packing
+  FIRA.alignmentWeight[eid] = 4.5;     // Strong alignment for coordinated movement
+  FIRA.cohesionWeight[eid] = 2.5;      // Strong cohesion pulls fish together
+  FIRA.wanderWeight[eid] = 0.15;       // Less individual wandering
+  FIRA.perceptionRadius[eid] = 12.0;   // Tighter perception for local awareness
+  FIRA.separationRadius[eid] = 2.0;    // Closer comfortable distance
   const bodyLength = Size.length[eid];
   FIRA.maxSpeed[eid] = bodyLength * 3.0 + Math.random() * bodyLength; // 3-4 BL/s max burst
   FIRA.maxForce[eid] = 5.0;            // Strong turning force

@@ -85,6 +85,57 @@ const underwaterColorGradingShader = /* glsl */ `
   }
 `;
 
+// Custom underwater distortion effect shader (heat-haze/refraction)
+const underwaterDistortionShader = /* glsl */ `
+  uniform float time;
+  uniform float intensity;
+  uniform float frequency;
+  uniform float speed;
+
+  void mainUv(inout vec2 uv) {
+    // Multi-layered wave distortion for organic underwater feel
+    float wave1 = sin(uv.y * frequency + time * speed) * intensity;
+    float wave2 = sin(uv.x * frequency * 0.7 + time * speed * 1.3) * intensity * 0.7;
+    float wave3 = sin((uv.x + uv.y) * frequency * 0.5 + time * speed * 0.8) * intensity * 0.5;
+
+    // Apply distortion - subtle horizontal and vertical shift
+    uv.x += wave1 * 0.003 + wave3 * 0.002;
+    uv.y += wave2 * 0.002 + wave3 * 0.001;
+  }
+`;
+
+/**
+ * Custom underwater distortion post-processing effect.
+ * Creates subtle heat-haze/refraction wavering for underwater atmosphere.
+ */
+class UnderwaterDistortionEffect extends Effect {
+  constructor() {
+    super('UnderwaterDistortion', underwaterDistortionShader, {
+      blendFunction: BlendFunction.NORMAL,
+      uniforms: new Map<string, THREE.Uniform>([
+        ['time', new THREE.Uniform(0.0)],
+        ['intensity', new THREE.Uniform(1.0)],     // Overall distortion strength
+        ['frequency', new THREE.Uniform(15.0)],    // Wave frequency
+        ['speed', new THREE.Uniform(0.8)],         // Animation speed
+      ]),
+    });
+  }
+
+  /**
+   * Update animation time
+   */
+  updateTime(time: number): void {
+    (this.uniforms.get('time') as THREE.Uniform).value = time;
+  }
+
+  /**
+   * Set distortion intensity (0-2, where 1.0 is default)
+   */
+  setIntensity(intensity: number): void {
+    (this.uniforms.get('intensity') as THREE.Uniform).value = intensity;
+  }
+}
+
 /**
  * Custom underwater spectral absorption post-processing effect.
  * Implements Beer-Lambert law for realistic wavelength-dependent light absorption.
@@ -144,6 +195,8 @@ export class PostProcessingPipeline {
   private chromaAberration: ChromaticAberrationEffect;
   private depthOfField: DepthOfFieldEffect;
   private filmGrain: NoiseEffect;
+  private underwaterDistortion: UnderwaterDistortionEffect;
+  private distortionTime: number = 0;
 
   constructor(
     renderer: THREE.WebGLRenderer,
@@ -184,6 +237,9 @@ export class PostProcessingPipeline {
       blendFunction: BlendFunction.OVERLAY,
     });
     this.filmGrain.blendMode.opacity.value = 0.08; // Very subtle
+
+    // Underwater distortion - heat-haze/refraction effect
+    this.underwaterDistortion = new UnderwaterDistortionEffect();
 
     // God rays effect - enhanced for dramatic underwater light shafts
     if (this.sunMesh) {
@@ -242,6 +298,7 @@ export class PostProcessingPipeline {
 
     mainEffects.push(
       this.depthOfField,
+      this.underwaterDistortion,  // Heat-haze distortion before color grading
       this.underwaterColorGrading,
       toneMappingEffect,
       this.vignetteEffect,
@@ -282,6 +339,11 @@ export class PostProcessingPipeline {
    * Render the scene with post-processing
    */
   render(deltaTime?: number): void {
+    // Update underwater distortion animation
+    if (deltaTime) {
+      this.distortionTime += deltaTime;
+      this.underwaterDistortion.updateTime(this.distortionTime);
+    }
     this.composer.render(deltaTime);
   }
 

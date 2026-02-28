@@ -74,6 +74,7 @@ export class BioluminescenceSystem {
     return new THREE.ShaderMaterial({
       uniforms: {
         time: { value: 0 },
+        intensity: { value: 1.0 }, // Controllable intensity for day/night cycle
       },
       vertexShader: `
         attribute vec3 color;
@@ -111,30 +112,35 @@ export class BioluminescenceSystem {
         }
       `,
       fragmentShader: `
+        uniform float intensity;
+
         varying vec3 vColor;
         varying float vPulse;
         varying float vDistanceFade;
-        
+
         void main() {
           // Circular particle with soft edges
           vec2 center = gl_PointCoord - vec2(0.5);
           float dist = length(center);
-          
+
           if (dist > 0.5) discard;
-          
+
           // Soft glow
           float alpha = 1.0 - smoothstep(0.0, 0.5, dist);
           alpha = pow(alpha, 1.5);
-          
+
           // Apply pulse
           alpha *= (0.4 + vPulse * 0.6);
-          
+
           // Apply distance fade
           alpha *= vDistanceFade;
-          
+
+          // Apply day/night intensity (brighter at night)
+          alpha *= intensity;
+
           // Brighten the color
-          vec3 glowColor = vColor * (1.2 + vPulse * 0.4);
-          
+          vec3 glowColor = vColor * (1.2 + vPulse * 0.4) * intensity;
+
           gl_FragColor = vec4(glowColor, alpha);
         }
       `,
@@ -152,6 +158,13 @@ export class BioluminescenceSystem {
     this.time += deltaTime;
     this.material.uniforms.time.value = this.time;
     // cameraPosition is a built-in Three.js uniform, no need to set manually
+  }
+
+  /**
+   * Set bioluminescence intensity (0-3+, where 1.0 is default, higher = brighter at night)
+   */
+  public setIntensity(intensity: number): void {
+    this.material.uniforms.intensity.value = intensity;
   }
   
   /**

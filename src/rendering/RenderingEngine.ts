@@ -261,14 +261,41 @@ export class RenderingEngine {
       this.bioluminescence.update(deltaTime, this.camera.position);
     }
     
-    // Update HDRI environment
+    // Update HDRI environment and day/night cycle
     if (this.hdriEnvironment) {
       this.hdriEnvironment.update(deltaTime);
-      
+
+      // Get time of day for lighting adjustments
+      const timeOfDay = this.hdriEnvironment.getTimeOfDay();
+
       // Update sun direction in other systems
       const sunDir = this.hdriEnvironment.getSunDirection();
       if (this.fftOcean) {
         this.fftOcean.updateSunDirection(sunDir);
+      }
+
+      // Day/night lighting: sun intensity and color
+      // timeOfDay: 0 = midnight, 0.5 = noon, 1.0 = midnight
+      const sunAngle = Math.sin(timeOfDay * Math.PI); // 0 at night, 1 at noon
+      const sunIntensity = Math.max(0.1, sunAngle * 2.2); // Dim at night, bright at noon
+
+      // Sun color: warm at dawn/dusk, cool at noon
+      const dawnDuskFactor = Math.exp(-Math.pow((timeOfDay - 0.25) * 4, 2)) +
+                             Math.exp(-Math.pow((timeOfDay - 0.75) * 4, 2));
+      const sunR = 0.7 + 0.3 * dawnDuskFactor; // More red at dawn/dusk
+      const sunG = 0.85 - 0.15 * dawnDuskFactor;
+      const sunB = 0.9 - 0.3 * dawnDuskFactor;
+      this.sunLight.color.setRGB(sunR, sunG, sunB);
+      this.sunLight.intensity = sunIntensity;
+
+      // Update sun position
+      this.sunLight.position.copy(sunDir.multiplyScalar(50));
+
+      // Bioluminescence: brighter at night
+      if (this.bioluminescence) {
+        const nightFactor = 1.0 - sunAngle; // 0 at noon, 1 at midnight
+        const bioIntensity = 0.5 + nightFactor * 2.0; // 0.5 at noon, 2.5 at midnight
+        this.bioluminescence.setIntensity(bioIntensity);
       }
     }
     

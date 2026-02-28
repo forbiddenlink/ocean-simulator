@@ -17,6 +17,8 @@ export class HDRIEnvironment {
   private envMap: THREE.CubeTexture | null = null;
   private sunPosition: THREE.Vector3;
   private timeOfDay: number = 0.5; // 0 = midnight, 0.5 = noon, 1.0 = midnight
+  private animating: boolean = true; // Enable day/night cycle animation
+  private cycleSpeed: number = 0.02; // Full day/night cycle in ~50 seconds
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -266,11 +268,35 @@ export class HDRIEnvironment {
   }
 
   /**
-   * Update (if needed for animation)
+   * Update - animates day/night cycle
    */
-  public update(_deltaTime: number): void {
-    // Could animate time of day here if desired
-    // this.setTimeOfDay(this.timeOfDay + deltaTime * 0.01);
+  public update(deltaTime: number): void {
+    if (this.animating) {
+      // Animate time of day (wraps from 1 back to 0)
+      const newTime = (this.timeOfDay + deltaTime * this.cycleSpeed) % 1.0;
+      this.setTimeOfDay(newTime);
+    }
+  }
+
+  /**
+   * Enable/disable automatic day/night cycle animation
+   */
+  public setAnimating(animating: boolean): void {
+    this.animating = animating;
+  }
+
+  /**
+   * Set the speed of the day/night cycle (1.0 = full cycle per second)
+   */
+  public setCycleSpeed(speed: number): void {
+    this.cycleSpeed = speed;
+  }
+
+  /**
+   * Get current time of day (0-1, where 0.5 = noon)
+   */
+  public getTimeOfDay(): number {
+    return this.timeOfDay;
   }
 
   /**
