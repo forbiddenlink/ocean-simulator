@@ -39,15 +39,15 @@ export class CausticsEffect {
     return new THREE.ShaderMaterial({
       uniforms: {
         time: { value: 0 },
-        intensity: { value: 0.55 }, // Reduced for subtler, more realistic caustics
-        scale: { value: 28.0 }, // Finer caustic patterns
-        speed: { value: 0.6 }, // Slower, more natural animation
+        intensity: { value: 0.85 }, // Stronger caustics for dramatic effect
+        scale: { value: 22.0 }, // Slightly larger patterns for visibility
+        speed: { value: 0.5 }, // Slower, more natural animation
         causticsTex: { value: null },
         waterHeightMap: { value: this.waterHeightTexture || null },
-        chromaticAberration: { value: 0.035 }, // Stronger RGB split for more visible color fringing
+        chromaticAberration: { value: 0.045 }, // More chromatic aberration for rainbow effect
         sunDirection: { value: new THREE.Vector3(0.5, 1.0, 0.3).normalize() },
         surfaceY: { value: 0.0 }, // Water surface Y position
-        maxDepth: { value: 35.0 }, // Maximum depth for caustics to reach
+        maxDepth: { value: 40.0 }, // Caustics visible deeper
       },
       vertexShader: `
         varying vec2 vUv;

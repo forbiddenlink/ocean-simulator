@@ -9,7 +9,7 @@ export class BioluminescenceSystem {
   private geometry: THREE.BufferGeometry;
   private material: THREE.ShaderMaterial;
   private time: number = 0;
-  private particleCount: number = 1500;
+  private particleCount: number = 2000;
   private scene: THREE.Scene;
   
   constructor(scene: THREE.Scene) {

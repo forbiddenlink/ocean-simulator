@@ -115,17 +115,22 @@ export class BatchedMeshPool {
   private createFishMaterial(): THREE.MeshPhysicalMaterial {
     const material = new THREE.MeshPhysicalMaterial({
       color: 0xffffff,
-      metalness: 0.15,
-      roughness: 0.5,
+      metalness: 0.25,           // Slightly more metallic for wet scales
+      roughness: 0.35,           // Smoother for wet look
       flatShading: false,
       side: THREE.DoubleSide,
-      emissive: new THREE.Color(0x888888),
-      emissiveIntensity: 0.3,
-      iridescence: 0.4,
-      iridescenceIOR: 1.4,
-      iridescenceThicknessRange: [100, 400],
-      clearcoat: 0.2,
-      clearcoatRoughness: 0.3,
+      emissive: new THREE.Color(0x446688),
+      emissiveIntensity: 0.25,
+      iridescence: 0.6,          // More iridescence for fish scales
+      iridescenceIOR: 1.5,
+      iridescenceThicknessRange: [100, 500],
+      clearcoat: 0.5,            // Strong clearcoat for wet sheen
+      clearcoatRoughness: 0.15,  // Very smooth clearcoat
+      sheen: 0.3,                // Subtle sheen for organic look
+      sheenRoughness: 0.4,
+      sheenColor: new THREE.Color(0x88aacc),
+      transmission: 0.05,        // Very slight translucency
+      thickness: 0.1,
     });
 
     // Inject GPU swimming animation into vertex shader
@@ -398,53 +403,70 @@ attribute float finType;
     const type = CreatureType.type[eid];
 
     switch (type) {
-      case 1: // Shark - slate gray, rough skin (Phase 4: brighter)
+      case 1: // Shark - realistic slate gray with wet skin
         return new THREE.MeshPhysicalMaterial({
-          color: 0x9aa8b8, // Brighter base
-          roughness: 0.65,
-          metalness: 0.15,
-          emissive: new THREE.Color(0x4a5a6a),
-          emissiveIntensity: 0.4, // Increased from 0.25
-        });
-
-      case 2: // Dolphin - blue-gray, smoother skin (Phase 4: brighter)
-        return new THREE.MeshPhysicalMaterial({
-          color: 0xa0b0c0, // Brighter base
-          roughness: 0.35,
+          color: 0x8898a8,
+          roughness: 0.4,         // Smoother for wet skin
           metalness: 0.2,
-          emissive: new THREE.Color(0x5a6a7a),
-          emissiveIntensity: 0.4, // Increased from 0.25
+          emissive: new THREE.Color(0x3a4a5a),
+          emissiveIntensity: 0.3,
+          clearcoat: 0.3,         // Wet sheen
+          clearcoatRoughness: 0.2,
+          sheen: 0.2,
+          sheenRoughness: 0.5,
+          sheenColor: new THREE.Color(0x667788),
         });
 
-      case 3: // Jellyfish - translucent pale blue (Phase 4: stronger glow)
+      case 2: // Dolphin - smooth wet skin with subtle iridescence
         return new THREE.MeshPhysicalMaterial({
-          color: 0xbbddff, // Brighter base
-          roughness: 0.2,
+          color: 0x9aacbc,
+          roughness: 0.25,        // Very smooth dolphin skin
+          metalness: 0.25,
+          emissive: new THREE.Color(0x4a5a6a),
+          emissiveIntensity: 0.3,
+          clearcoat: 0.5,         // Strong wet sheen
+          clearcoatRoughness: 0.1,
+          iridescence: 0.3,       // Subtle rainbow sheen
+          iridescenceIOR: 1.4,
+        });
+
+      case 3: // Jellyfish - highly translucent with bioluminescent glow
+        return new THREE.MeshPhysicalMaterial({
+          color: 0xccddff,
+          roughness: 0.1,
           metalness: 0.0,
-          transmission: 0.6,
-          thickness: 0.5,
+          transmission: 0.75,     // More translucent
+          thickness: 0.8,
           transparent: true,
-          opacity: 0.8,
-          emissive: new THREE.Color(0x6699bb),
-          emissiveIntensity: 0.6, // Increased from 0.5
+          opacity: 0.85,
+          emissive: new THREE.Color(0x7799cc),
+          emissiveIntensity: 0.7, // Stronger glow
+          ior: 1.4,               // Glass-like refraction
         });
 
-      case 4: // Ray - olive-brown (Phase 4: brighter)
+      case 4: // Ray - smooth with slight pattern
         return new THREE.MeshPhysicalMaterial({
-          color: 0x889988, // Brighter base
-          roughness: 0.5,
-          metalness: 0.1,
-          emissive: new THREE.Color(0x445544),
-          emissiveIntensity: 0.4, // Increased from 0.25
+          color: 0x788888,
+          roughness: 0.35,
+          metalness: 0.15,
+          emissive: new THREE.Color(0x334444),
+          emissiveIntensity: 0.3,
+          clearcoat: 0.25,
+          clearcoatRoughness: 0.3,
         });
 
-      case 5: // Turtle - green-brown (Phase 4: brighter)
+      case 5: // Turtle - realistic shell with organic patterns
         return new THREE.MeshPhysicalMaterial({
-          color: 0x8aaa7a, // Brighter base
-          roughness: 0.7,
+          color: 0x7a9a6a,
+          roughness: 0.55,        // Slightly rough shell
           metalness: 0.1,
-          emissive: new THREE.Color(0x456540),
-          emissiveIntensity: 0.4, // Increased from 0.25
+          emissive: new THREE.Color(0x354530),
+          emissiveIntensity: 0.3,
+          clearcoat: 0.2,         // Wet shell
+          clearcoatRoughness: 0.4,
+          sheen: 0.15,
+          sheenRoughness: 0.6,
+          sheenColor: new THREE.Color(0x556644),
         });
 
       case 6: // Crab - reddish-brown (Phase 4: brighter)
@@ -474,13 +496,18 @@ attribute float finType;
           emissiveIntensity: 0.35, // Increased from 0.2
         });
 
-      case 9: // Whale - dark blue-gray (Phase 4: brighter)
+      case 9: // Whale - realistic massive creature with wet skin
         return new THREE.MeshPhysicalMaterial({
-          color: 0x708090, // Brighter base
-          roughness: 0.75,
-          metalness: 0.1,
-          emissive: new THREE.Color(0x304050),
-          emissiveIntensity: 0.35, // Increased from 0.2
+          color: 0x607080,
+          roughness: 0.5,         // Smoother whale skin
+          metalness: 0.15,
+          emissive: new THREE.Color(0x253545),
+          emissiveIntensity: 0.25,
+          clearcoat: 0.3,         // Wet glistening skin
+          clearcoatRoughness: 0.25,
+          sheen: 0.2,
+          sheenRoughness: 0.4,
+          sheenColor: new THREE.Color(0x556677),
         });
 
       default: // Fallback fish material (for individual non-instanced fish)

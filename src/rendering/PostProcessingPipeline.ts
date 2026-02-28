@@ -11,6 +11,8 @@ import {
   SMAAPreset,
   KernelSize,
   ChromaticAberrationEffect,
+  DepthOfFieldEffect,
+  NoiseEffect,
   Effect,
   BlendFunction,
 } from 'postprocessing';
@@ -58,10 +60,10 @@ const underwaterColorGradingShader = /* glsl */ `
 
     // === DEPTH-BASED SCATTERING ===
     // Water scatters light, adding a blue-green tint at distance
-    // This simulates light scattered from the water itself into the view
-    float scatterFactor = 1.0 - exp(-pixelDistance * 0.03);
-    vec3 scatterColor = vec3(0.1, 0.25, 0.35) * (1.0 + cameraDepth * 0.01);
-    color = mix(color, scatterColor, scatterFactor * 0.5);
+    // Enhanced for more realistic underwater atmosphere
+    float scatterFactor = 1.0 - exp(-pixelDistance * 0.035);
+    vec3 scatterColor = vec3(0.08, 0.22, 0.38) * (1.0 + cameraDepth * 0.015);
+    color = mix(color, scatterColor, scatterFactor * 0.55);
 
     // === CAMERA DEPTH EFFECTS ===
     // Additional effects based on how deep the camera is
@@ -94,12 +96,12 @@ class UnderwaterColorGradingEffect extends Effect {
       blendFunction: BlendFunction.NORMAL,
       uniforms: new Map<string, THREE.Uniform>([
         // Beer-Lambert absorption coefficients (per meter)
-        // Red absorbed fastest (0.45/m), blue slowest (0.05/m)
-        ['absorptionR', new THREE.Uniform(0.45)],
-        ['absorptionG', new THREE.Uniform(0.15)],
-        ['absorptionB', new THREE.Uniform(0.05)],
-        ['absorptionScale', new THREE.Uniform(0.08)],
-        ['turbidity', new THREE.Uniform(0.5)],
+        // Enhanced for more dramatic color shift with depth
+        ['absorptionR', new THREE.Uniform(0.50)],   // Red fades faster
+        ['absorptionG', new THREE.Uniform(0.18)],   // Green fades moderately
+        ['absorptionB', new THREE.Uniform(0.04)],   // Blue penetrates deepest
+        ['absorptionScale', new THREE.Uniform(0.10)], // Stronger overall absorption
+        ['turbidity', new THREE.Uniform(0.6)],       // Slightly more turbid water
         ['cameraDepth', new THREE.Uniform(12.0)],
         // Camera projection parameters for depth buffer reading
         ['cameraNear', new THREE.Uniform(0.1)],
@@ -140,6 +142,8 @@ export class PostProcessingPipeline {
   private underwaterColorGrading: UnderwaterColorGradingEffect;
   private vignetteEffect: VignetteEffect;
   private chromaAberration: ChromaticAberrationEffect;
+  private depthOfField: DepthOfFieldEffect;
+  private filmGrain: NoiseEffect;
 
   constructor(
     renderer: THREE.WebGLRenderer,
@@ -158,28 +162,40 @@ export class PostProcessingPipeline {
     // Create sun mesh for god rays (positioned above water surface)
     this.createSunMesh(scene);
 
-    // Bloom effect - for glowing highlights and bioluminescence
-    // Phase 5 visual fix: reduced intensity and higher threshold for less harsh contrast
+    // Bloom effect - enhanced for more dramatic underwater glow
     this.bloomEffect = new BloomEffect({
-      intensity: 0.5, // Reduced from 0.8
-      luminanceThreshold: 0.6, // Increased from 0.4
-      luminanceSmoothing: 0.8,
+      intensity: 0.7,
+      luminanceThreshold: 0.5,
+      luminanceSmoothing: 0.9,
       mipmapBlur: true,
-      kernelSize: KernelSize.MEDIUM,
+      kernelSize: KernelSize.LARGE,
     });
 
-    // God rays effect - re-enabled with conservative parameters to avoid
-    // vine-like artifacts (Phase 2)
+    // Depth of Field - subtle cinematic focus effect
+    this.depthOfField = new DepthOfFieldEffect(camera, {
+      focusDistance: 0.015,   // Focus at ~15m
+      focalLength: 0.035,     // Moderate focal length
+      bokehScale: 2.0,        // Subtle bokeh blur
+      height: 480,
+    });
+
+    // Film grain - subtle cinematic texture
+    this.filmGrain = new NoiseEffect({
+      blendFunction: BlendFunction.OVERLAY,
+    });
+    this.filmGrain.blendMode.opacity.value = 0.08; // Very subtle
+
+    // God rays effect - enhanced for dramatic underwater light shafts
     if (this.sunMesh) {
       this.godRaysEffect = new GodRaysEffect(camera, this.sunMesh, {
         height: 480,
-        kernelSize: KernelSize.VERY_SMALL,
-        density: 0.90,
-        decay: 0.95,
-        weight: 0.15,
-        exposure: 0.25,
-        samples: 30,
-        clampMax: 0.6,
+        kernelSize: KernelSize.SMALL,
+        density: 0.95,
+        decay: 0.93,
+        weight: 0.25,       // More visible rays
+        exposure: 0.35,     // Brighter exposure
+        samples: 40,        // Smoother rays
+        clampMax: 0.8,
       });
     }
 
@@ -204,10 +220,10 @@ export class PostProcessingPipeline {
       modulationOffset: 0.15,
     });
 
-    // Vignette for cinematic look - subtle darkening at edges
+    // Vignette for cinematic look - stronger darkening at edges
     this.vignetteEffect = new VignetteEffect({
-      offset: 0.35,
-      darkness: 0.35,
+      offset: 0.4,
+      darkness: 0.5,
     });
 
     // SMAA antialiasing for smooth edges
@@ -225,9 +241,11 @@ export class PostProcessingPipeline {
     }
 
     mainEffects.push(
+      this.depthOfField,
       this.underwaterColorGrading,
       toneMappingEffect,
       this.vignetteEffect,
+      this.filmGrain,
     );
 
     // SMAA goes with the main non-convolution effects
@@ -247,15 +265,15 @@ export class PostProcessingPipeline {
    * Positioned above the water surface as a bright emissive sphere.
    */
   private createSunMesh(scene: THREE.Scene): void {
-    const sunGeometry = new THREE.SphereGeometry(5, 16, 16);
+    const sunGeometry = new THREE.SphereGeometry(8, 16, 16);
     const sunMaterial = new THREE.MeshBasicMaterial({
-      color: 0xaaccdd,
+      color: 0xddeeff,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.85,
     });
 
     this.sunMesh = new THREE.Mesh(sunGeometry, sunMaterial);
-    this.sunMesh.position.set(15, 45, 10);
+    this.sunMesh.position.set(10, 40, 5);
     this.sunMesh.frustumCulled = false;
     scene.add(this.sunMesh);
   }

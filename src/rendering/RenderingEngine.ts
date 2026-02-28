@@ -155,9 +155,9 @@ export class RenderingEngine {
   // setupEnvironment method removed - all setup now in constructor
 
   private setupLights(): void {
-    // Directional light (sun from above) - blue-tinted underwater sunlight
-    // At 30m depth, most red light is absorbed, so sunlight appears blue-cyan
-    this.sunLight = new THREE.DirectionalLight(0x99ccdd, 1.8); // Slightly warmer blue-cyan underwater sunlight
+    // Directional light (sun from above) - dramatic underwater sunlight
+    // Enhanced for god rays and visible light shafts
+    this.sunLight = new THREE.DirectionalLight(0xaaddee, 2.2); // Brighter, cleaner underwater light
     this.sunLight.position.set(10, 50, 10);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.width = 2048;
@@ -166,29 +166,29 @@ export class RenderingEngine {
     this.sunLight.shadow.camera.far = 500;
     this.scene.add(this.sunLight);
 
-    // Ambient light - brighter to illuminate creatures (Phase 3 visual fix)
-    const ambientLight = new THREE.AmbientLight(0x6699bb, 1.4); // Brighter, warmer blue
+    // Ambient light - balanced for realism with creature visibility
+    const ambientLight = new THREE.AmbientLight(0x5588aa, 1.2);
     this.scene.add(ambientLight);
 
-    // Hemisphere light - provides natural gradient from above
-    // Brighter sky color and ground color for better creature visibility (Phase 3)
+    // Hemisphere light - natural gradient from surface to depth
     const hemiLight = new THREE.HemisphereLight(
-      0x99bbdd, // Sky color (brighter blue-white)
-      0x1a3a4a, // Ground color (slightly brighter for fill)
-      1.0 // Increased intensity
+      0xaaccee, // Sky color (bright cyan-white from surface)
+      0x223344, // Ground color (dark blue from depth)
+      1.2
     );
     this.scene.add(hemiLight);
 
-    // Subtle fill light from below for creature visibility
-    // Simulates light bouncing off the ocean floor
-    const fillLight = new THREE.DirectionalLight(0x1a3a4a, 0.3); // Very subtle, cooler blue
+    // Subtle fill light from below - simulates bioluminescence and floor bounce
+    const fillLight = new THREE.DirectionalLight(0x224455, 0.4);
     fillLight.position.set(0, -30, 0);
     this.scene.add(fillLight);
 
-    // Camera-attached fill light - stronger for creature visibility (Phase 3 visual fix)
-    const cameraFillLight = new THREE.PointLight(0x7799cc, 0.7);
+    // Camera-attached fill light - subtle for nearby creature visibility
+    const cameraFillLight = new THREE.PointLight(0x6688aa, 0.5);
+    cameraFillLight.distance = 30; // Limited range for realism
+    cameraFillLight.decay = 2;
     this.camera.add(cameraFillLight);
-    this.scene.add(this.camera); // Camera must be in scene graph for child lights to work
+    this.scene.add(this.camera);
 
     console.log('💡 Underwater lighting configured - blue-tinted for 30m depth');
   }
