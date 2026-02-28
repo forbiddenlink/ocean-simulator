@@ -2,8 +2,8 @@ import { pipe, getAllEntities, query } from 'bitecs';
 import * as THREE from 'three';
 import { createOceanWorld, updateWorldTime } from './core/World';
 import type { OceanWorld } from './core/World';
-import * as EntityFactory from './core/EntityFactory';
 import { createFish, createShark, createDolphin, createJellyfish, createRay, createTurtle, createWhale, createCrab, createStarfish, createSeaUrchin } from './core/EntityFactory';
+import * as EntityFactory from './core/EntityFactory';
 import { RenderingEngine } from './rendering/RenderingEngine';
 import { BatchedMeshPool, createBatchedRenderSystem } from './rendering/BatchedMeshPool';
 import { CameraController } from './rendering/CameraController';
@@ -11,7 +11,7 @@ import { Position, Scale, Velocity } from './components/Transform';
 import { enhancedMovementSystem } from './systems/EnhancedMovementSystem';
 import { firaSystem } from './systems/FIRASystem';
 import { createHuntingSystem } from './systems/HuntingSystem';
-import { createPopulationSystem, getPopulationStats as _getPopulationStats } from './systems/PopulationSystem';
+import { createPopulationSystem } from './systems/PopulationSystem';
 import { createOceanCurrentsSystem } from './systems/OceanCurrentsSystem';
 import { createBiomechanicalAnimationSystem } from './systems/BiomechanicalAnimationSystem';
 import { UIManager } from './ui/UIManager';
@@ -116,8 +116,10 @@ export class OceanSimulator {
     // Apply initial look preset
     this.applyLookPreset(this.debugParams.lookPreset);
 
-    console.log('🌊 Ocean Simulator initialized');
-    console.log(`📊 Entities: ${getAllEntities(this.world).length}`);
+    if (DEBUG) {
+      console.log('🌊 Ocean Simulator initialized');
+      console.log(`📊 Entities: ${getAllEntities(this.world).length}`);
+    }
   }
 
   private applyLookPreset(preset: 'tropical-clear' | 'inky-cinematic'): void {
@@ -174,7 +176,7 @@ export class OceanSimulator {
       preset === 'inky-cinematic' ? new THREE.Color(0x05090f) : new THREE.Color(0x4da6c7);
 
     this.debugGui?.controllersRecursive().forEach((c) => c.updateDisplay());
-    console.log(`🎬 Applied look preset: ${preset}`);
+    if (DEBUG) console.log(`🎬 Applied look preset: ${preset}`);
   }
 
   /**
@@ -274,7 +276,7 @@ export class OceanSimulator {
   }
   
   private spawnInitialFish(): void {
-    console.log('🐠 Spawning COMPREHENSIVE marine ecosystem...');
+    if (DEBUG) console.log('🐠 Spawning COMPREHENSIVE marine ecosystem...');
     
     // MASSIVE schools of small bait fish (sardines/anchovies) - foundation of food chain
     this.spawnFishSchool(80, -8, 0, 0, 15, 0.6);     // Main bait ball - center
@@ -380,27 +382,29 @@ export class OceanSimulator {
       createSeaUrchin(this.world, x, 0, z);
     }
 
-    const totalEntities = getAllEntities(this.world).length;
-    console.log(`✅ Spawned ${totalEntities} creatures - A LIVING OCEAN ECOSYSTEM!`);
-    console.log(`   📊 Breakdown: ~400 bait fish, ~85 medium fish, ~25 large fish`);
-    console.log(`   🦈 8 sharks, ~10 dolphins, 30 jellyfish, 15 rays`);
-    console.log(`   🐢 4 turtles, 1-2 whales, 40 crabs, 25 starfish, 18 urchins`);
-    console.log(`   🌊 Total population: ${totalEntities} creatures in a realistic food web`);
+    if (DEBUG) {
+      const totalEntities = getAllEntities(this.world).length;
+      console.log(`✅ Spawned ${totalEntities} creatures - A LIVING OCEAN ECOSYSTEM!`);
+      console.log(`   📊 Breakdown: ~400 bait fish, ~85 medium fish, ~25 large fish`);
+      console.log(`   🦈 8 sharks, ~10 dolphins, 30 jellyfish, 15 rays`);
+      console.log(`   🐢 4 turtles, 1-2 whales, 40 crabs, 25 starfish, 18 urchins`);
+      console.log(`   🌊 Total population: ${totalEntities} creatures in a realistic food web`);
 
-    // Debug: Log spawn positions to verify they're within camera view
-    console.log(`🎯 VISIBILITY DEBUG:`);
-    console.log(`   Camera at: (0, -12, 0) looking at (0, -12, -10)`);
-    console.log(`   Fish spawn area: X[-30,30] Y[-3,-30] Z[-30,30]`);
-    console.log(`   Camera centered in fish swimming area`);
+      // Debug: Log spawn positions to verify they're within camera view
+      console.log(`🎯 VISIBILITY DEBUG:`);
+      console.log(`   Camera at: (0, -12, 0) looking at (0, -12, -10)`);
+      console.log(`   Fish spawn area: X[-30,30] Y[-3,-30] Z[-30,30]`);
+      console.log(`   Camera centered in fish swimming area`);
 
-    // Log a sample of entity positions
-    const entities = getAllEntities(this.world);
-    if (entities.length > 0) {
-      const sampleSize = Math.min(5, entities.length);
-      console.log(`   Sample entity positions (first ${sampleSize}):`);
-      for (let i = 0; i < sampleSize; i++) {
-        const eid = entities[i];
-        console.log(`     Entity ${eid}: (${Position.x[eid].toFixed(1)}, ${Position.y[eid].toFixed(1)}, ${Position.z[eid].toFixed(1)})`);
+      // Log a sample of entity positions
+      const entities = getAllEntities(this.world);
+      if (entities.length > 0) {
+        const sampleSize = Math.min(5, entities.length);
+        console.log(`   Sample entity positions (first ${sampleSize}):`);
+        for (let i = 0; i < sampleSize; i++) {
+          const eid = entities[i];
+          console.log(`     Entity ${eid}: (${Position.x[eid].toFixed(1)}, ${Position.y[eid].toFixed(1)}, ${Position.z[eid].toFixed(1)})`);
+        }
       }
     }
   }
@@ -439,7 +443,7 @@ export class OceanSimulator {
    * Start the simulation loop
    */
   public start(): void {
-    console.log('▶️  Starting simulation...');
+    if (DEBUG) console.log('▶️  Starting simulation...');
     this.loop();
   }
   
@@ -450,7 +454,7 @@ export class OceanSimulator {
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;
-      console.log('⏸️  Simulation paused');
+      if (DEBUG) console.log('⏸️  Simulation paused');
     }
   }
   
@@ -526,7 +530,7 @@ export class OceanSimulator {
     this.renderEngine.dispose();
     this.uiManager.dispose();
     this.debugGui.destroy();
-    console.log('🗑️  Ocean Simulator disposed');
+    if (DEBUG) console.log('🗑️  Ocean Simulator disposed');
   }
   
   /**
@@ -535,7 +539,7 @@ export class OceanSimulator {
   public togglePause(): void {
     this.isPaused = !this.isPaused;
     this.uiManager.setPaused(this.isPaused);
-    console.log(this.isPaused ? '⏸️  Paused' : '▶️  Resumed');
+    if (DEBUG) console.log(this.isPaused ? '⏸️  Paused' : '▶️  Resumed');
   }
   
   /**
@@ -543,7 +547,7 @@ export class OceanSimulator {
    */
   public setTimeScale(scale: number): void {
     this.timeScale = Math.max(0.1, Math.min(10, scale));
-    console.log(`⚡ Time scale set to ${this.timeScale}x`);
+    if (DEBUG) console.log(`⚡ Time scale set to ${this.timeScale}x`);
   }
   
   /**
@@ -552,14 +556,14 @@ export class OceanSimulator {
   private setupOceanControls(): void {
     // Wind speed control
     this.uiManager.onWindSpeed((speed) => {
-      console.log(`🌬️  Wind speed: ${speed} m/s`);
+      if (DEBUG) console.log(`🌬️  Wind speed: ${speed} m/s`);
       // Note: Changing FFT parameters requires regenerating spectrum
       // For now, log the change. Full implementation would recreate FFT ocean.
     });
-    
+
     // Wave amplitude control
     this.uiManager.onWaveAmplitude((amplitude) => {
-      console.log(`🌊 Wave amplitude: ${amplitude}x`);
+      if (DEBUG) console.log(`🌊 Wave amplitude: ${amplitude}x`);
       // Similar to wind speed, would require FFT regeneration
     });
     
@@ -573,16 +577,16 @@ export class OceanSimulator {
     
     // Weather control
     this.uiManager.onWeather((weather) => {
-      console.log(`🌦️  Weather: ${weather}`);
+      if (DEBUG) console.log(`🌦️  Weather: ${weather}`);
       // Update HDRI environment weather
       if (this.renderEngine && (this.renderEngine as any).hdriEnvironment) {
         (this.renderEngine as any).hdriEnvironment.setWeather(weather as any);
       }
     });
-    
+
     // Quality preset control
     this.uiManager.onQuality((quality) => {
-      console.log(`⚙️  Quality preset: ${quality}`);
+      if (DEBUG) console.log(`⚙️  Quality preset: ${quality}`);
       this.applyQualityPreset(quality);
     });
   }
@@ -632,7 +636,13 @@ export class OceanSimulator {
 
     const config = presets[preset];
     if (config) {
-      console.log(`✨ ${config.message}`);
+      if (DEBUG) {
+        console.log(`✨ ${config.message}`);
+        console.log(`   FFT Resolution: ${config.fftResolution}`);
+        console.log(`   Choppiness: ${config.choppiness}`);
+        console.log(`   Wave Amplitude: ${config.amplitude}`);
+        console.log(`   Pixel Ratio: ${config.pixelRatio.toFixed(1)}`);
+      }
 
       // Apply FFT ocean parameters
       this.renderEngine.setOceanParam('resolution', config.fftResolution);
@@ -641,11 +651,6 @@ export class OceanSimulator {
 
       // Adjust renderer pixel ratio
       this.renderEngine.renderer.setPixelRatio(config.pixelRatio);
-
-      console.log(`   FFT Resolution: ${config.fftResolution}`);
-      console.log(`   Choppiness: ${config.choppiness}`);
-      console.log(`   Wave Amplitude: ${config.amplitude}`);
-      console.log(`   Pixel Ratio: ${config.pixelRatio.toFixed(1)}`);
     }
   }
 }

@@ -17,6 +17,9 @@ import { FoamSystem } from './FoamSystem';
 import { SprayParticles } from './SprayParticles';
 import { HDRIEnvironment } from './HDRIEnvironment';
 
+// Debug flag - set to true for development debugging
+const DEBUG = false;
+
 export class RenderingEngine {
   public scene: THREE.Scene;
   public camera: THREE.PerspectiveCamera;
@@ -42,6 +45,9 @@ export class RenderingEngine {
   private sprayParticles?: SprayParticles;
   private hdriEnvironment?: HDRIEnvironment;
 
+  // Store bound event handler to properly remove listener
+  private boundOnWindowResize: () => void;
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
 
@@ -65,7 +71,6 @@ export class RenderingEngine {
     // Position: centered in the fish swimming area so creatures surround the viewer
     this.camera.position.set(0, -12, 0);
     this.camera.lookAt(0, -12, -10);
-    console.log(`📷 Camera positioned at (0, -12, 0) - centered in fish swimming area`);
 
     // Create renderer with WebGL2
     this.renderer = new THREE.WebGLRenderer({
@@ -85,74 +90,53 @@ export class RenderingEngine {
 
     // Setup lights first so we have the sun for the water
     this.setupLights();
-    
-    console.log('🌅 Starting PHOTOREALISTIC OCEAN with all features enabled');
 
     // Add realistic ocean floor
-    console.log('🪨 Creating realistic ocean floor...');
     this.realisticFloor = RealisticOceanFloor.createDetailedFloor(this.scene, -30);
-    
-    // Add seagrass and kelp (RE-ENABLED with optimization)
-    console.log('🌿 Adding kelp forest...');
-    // this.seagrass = new AnimatedSeagrass(this.scene, -30, 150); // Keep disabled to reduce complexity
-    this.kelpForest = new KelpForest(this.scene, -30, 60); // Re-enabled - not the cause (fish shader was)
-    
-    // Add coral formations (significantly increased)
-    console.log('🪸 Adding coral reef formations...');
-    CoralFormations.createCoralReef(this.scene, -30, 80); // Re-enabled - confirmed not causing vines
-    
-    // Add sea anemones (significantly increased for realistic reef)
-    console.log('🌺 Adding sea anemones...');
-    this.anemones = new SeaAnemones(this.scene, -30, 40); // Re-enabled - confirmed not causing vines
-    
-    // Add marine life decorations (SIGNIFICANTLY INCREASED)
-    console.log('🐚 Adding marine life decorations...');
-    this.marineLife = MarineLife.createMarineCreatures(this.scene, -30, 120); // Re-enabled - confirmed not causing vines
+
+    // Add seagrass and kelp
+    this.kelpForest = new KelpForest(this.scene, -30, 60);
+
+    // Add coral formations
+    CoralFormations.createCoralReef(this.scene, -30, 80);
+
+    // Add sea anemones
+    this.anemones = new SeaAnemones(this.scene, -30, 40);
+
+    // Add marine life decorations
+    this.marineLife = MarineLife.createMarineCreatures(this.scene, -30, 120);
 
     // Add Water Surface - choose between FFT ocean (photorealistic) or basic water
     if (this.useFFTOcean) {
-      console.log('🌊 Initializing FFT Ocean (MAXIMUM PHOTOREALISM)');
       this.fftOcean = new FFTOcean(
-        512, // Increased resolution for better detail (was 256)
+        512, // Resolution for detail
         1200, // Larger ocean size for expansive feel
-        28, // Higher wind speed for more dynamic waves
+        28, // Wind speed for dynamic waves
         new THREE.Vector2(1, 0.3), // wind direction
-        2.5 // Increased wave amplitude for dramatic ocean
+        2.5 // Wave amplitude
       );
       this.fftOcean.mesh.position.y = 0; // Sea level
       this.scene.add(this.fftOcean.mesh);
-      
+
       // Add foam and spray for FFT ocean
       this.foamSystem = new FoamSystem(this.scene, 1500);
       this.sprayParticles = new SprayParticles(this.scene, 2000);
-      console.log('✨ Added foam and spray particle systems');
     } else {
-      console.log('🌊 Initializing Basic Water');
       this.highFidelityWater = new HighFidelityWater(this.scene, this.sunLight);
       this.scene.add(this.highFidelityWater.mesh);
     }
-    
+
     // Add underwater particles and bubbles
     this.particles = new UnderwaterParticles(this.scene);
     this.bubbles = new BubbleSystem(this.scene);
-    console.log('💧 Added underwater particles and bubbles');
-    
+
     // Add caustics
-    console.log('✨ Adding caustics...');
     this.caustics = new CausticsEffect(this.scene, this.renderer);
-    
-    // God rays DISABLED - still causing vine-like patterns
-    // this.godRays = new GodRaysEffect(this.scene);
-    
+
     // Add bioluminescence
-    console.log('💡 Adding bioluminescence...');
     this.bioluminescence = new BioluminescenceSystem(this.scene);
-    
-    // Volumetric fog DISABLED - causes white wash
-    // this.volumetricFog = new VolumetricFog(this.scene);
-    
+
     // Add HDRI environment
-    console.log('🌅 Adding HDRI environment...');
     this.hdriEnvironment = new HDRIEnvironment(this.scene);
 
     // Apply initial lighting state
@@ -160,11 +144,12 @@ export class RenderingEngine {
 
     // Initialize post-processing pipeline
     this.postProcessing = new PostProcessingPipeline(this.renderer, this.scene, this.camera);
-    
-    console.log('✨ PHOTOREALISTIC OCEAN LOADED - All features active!');
 
-    // Handle window resize
-    window.addEventListener('resize', this.onWindowResize.bind(this));
+    if (DEBUG) console.log('✨ PHOTOREALISTIC OCEAN LOADED - All features active!');
+
+    // Handle window resize - store bound reference for proper cleanup
+    this.boundOnWindowResize = this.onWindowResize.bind(this);
+    window.addEventListener('resize', this.boundOnWindowResize);
   }
 
   // setupEnvironment method removed - all setup now in constructor
@@ -503,14 +488,42 @@ export class RenderingEngine {
   }
 
   public dispose(): void {
-    window.removeEventListener('resize', this.onWindowResize.bind(this));
+    // Remove event listener using stored bound reference
+    window.removeEventListener('resize', this.boundOnWindowResize);
+
+    // Dispose all visual effects (only call dispose if method exists)
+    if (this.fftOcean) this.fftOcean.dispose();
+    if (this.particles) this.particles.dispose();
+    if (this.bubbles) this.bubbles.dispose();
+    if (this.caustics && 'dispose' in this.caustics) (this.caustics as { dispose: () => void }).dispose();
+    if (this.bioluminescence && 'dispose' in this.bioluminescence) (this.bioluminescence as { dispose: () => void }).dispose();
+    if (this.godRays && 'dispose' in this.godRays) (this.godRays as { dispose: () => void }).dispose();
+    if (this.kelpForest && 'dispose' in this.kelpForest) (this.kelpForest as { dispose: () => void }).dispose();
+    if (this.foamSystem && 'dispose' in this.foamSystem) (this.foamSystem as { dispose: () => void }).dispose();
+    if (this.sprayParticles) this.sprayParticles.dispose();
+    if (this.hdriEnvironment && 'dispose' in this.hdriEnvironment) (this.hdriEnvironment as { dispose: () => void }).dispose();
+
+    // Dispose groups with geometries and materials
+    const disposeGroup = (group: THREE.Group) => {
+      group.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry?.dispose();
+          if (Array.isArray(child.material)) {
+            child.material.forEach(m => m.dispose());
+          } else if (child.material) {
+            child.material.dispose();
+          }
+        }
+      });
+      this.scene.remove(group);
+    };
+
+    if (this.realisticFloor) disposeGroup(this.realisticFloor);
+    if (this.marineLife) disposeGroup(this.marineLife);
+
+    // Clear scene and dispose post-processing/renderer
+    this.scene.clear();
     this.postProcessing.dispose();
-    if (this.particles) {
-      this.particles.dispose();
-    }
-    if (this.bubbles) {
-      this.bubbles.dispose();
-    }
     this.renderer.dispose();
   }
 }

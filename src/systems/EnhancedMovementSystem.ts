@@ -106,7 +106,23 @@ export const enhancedMovementSystem = (world: OceanWorld) => {
     if (cType < 6 || cType > 8) {
       applyBuoyancy(eid, dt);
     }
-    
+
+    // Re-clamp velocity after buoyancy/pulse modifications to maintain physics constraints
+    if (FIRA.maxSpeed[eid] > 0) {
+      const finalSpeed = Math.sqrt(
+        Velocity.x[eid] * Velocity.x[eid] +
+        Velocity.y[eid] * Velocity.y[eid] +
+        Velocity.z[eid] * Velocity.z[eid]
+      );
+      const maxSpd = FIRA.maxSpeed[eid];
+      if (finalSpeed > maxSpd) {
+        const scale = maxSpd / finalSpeed;
+        Velocity.x[eid] *= scale;
+        Velocity.y[eid] *= scale;
+        Velocity.z[eid] *= scale;
+      }
+    }
+
     // Update position with Verlet integration for stability
     Position.x[eid] += Velocity.x[eid] * dt;
     Position.y[eid] += Velocity.y[eid] * dt;
