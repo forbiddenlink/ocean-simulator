@@ -160,7 +160,7 @@ export class WavelengthLighting {
             (scene.fog as THREE.FogExp2).density = density;
         }
 
-        // Background matches fog color for seamless horizon
-        scene.background = fogColor;
+        // NOTE: Do NOT set scene.background here — that is managed by
+        // OceanSimulator.applyLookPreset so preset-specific backgrounds are preserved.
     }
 }

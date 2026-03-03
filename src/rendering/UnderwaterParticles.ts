@@ -230,6 +230,119 @@ export class UnderwaterParticles {
 }
 
 /**
+ * Creature bubble trails - emits small bubbles behind fast-moving sharks, dolphins, and whales
+ */
+export class CreatureBubbleTrails {
+  private particleSystem: THREE.Points;
+  private geometry: THREE.BufferGeometry;
+  private material: THREE.PointsMaterial;
+  private maxBubbles = 300; // Total bubble pool
+  private positions: Float32Array;
+  private alphas: Float32Array;
+  private ages: Float32Array;
+  private velocitiesY: Float32Array;
+  private nextSlot = 0;
+  private bubbleTexture: THREE.Texture;
+
+  constructor(scene: THREE.Scene) {
+    this.geometry = new THREE.BufferGeometry();
+    this.positions = new Float32Array(this.maxBubbles * 3);
+    this.alphas = new Float32Array(this.maxBubbles);
+    this.ages = new Float32Array(this.maxBubbles);
+    this.velocitiesY = new Float32Array(this.maxBubbles);
+
+    // Initialize off-screen
+    for (let i = 0; i < this.maxBubbles; i++) {
+      this.positions[i * 3 + 1] = -999;
+      this.ages[i] = 999;
+    }
+
+    this.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
+
+    // Create bubble texture
+    this.bubbleTexture = this.createBubbleTexture();
+
+    this.material = new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 0.15,
+      transparent: true,
+      opacity: 0.5,
+      map: this.bubbleTexture,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      sizeAttenuation: true,
+    });
+
+    this.particleSystem = new THREE.Points(this.geometry, this.material);
+    scene.add(this.particleSystem);
+  }
+
+  private createBubbleTexture(): THREE.Texture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+    const ctx = canvas.getContext('2d')!;
+    const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+    gradient.addColorStop(0.4, 'rgba(200, 220, 255, 0.5)');
+    gradient.addColorStop(1, 'rgba(200, 220, 255, 0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 32, 32);
+    const texture = new THREE.Texture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  /**
+   * Emit bubbles at a creature's position if it's moving fast enough.
+   * Call per-creature per frame.
+   */
+  emit(x: number, y: number, z: number, speed: number, speedThreshold: number = 1.5): void {
+    if (speed < speedThreshold) return;
+    // Emit 1-3 bubbles depending on speed
+    const count = Math.min(3, Math.floor((speed - speedThreshold) * 2) + 1);
+    for (let b = 0; b < count; b++) {
+      const idx = this.nextSlot;
+      this.nextSlot = (this.nextSlot + 1) % this.maxBubbles;
+      const i3 = idx * 3;
+      this.positions[i3] = x + (Math.random() - 0.5) * 0.5;
+      this.positions[i3 + 1] = y + (Math.random() - 0.5) * 0.3;
+      this.positions[i3 + 2] = z + (Math.random() - 0.5) * 0.5;
+      this.ages[idx] = 0;
+      this.alphas[idx] = 0.4 + Math.random() * 0.3;
+      this.velocitiesY[idx] = 0.3 + Math.random() * 0.5;
+    }
+  }
+
+  /**
+   * Update bubble positions and fade out old bubbles
+   */
+  update(deltaTime: number): void {
+    const maxAge = 2.5; // seconds
+    for (let i = 0; i < this.maxBubbles; i++) {
+      if (this.ages[i] >= maxAge) continue;
+      this.ages[i] += deltaTime;
+      const i3 = i * 3;
+      // Rise upward with slight wobble
+      this.positions[i3 + 1] += this.velocitiesY[i] * deltaTime;
+      this.positions[i3] += Math.sin(this.ages[i] * 4 + i) * 0.005;
+      this.positions[i3 + 2] += Math.cos(this.ages[i] * 3.5 + i) * 0.005;
+      // Fade out
+      if (this.ages[i] >= maxAge) {
+        this.positions[i3 + 1] = -999; // Hide
+      }
+    }
+    this.geometry.attributes.position.needsUpdate = true;
+  }
+
+  dispose(): void {
+    this.geometry.dispose();
+    this.material.dispose();
+    this.bubbleTexture.dispose();
+  }
+}
+
+/**
  * Bubble system for rising air bubbles
  */
 export class BubbleSystem {

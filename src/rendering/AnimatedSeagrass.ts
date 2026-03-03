@@ -35,7 +35,7 @@ export class AnimatedSeagrass {
       scene.add(grass);
     }
     
-    console.log(`🌿 Created ${count} seagrass plants`);
+    // console.log(`🌿 Created ${count} seagrass plants`);
   }
   
   /**

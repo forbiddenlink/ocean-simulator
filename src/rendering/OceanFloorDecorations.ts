@@ -38,7 +38,7 @@ export class OceanFloorDecorations {
     }
     
     scene.add(decorationsGroup);
-    console.log(`🪨 Added ${count} ocean floor decorations (rocks, shells, coral pieces)`);
+    // console.log(`🪨 Added ${count} ocean floor decorations`);
     
     return decorationsGroup;
   }

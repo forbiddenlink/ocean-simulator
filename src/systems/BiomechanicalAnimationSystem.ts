@@ -100,7 +100,7 @@ export function createBiomechanicalAnimationSystem(_world: OceanWorld) {
       }
       
       // Update secondary motion (gills, subtle body movements)
-      updateSecondaryMotion(eid, speed, deltaTime);
+      updateSecondaryMotion(eid, speed, deltaTime, world.time.elapsed);
       
       // Update rotation to face velocity direction with smooth banking
       updateOrientationWithBanking(eid, speed, deltaTime);
@@ -295,15 +295,15 @@ function animateFlukes(eid: number, speed: number, deltaTime: number): void {
 /**
  * Update secondary motion (gills, subtle body movements)
  */
-function updateSecondaryMotion(eid: number, speed: number, _deltaTime: number): void {
+function updateSecondaryMotion(eid: number, speed: number, _deltaTime: number, elapsed: number): void {
   // Gill flapping (respiratory rate increases with exertion)
   const gillFrequency = 1.5 + speed * 0.8; // Hz
-  const gillPhase = (Date.now() / 1000) * gillFrequency * Math.PI * 2;
+  const gillPhase = elapsed * gillFrequency * Math.PI * 2;
   BiomechanicalAnimationState.gillFlap[eid] = Math.sin(gillPhase) * 0.08;
   
   // Subtle body sway (idle behavior)
   if (speed < 0.2) {
-    const swayPhase = (Date.now() / 1000) * 0.5 * Math.PI * 2;
+    const swayPhase = elapsed * 0.5 * Math.PI * 2;
     BiomechanicalAnimationState.bodyRoll[eid] = Math.sin(swayPhase) * 0.05;
     BiomechanicalAnimationState.bodyPitch[eid] = Math.sin(swayPhase * 0.7) * 0.03;
   } else {

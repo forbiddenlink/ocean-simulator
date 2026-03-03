@@ -2,7 +2,7 @@ import { query } from 'bitecs';
 import * as THREE from 'three';
 import { Position, Velocity, Acceleration } from '../components/Transform';
 import { Health, Energy, CreatureType } from '../components/Biology';
-import { Vision } from '../components/Behavior';
+import { Vision, FIRA, SchoolLeader } from '../components/Behavior';
 import type { OceanWorld } from '../core/World';
 
 // Target memory component for tracking prey
@@ -62,6 +62,12 @@ export function createHuntingSystem(_world: OceanWorld) {
       // Skip non-predators
       if (CreatureType.isPredator[predatorEid] === 0) continue;
       
+      // Dawn/dusk predator aggression: feeding time!
+      const tod = world.timeOfDay;
+      const dawnDuskFactor = Math.exp(-Math.pow((tod - 0.25) * 5, 2))
+                           + Math.exp(-Math.pow((tod - 0.75) * 5, 2));
+      const aggressionMultiplier = 1.0 + dawnDuskFactor * 0.5; // Up to 1.5x at dawn/dusk
+
       // Drain energy while active
       Energy.current[predatorEid] -= HUNT_CONFIG.ENERGY_COST_PER_SECOND * deltaTime;
       
@@ -172,8 +178,8 @@ export function createHuntingSystem(_world: OceanWorld) {
           
           const direction = tempVec3b.sub(predatorPos).normalize();
           
-          // Apply pursuit force (stronger than normal movement)
-          const pursuitForce = HUNT_CONFIG.PURSUIT_SPEED_MULTIPLIER;
+          // Apply pursuit force (stronger at dawn/dusk feeding time)
+          const pursuitForce = HUNT_CONFIG.PURSUIT_SPEED_MULTIPLIER * aggressionMultiplier;
           Acceleration.x[predatorEid] += direction.x * pursuitForce;
           Acceleration.y[predatorEid] += direction.y * pursuitForce;
           Acceleration.z[predatorEid] += direction.z * pursuitForce;
@@ -244,10 +250,26 @@ export function createHuntingSystem(_world: OceanWorld) {
         Acceleration.x[preyEid] += fleeDir.x * fleeForce;
         Acceleration.y[preyEid] += fleeDir.y * fleeForce;
         Acceleration.z[preyEid] += fleeDir.z * fleeForce;
+
+        // === BAIT BALL SPLIT ===
+        // Temporarily boost separation weight for this prey and nearby school members.
+        // This causes the school to split around the predator and reform behind it.
+        const schoolId = SchoolLeader.schoolId[preyEid];
+        if (schoolId > 0) {
+          // Set boosted values directly (don't multiply current — prevents runaway)
+          FIRA.separationWeight[preyEid] = 6.0; // 3.3x the default 1.8
+          FIRA.cohesionWeight[preyEid] = 0.5;   // Low cohesion during panic
+        }
       } else {
         // Safe - return to normal behavior
         if (TargetMemory.huntingMode[preyEid] === 3) {
           TargetMemory.huntingMode[preyEid] = 0; // idle
+          // Restore normal FIRA weights gradually
+          // (Reset to defaults; the gradual part comes from running multiple frames)
+          if (SchoolLeader.schoolId[preyEid] > 0) {
+            FIRA.separationWeight[preyEid] = 1.8;
+            FIRA.cohesionWeight[preyEid] = 2.5;
+          }
         }
       }
     }

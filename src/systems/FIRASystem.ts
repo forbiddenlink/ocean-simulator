@@ -1,6 +1,6 @@
 import { query } from 'bitecs';
 import { Position, Velocity, Acceleration } from '../components/Transform';
-import { FIRA, Vision, Wander } from '../components/Behavior';
+import { FIRA, Vision, Wander, SchoolLeader } from '../components/Behavior';
 import type { OceanWorld } from '../core/World';
 
 // Pre-allocated buffer for force accumulators (reused across frames)
@@ -198,6 +198,25 @@ export const firaSystem = (world: OceanWorld) => {
     let totalFx = separationX * sepW + alignmentX * aliW + cohesionX * cohW + wanderX * wanderW + boundX;
     let totalFy = separationY * sepW + alignmentY * aliW + cohesionY * cohW + wanderY * wanderW + boundY;
     let totalFz = separationZ * sepW + alignmentZ * aliW + cohesionZ * cohW + wanderZ * wanderW + boundZ;
+
+    // === SCHOOL LEADER FOLLOWING ===
+    // Followers get extra cohesion force toward their school leader
+    if (SchoolLeader.schoolId[eid] > 0 && SchoolLeader.isLeader[eid] === 0) {
+      const leaderId = SchoolLeader.leaderId[eid];
+      if (leaderId > 0 && Position.x[leaderId] !== undefined) {
+        const ldx = Position.x[leaderId] - px;
+        const ldy = Position.y[leaderId] - py;
+        const ldz = Position.z[leaderId] - pz;
+        const leaderDist = Math.sqrt(ldx * ldx + ldy * ldy + ldz * ldz);
+        if (leaderDist > 2.0 && leaderDist < 30.0) {
+          // Strength increases with distance from leader (pull back into formation)
+          const leaderPull = Math.min(1.5, (leaderDist - 2.0) * 0.15);
+          totalFx += (ldx / leaderDist) * leaderPull;
+          totalFy += (ldy / leaderDist) * leaderPull;
+          totalFz += (ldz / leaderDist) * leaderPull;
+        }
+      }
+    }
 
     // Limit steering force (maxForce)
     const currentForceMag = Math.sqrt(totalFx * totalFx + totalFy * totalFy + totalFz * totalFz);

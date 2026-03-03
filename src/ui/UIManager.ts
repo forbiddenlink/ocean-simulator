@@ -82,12 +82,17 @@ export class UIManager {
         <div style="margin-bottom: 8px;">
           <strong style="color: #80deea;">Total:</strong> <span id="stat-total">0</span>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; font-size: 11px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 8px; font-size: 11px;">
           <div>🐟 <span id="stat-fish">0</span></div>
           <div>🦈 <span id="stat-shark">0</span></div>
           <div>🐬 <span id="stat-dolphin">0</span></div>
           <div>🪼 <span id="stat-jellyfish">0</span></div>
           <div>🐡 <span id="stat-ray">0</span></div>
+          <div>🐢 <span id="stat-turtle">0</span></div>
+          <div>🦀 <span id="stat-crab">0</span></div>
+          <div>⭐ <span id="stat-starfish">0</span></div>
+          <div>🟣 <span id="stat-urchin">0</span></div>
+          <div>🐋 <span id="stat-whale">0</span></div>
         </div>
         <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(100, 200, 255, 0.2); font-size: 11px;">
           <div style="color: #ff8a65;">⚔️ <span id="stat-predators">0</span></div>
@@ -472,6 +477,11 @@ export class UIManager {
     updateElement('stat-dolphin', stats.dolphin);
     updateElement('stat-jellyfish', stats.jellyfish);
     updateElement('stat-ray', stats.ray);
+    updateElement('stat-turtle', stats.turtle);
+    updateElement('stat-crab', stats.crab);
+    updateElement('stat-starfish', stats.starfish);
+    updateElement('stat-urchin', stats.urchin);
+    updateElement('stat-whale', stats.whale);
     updateElement('stat-predators', stats.predators);
     updateElement('stat-prey', stats.prey);
   }

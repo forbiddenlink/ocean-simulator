@@ -26,6 +26,13 @@ export class CameraController {
   private _target: THREE.Vector3 = new THREE.Vector3();
   private _worldUp: THREE.Vector3 = new THREE.Vector3(0, 1, 0);
 
+  // Bound event handlers for proper cleanup
+  private boundOnKeyDown: (e: KeyboardEvent) => void;
+  private boundOnKeyUp: (e: KeyboardEvent) => void;
+  private boundOnMouseDown: (e: MouseEvent) => void;
+  private boundOnMouseUp: () => void;
+  private boundOnMouseMove: (e: MouseEvent) => void;
+
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
 
@@ -35,45 +42,38 @@ export class CameraController {
     this.yaw = Math.atan2(direction.x, direction.z);
     this.pitch = Math.asin(-direction.y);
 
-    this.setupEventListeners();
-  }
-
-  private setupEventListeners(): void {
-    window.addEventListener('keydown', (e) => {
-      this.keys.add(e.key.toLowerCase());
-    });
-
-    window.addEventListener('keyup', (e) => {
-      this.keys.delete(e.key.toLowerCase());
-    });
-
-    window.addEventListener('mousedown', (e) => {
-      if (e.button === 0) { // Left mouse button
+    // Create bound handlers
+    this.boundOnKeyDown = (e: KeyboardEvent) => this.keys.add(e.key.toLowerCase());
+    this.boundOnKeyUp = (e: KeyboardEvent) => this.keys.delete(e.key.toLowerCase());
+    this.boundOnMouseDown = (e: MouseEvent) => {
+      if (e.button === 0) {
         this.mouseDown = true;
         this.lastMouseX = e.clientX;
         this.lastMouseY = e.clientY;
       }
-    });
-
-    window.addEventListener('mouseup', () => {
-      this.mouseDown = false;
-    });
-
-    window.addEventListener('mousemove', (e) => {
+    };
+    this.boundOnMouseUp = () => { this.mouseDown = false; };
+    this.boundOnMouseMove = (e: MouseEvent) => {
       if (this.mouseDown) {
         const deltaX = e.clientX - this.lastMouseX;
         const deltaY = e.clientY - this.lastMouseY;
-
         this.yaw += deltaX * this.rotateSpeed;
         this.pitch -= deltaY * this.rotateSpeed;
-
-        // Clamp pitch to prevent gimbal lock
         this.pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.pitch));
-
         this.lastMouseX = e.clientX;
         this.lastMouseY = e.clientY;
       }
-    });
+    };
+
+    this.setupEventListeners();
+  }
+
+  private setupEventListeners(): void {
+    window.addEventListener('keydown', this.boundOnKeyDown);
+    window.addEventListener('keyup', this.boundOnKeyUp);
+    window.addEventListener('mousedown', this.boundOnMouseDown);
+    window.addEventListener('mouseup', this.boundOnMouseUp);
+    window.addEventListener('mousemove', this.boundOnMouseMove);
   }
 
   public update(deltaTime: number): void {
@@ -123,5 +123,13 @@ export class CameraController {
     // Update camera rotation (reusing pre-allocated target vector)
     this._target.copy(this.camera.position).add(this._forward);
     this.camera.lookAt(this._target);
+  }
+
+  public dispose(): void {
+    window.removeEventListener('keydown', this.boundOnKeyDown);
+    window.removeEventListener('keyup', this.boundOnKeyUp);
+    window.removeEventListener('mousedown', this.boundOnMouseDown);
+    window.removeEventListener('mouseup', this.boundOnMouseUp);
+    window.removeEventListener('mousemove', this.boundOnMouseMove);
   }
 }

@@ -40,6 +40,8 @@ const CURRENT_CONFIG = {
  */
 class SimplexTurbulence {
   private seed: number;
+  // Pre-allocated result vector to avoid GC pressure in hot path
+  private _result: THREE.Vector3 = new THREE.Vector3();
   
   constructor(seed: number = Math.random() * 1000) {
     this.seed = seed;
@@ -51,21 +53,22 @@ class SimplexTurbulence {
     return (n - Math.floor(n)) * 2 - 1;
   }
   
+  /** Returns a reusable Vector3 — do NOT store the reference. */
   turbulence(x: number, y: number, z: number, octaves: number = 3): THREE.Vector3 {
-    let result = new THREE.Vector3();
+    this._result.set(0, 0, 0);
     let amplitude = 1.0;
     let frequency = 1.0;
     
     for (let i = 0; i < octaves; i++) {
-      result.x += this.noise3D(x * frequency, y * frequency, z * frequency) * amplitude;
-      result.y += this.noise3D(x * frequency + 100, y * frequency + 100, z * frequency) * amplitude;
-      result.z += this.noise3D(x * frequency, y * frequency + 200, z * frequency + 200) * amplitude;
+      this._result.x += this.noise3D(x * frequency, y * frequency, z * frequency) * amplitude;
+      this._result.y += this.noise3D(x * frequency + 100, y * frequency + 100, z * frequency) * amplitude;
+      this._result.z += this.noise3D(x * frequency, y * frequency + 200, z * frequency + 200) * amplitude;
       
       amplitude *= 0.5;
       frequency *= 2.0;
     }
     
-    return result;
+    return this._result;
   }
 }
 

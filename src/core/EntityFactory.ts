@@ -2,7 +2,7 @@ import { addEntity, addComponent } from 'bitecs';
 import type { OceanWorld } from './World';
 import { Position, Velocity, Acceleration, Rotation, Scale } from '../components/Transform';
 import { Health, Energy, Size, Species, CreatureType, SwimmingStyle } from '../components/Biology';
-import { FIRA, Vision, Memory, Wander } from '../components/Behavior';
+import { FIRA, Vision, Memory, Wander, SchoolLeader } from '../components/Behavior';
 import { Mesh, Color, Animation, DepthZone } from '../components/Rendering';
 import { initializeBurstGlideParams } from '../systems/BiomechanicalAnimationSystem';
 // Note: TurtleGeometry, BottomDwellerGeometry, and WhaleGeometry are used by the rendering system,
@@ -147,6 +147,12 @@ export function createFish(
   Animation.frequency[eid] = 2.0;
   Animation.amplitude[eid] = 0.2;
   Animation.waveSpeed[eid] = 1.0;
+
+  // School leader component (default: no school, assigned by spawnFishSchool)
+  addComponent(world, eid, SchoolLeader);
+  SchoolLeader.schoolId[eid] = 0;
+  SchoolLeader.isLeader[eid] = 0;
+  SchoolLeader.leaderId[eid] = 0;
 
   addComponent(world, eid, DepthZone);
   DepthZone.depthMeters[eid] = Math.abs(y);

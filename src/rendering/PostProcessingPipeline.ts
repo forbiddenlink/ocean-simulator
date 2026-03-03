@@ -147,12 +147,12 @@ class UnderwaterColorGradingEffect extends Effect {
       blendFunction: BlendFunction.NORMAL,
       uniforms: new Map<string, THREE.Uniform>([
         // Beer-Lambert absorption coefficients (per meter)
-        // Enhanced for more dramatic color shift with depth
-        ['absorptionR', new THREE.Uniform(0.50)],   // Red fades faster
-        ['absorptionG', new THREE.Uniform(0.18)],   // Green fades moderately
-        ['absorptionB', new THREE.Uniform(0.04)],   // Blue penetrates deepest
-        ['absorptionScale', new THREE.Uniform(0.10)], // Stronger overall absorption
-        ['turbidity', new THREE.Uniform(0.6)],       // Slightly more turbid water
+        // Tuned for dramatic, physically-motivated underwater color shift
+        ['absorptionR', new THREE.Uniform(0.55)],   // Red fades fastest — very noticeable
+        ['absorptionG', new THREE.Uniform(0.16)],   // Green fades moderately
+        ['absorptionB', new THREE.Uniform(0.035)],  // Blue penetrates deepest
+        ['absorptionScale', new THREE.Uniform(0.08)], // Balanced absorption strength
+        ['turbidity', new THREE.Uniform(0.45)],      // Moderate turbidity for clear-ish water
         ['cameraDepth', new THREE.Uniform(12.0)],
         // Camera projection parameters for depth buffer reading
         ['cameraNear', new THREE.Uniform(0.1)],
@@ -190,6 +190,7 @@ export class PostProcessingPipeline {
   private godRaysEffect?: GodRaysEffect;
   private bloomEffect: BloomEffect;
   private sunMesh?: THREE.Mesh;
+  private sunMaterial?: THREE.MeshBasicMaterial;
   private underwaterColorGrading: UnderwaterColorGradingEffect;
   private vignetteEffect: VignetteEffect;
   private chromaAberration: ChromaticAberrationEffect;
@@ -197,6 +198,8 @@ export class PostProcessingPipeline {
   private filmGrain: NoiseEffect;
   private underwaterDistortion: UnderwaterDistortionEffect;
   private distortionTime: number = 0;
+  private godRayBaseWeight: number = 0.35;
+  private godRayBaseExposure: number = 0.4;
 
   constructor(
     renderer: THREE.WebGLRenderer,
@@ -215,20 +218,20 @@ export class PostProcessingPipeline {
     // Create sun mesh for god rays (positioned above water surface)
     this.createSunMesh(scene);
 
-    // Bloom effect - enhanced for more dramatic underwater glow
+    // Bloom effect - tuned for soft underwater glow and bioluminescent highlights
     this.bloomEffect = new BloomEffect({
-      intensity: 0.7,
-      luminanceThreshold: 0.5,
-      luminanceSmoothing: 0.9,
+      intensity: 0.8,
+      luminanceThreshold: 0.45,
+      luminanceSmoothing: 0.85,
       mipmapBlur: true,
       kernelSize: KernelSize.LARGE,
     });
 
-    // Depth of Field - subtle cinematic focus effect
+    // Depth of Field - cinematic underwater focus (objects in mid-ground sharp, bg/fg soft)
     this.depthOfField = new DepthOfFieldEffect(camera, {
-      focusDistance: 0.015,   // Focus at ~15m
-      focalLength: 0.035,     // Moderate focal length
-      bokehScale: 2.0,        // Subtle bokeh blur
+      focusDistance: 0.012,   // Focus at ~12m — matches typical fish viewing distance
+      focalLength: 0.04,      // Wider aperture for more noticeable bokeh
+      bokehScale: 2.5,        // Slightly larger bokeh discs
       height: 480,
     });
 
@@ -238,48 +241,49 @@ export class PostProcessingPipeline {
     });
     this.filmGrain.blendMode.opacity.value = 0.08; // Very subtle
 
-    // Underwater distortion - heat-haze/refraction effect
+    // Underwater distortion - subtle refraction wavering for immersive atmosphere
     this.underwaterDistortion = new UnderwaterDistortionEffect();
+    this.underwaterDistortion.setIntensity(0.8); // Slightly less aggressive for realism
 
-    // God rays effect - enhanced for dramatic underwater light shafts
+    // God rays effect - dramatic underwater light shafts with higher quality
     if (this.sunMesh) {
       this.godRaysEffect = new GodRaysEffect(camera, this.sunMesh, {
         height: 480,
-        kernelSize: KernelSize.SMALL,
-        density: 0.95,
-        decay: 0.93,
-        weight: 0.25,       // More visible rays
-        exposure: 0.35,     // Brighter exposure
-        samples: 40,        // Smoother rays
-        clampMax: 0.8,
+        kernelSize: KernelSize.MEDIUM,
+        density: 0.96,
+        decay: 0.94,
+        weight: 0.35,       // Stronger visible rays for dramatic underwater shafts
+        exposure: 0.4,      // Brighter exposure for more visible beams
+        samples: 60,        // Higher sample count for smoother, artifact-free rays
+        clampMax: 0.9,
       });
     }
 
     // Underwater color grading effect (Phase 3)
     this.underwaterColorGrading = new UnderwaterColorGradingEffect();
 
-    // Tone mapping for HDR-like appearance - balanced for underwater
+    // Tone mapping - ACES Filmic for cinematic underwater look with rich contrast
     const toneMappingEffect = new ToneMappingEffect({
-      mode: 2, // ACES Filmic
+      mode: 2, // ACES Filmic — best for underwater with wide dynamic range
       resolution: 256,
-      whitePoint: 4.0, // Reduced from 6.0 to prevent over-bright areas
-      middleGrey: 0.6, // Reduced from 0.8 for better dark tones
-      minLuminance: 0.01,
-      averageLuminance: 0.4,
-      adaptationRate: 1.0,
+      whitePoint: 5.0, // Slightly higher to preserve bright caustics and specular
+      middleGrey: 0.55, // Slightly lower for deeper, richer darks
+      minLuminance: 0.005,
+      averageLuminance: 0.35,
+      adaptationRate: 0.8, // Slower adaptation for smoother exposure changes
     });
 
-    // Chromatic aberration for subtle underwater lens distortion
+    // Chromatic aberration — mimics light refraction through water
     this.chromaAberration = new ChromaticAberrationEffect({
-      offset: new THREE.Vector2(0.0008, 0.0005),
-      radialModulation: false,
-      modulationOffset: 0.15,
+      offset: new THREE.Vector2(0.001, 0.0006),
+      radialModulation: true,   // Stronger at edges like a real underwater lens
+      modulationOffset: 0.2,
     });
 
-    // Vignette for cinematic look - stronger darkening at edges
+    // Vignette — natural underwater visibility falloff at edges
     this.vignetteEffect = new VignetteEffect({
-      offset: 0.4,
-      darkness: 0.5,
+      offset: 0.35,
+      darkness: 0.55,
     });
 
     // SMAA antialiasing for smooth edges
@@ -323,13 +327,13 @@ export class PostProcessingPipeline {
    */
   private createSunMesh(scene: THREE.Scene): void {
     const sunGeometry = new THREE.SphereGeometry(8, 16, 16);
-    const sunMaterial = new THREE.MeshBasicMaterial({
+    this.sunMaterial = new THREE.MeshBasicMaterial({
       color: 0xddeeff,
       transparent: true,
       opacity: 0.85,
     });
 
-    this.sunMesh = new THREE.Mesh(sunGeometry, sunMaterial);
+    this.sunMesh = new THREE.Mesh(sunGeometry, this.sunMaterial);
     this.sunMesh.position.set(10, 40, 5);
     this.sunMesh.frustumCulled = false;
     scene.add(this.sunMesh);
@@ -345,6 +349,38 @@ export class PostProcessingPipeline {
       this.underwaterDistortion.updateTime(this.distortionTime);
     }
     this.composer.render(deltaTime);
+  }
+
+  /**
+   * Update god ray intensity based on camera depth.
+   * Stronger rays when looking up near the surface, fading with depth.
+   */
+  updateGodRayDepth(cameraY: number): void {
+    if (!this.godRaysEffect) return;
+    const depth = Math.max(0, -cameraY);
+    // God rays strongest at 0-15m, fade out by 40m
+    const depthFactor = Math.exp(-depth * 0.04);
+    this.godRaysEffect.godRaysMaterial.weight = this.godRayBaseWeight * (0.3 + 0.7 * depthFactor);
+    this.godRaysEffect.godRaysMaterial.exposure = this.godRayBaseExposure * (0.4 + 0.6 * depthFactor);
+  }
+
+  /**
+   * Update god ray color based on time of day.
+   * Warm at sunrise/sunset, cool at noon, dim at night.
+   */
+  updateGodRayTimeOfDay(timeOfDay: number): void {
+    if (!this.sunMaterial) return;
+    // timeOfDay: 0 = midnight, 0.5 = noon, 1.0 = midnight
+    const sunAngle = Math.sin(timeOfDay * Math.PI);
+    // Dawn/dusk warmth
+    const dawnDusk = Math.exp(-Math.pow((timeOfDay - 0.25) * 4, 2))
+                   + Math.exp(-Math.pow((timeOfDay - 0.75) * 4, 2));
+    const r = 0.85 + 0.15 * dawnDusk;
+    const g = 0.9 - 0.1 * dawnDusk;
+    const b = 1.0 - 0.25 * dawnDusk;
+    this.sunMaterial.color.setRGB(r, g, b);
+    // Dim sun mesh at night
+    this.sunMaterial.opacity = 0.2 + 0.65 * Math.max(0, sunAngle);
   }
 
   /**

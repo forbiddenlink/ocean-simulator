@@ -9,7 +9,12 @@ const POPULATION_LIMITS = {
   shark: 8,
   dolphin: 12,
   jellyfish: 30,
-  ray: 15
+  ray: 15,
+  turtle: 6,
+  crab: 20,
+  starfish: 15,
+  urchin: 15,
+  whale: 3
 };
 
 // Spawning configuration
@@ -40,7 +45,12 @@ export function createPopulationSystem(_world: OceanWorld, entityFactory: any) {
       shark: 0,
       dolphin: 0,
       jellyfish: 0,
-      ray: 0
+      ray: 0,
+      turtle: 0,
+      crab: 0,
+      starfish: 0,
+      urchin: 0,
+      whale: 0
     };
     
     const deadEntities: number[] = [];
@@ -51,7 +61,7 @@ export function createPopulationSystem(_world: OceanWorld, entityFactory: any) {
       const creatureType = CreatureType.type[eid];
       
       // Count populations
-      const typeNames = ['fish', 'shark', 'dolphin', 'jellyfish', 'ray'];
+      const typeNames = ['fish', 'shark', 'dolphin', 'jellyfish', 'ray', 'turtle', 'crab', 'starfish', 'urchin', 'whale'];
       const typeName = typeNames[creatureType] as keyof typeof populations;
       if (typeName) populations[typeName]++;
       
@@ -71,9 +81,19 @@ export function createPopulationSystem(_world: OceanWorld, entityFactory: any) {
         );
       }
       
-      // Natural energy drain (metabolism) - very slow for visual demo
-      Energy.current[eid] -= 0.05 * deltaTime; // Reduced from 0.5 - 10x slower drain
-      Energy.current[eid] = Math.max(0, Energy.current[eid]);
+      // Natural energy drain using per-creature metabolism rate
+      // Bottom dwellers (crab=6, starfish=7, urchin=8) use their own very low rates
+      const metabolismRate = Energy.metabolismRate[eid] || 0.05;
+      Energy.current[eid] -= metabolismRate * deltaTime;
+
+      // Passive energy recovery for non-predators (simulates filter feeding, grazing, scavenging)
+      // This prevents the entire prey population from collapsing
+      if (CreatureType.isPredator[eid] === 0) {
+        const recoveryRate = Energy.recoveryRate[eid] || 0.03;
+        Energy.current[eid] += recoveryRate * deltaTime;
+      }
+
+      Energy.current[eid] = Math.max(0, Math.min(Energy.max[eid], Energy.current[eid]));
       
       // Death check
       if (currentHealth <= 0 || currentEnergy <= SPAWN_CONFIG.DEATH_ENERGY_THRESHOLD) {
@@ -148,6 +168,23 @@ export function createPopulationSystem(_world: OceanWorld, entityFactory: any) {
             const raySpecies = ['manta', 'eagle', 'stingray', 'electric'][spawn.variant];
             newEntity = entityFactory.createRay(world, x, y, z, raySpecies);
             break;
+          case 5: // turtle
+            const turtleSpecies = ['green', 'hawksbill', 'loggerhead'][spawn.variant];
+            newEntity = entityFactory.createTurtle(world, x, y, z, turtleSpecies);
+            break;
+          case 6: // crab
+            newEntity = entityFactory.createCrab(world, x, y, z);
+            break;
+          case 7: // starfish
+            newEntity = entityFactory.createStarfish(world, x, y, z);
+            break;
+          case 8: // sea urchin
+            newEntity = entityFactory.createSeaUrchin(world, x, y, z);
+            break;
+          case 9: // whale
+            const whaleSpecies = ['humpback', 'blue'][spawn.variant];
+            newEntity = entityFactory.createWhale(world, x, y, z, whaleSpecies);
+            break;
         }
         
         if (newEntity) {
@@ -177,6 +214,11 @@ export function getPopulationStats(world: OceanWorld) {
     dolphin: 0,
     jellyfish: 0,
     ray: 0,
+    turtle: 0,
+    crab: 0,
+    starfish: 0,
+    urchin: 0,
+    whale: 0,
     predators: 0,
     prey: 0
   };
@@ -185,7 +227,7 @@ export function getPopulationStats(world: OceanWorld) {
     const eid = entities[i];
     const type = CreatureType.type[eid];
     
-    const typeNames = ['fish', 'shark', 'dolphin', 'jellyfish', 'ray'];
+    const typeNames = ['fish', 'shark', 'dolphin', 'jellyfish', 'ray', 'turtle', 'crab', 'starfish', 'urchin', 'whale'];
     const typeName = typeNames[type] as keyof typeof stats;
     if (typeName && typeof stats[typeName] === 'number') {
       (stats[typeName] as number)++;

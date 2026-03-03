@@ -25,7 +25,7 @@ export class SeaAnemones {
       scene.add(anemone);
     }
     
-    console.log(`🌺 Created ${count} sea anemones`);
+    // console.log(`🌺 Created ${count} sea anemones`);
   }
   
   /**

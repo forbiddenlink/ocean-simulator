@@ -27,6 +27,16 @@ export const Wander = {
 };
 
 /**
+ * School leader component - Designates leader fish and tracks school membership
+ * Leaders have higher wander and lower cohesion; followers get extra cohesion toward leader.
+ */
+export const SchoolLeader = {
+  schoolId: [] as number[],     // Which school this entity belongs to (0 = no school)
+  isLeader: [] as number[],     // 1 = leader, 0 = follower
+  leaderId: [] as number[],     // Entity ID of the school's leader (for followers)
+};
+
+/**
  * Vision component - Field of view and blind spots
  */
 export const Vision = {

@@ -26,7 +26,7 @@ export class KelpForest {
       this.scene.add(kelpPlant);
     }
     
-    console.log(`🌿 Created kelp forest with ${count} plants`);
+    // Kelp forest created silently (no console spam)
   }
   
   /**

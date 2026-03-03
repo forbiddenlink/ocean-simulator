@@ -15,7 +15,7 @@ import { createPopulationSystem } from './systems/PopulationSystem';
 import { createOceanCurrentsSystem } from './systems/OceanCurrentsSystem';
 import { createBiomechanicalAnimationSystem } from './systems/BiomechanicalAnimationSystem';
 import { UIManager } from './ui/UIManager';
-import { FIRA } from './components/Behavior';
+import { FIRA, SchoolLeader } from './components/Behavior';
 import GUI from 'lil-gui';
 
 // Debug flag - set to true for development debugging
@@ -51,18 +51,18 @@ export class OceanSimulator {
     lookPreset: 'tropical-clear' as 'tropical-clear' | 'inky-cinematic',
 
     // Cinematic / Post
-    bloomIntensity: 0.55,
-    bloomThreshold: 0.55,
-    absorptionScale: 0.065, // tropical-clear: slightly less absorption
-    turbidity: 0.35,
-    vignetteOffset: 0.32,
-    vignetteDarkness: 0.28,
-    chromaX: 0.0007,
-    chromaY: 0.00045,
+    bloomIntensity: 0.8,
+    bloomThreshold: 0.45,
+    absorptionScale: 0.08,
+    turbidity: 0.45,
+    vignetteOffset: 0.35,
+    vignetteDarkness: 0.55,
+    chromaX: 0.001,
+    chromaY: 0.0006,
 
     // Lighting
-    ambientIntensity: 0.35,
-    sunIntensity: 1.8,
+    ambientIntensity: 0.9,
+    sunIntensity: 2.4,
 
     // Camera
     cameraX: 0,
@@ -126,16 +126,16 @@ export class OceanSimulator {
     // Defaults tuned for “stylized art piece” mode (but with a clear preset toggle)
     const presets: Record<typeof preset, Partial<typeof this.debugParams>> = {
       'tropical-clear': {
-        bloomIntensity: 0.55,
-        bloomThreshold: 0.55,
-        absorptionScale: 0.065,
-        turbidity: 0.35,
-        vignetteOffset: 0.32,
-        vignetteDarkness: 0.28,
-        chromaX: 0.0007,
-        chromaY: 0.00045,
-        ambientIntensity: 0.35,
-        sunIntensity: 1.8,
+        bloomIntensity: 0.8,
+        bloomThreshold: 0.45,
+        absorptionScale: 0.08,
+        turbidity: 0.45,
+        vignetteOffset: 0.35,
+        vignetteDarkness: 0.55,
+        chromaX: 0.001,
+        chromaY: 0.0006,
+        ambientIntensity: 0.9,
+        sunIntensity: 2.4,
       },
       'inky-cinematic': {
         bloomIntensity: 0.35,
@@ -412,6 +412,9 @@ export class OceanSimulator {
   /**
    * Helper to spawn a school of fish in a specific location
    */
+  // Auto-incrementing school ID counter
+  private nextSchoolId: number = 1;
+
   private spawnFishSchool(
     count: number, 
     centerY: number, 
@@ -420,6 +423,9 @@ export class OceanSimulator {
     radius: number,
     sizeScale: number = 1.0
   ): void {
+    const schoolId = this.nextSchoolId++;
+    let leaderId = 0;
+
     for (let i = 0; i < count; i++) {
       const angle1 = Math.random() * Math.PI * 2;
       const angle2 = Math.random() * Math.PI * 2;
@@ -436,6 +442,21 @@ export class OceanSimulator {
       Scale.x[eid] *= sizeScale * sizeVariation;
       Scale.y[eid] *= sizeScale * sizeVariation;
       Scale.z[eid] *= sizeScale * sizeVariation;
+
+      // === School leader assignment ===
+      SchoolLeader.schoolId[eid] = schoolId;
+      if (i === 0) {
+        // First fish is the leader: more wander, less cohesion
+        SchoolLeader.isLeader[eid] = 1;
+        SchoolLeader.leaderId[eid] = 0;
+        leaderId = eid;
+        FIRA.wanderWeight[eid] = 0.4;     // Leaders explore more
+        FIRA.cohesionWeight[eid] = 1.0;   // Less pulled to center
+      } else {
+        // Followers: normal flocking + extra pull toward leader
+        SchoolLeader.isLeader[eid] = 0;
+        SchoolLeader.leaderId[eid] = leaderId;
+      }
     }
   }
   
@@ -499,12 +520,18 @@ export class OceanSimulator {
 
       this.pipeline(this.world);
     }
-    
+
     // Update rendering (always runs)
     this.renderEngine.update(this.world.time.delta);
+
+    // Sync time of day from HDRI to world (for next frame's behavior systems)
+    const hdri = this.renderEngine.getHDRIEnvironment();
+    if (hdri) {
+      this.world.timeOfDay = hdri.getTimeOfDay();
+    }
     
-    // Render (always runs)
-    this.renderEngine.render();
+    // Render (always runs) - pass deltaTime for post-processing distortion animation
+    this.renderEngine.render(this.world.time.delta);
     
     // Update UI stats periodically
     this.statsUpdateTimer += deltaTime;
@@ -527,6 +554,7 @@ export class OceanSimulator {
   public dispose(): void {
     this.stop();
     this.meshPool.dispose();
+    this.cameraController.dispose();
     this.renderEngine.dispose();
     this.uiManager.dispose();
     this.debugGui.destroy();
@@ -554,17 +582,16 @@ export class OceanSimulator {
    * Setup ocean parameter controls
    */
   private setupOceanControls(): void {
-    // Wind speed control
+    // Wind speed control - update FFT ocean in real time
     this.uiManager.onWindSpeed((speed) => {
       if (DEBUG) console.log(`🌬️  Wind speed: ${speed} m/s`);
-      // Note: Changing FFT parameters requires regenerating spectrum
-      // For now, log the change. Full implementation would recreate FFT ocean.
+      this.renderEngine.setOceanParam('windSpeed', speed);
     });
 
-    // Wave amplitude control
+    // Wave amplitude control - update FFT ocean in real time
     this.uiManager.onWaveAmplitude((amplitude) => {
       if (DEBUG) console.log(`🌊 Wave amplitude: ${amplitude}x`);
-      // Similar to wind speed, would require FFT regeneration
+      this.renderEngine.setOceanParam('amplitude', amplitude);
     });
     
     // Time of day control

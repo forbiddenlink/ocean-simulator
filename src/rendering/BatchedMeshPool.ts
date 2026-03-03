@@ -14,6 +14,9 @@ import { BottomDwellerGeometry } from '../creatures/BottomDwellers';
 import { WhaleGeometry } from '../creatures/WhaleGeometry';
 import { applyBiomechanicalAnimationToMesh } from '../systems/BiomechanicalAnimationSystem';
 
+// Debug flag - set to true for development debugging
+const DEBUG = false;
+
 /**
  * Batched rendering system using InstancedMesh for massive performance gains
  * Uses instancing for simple fish (most numerous), individual meshes for complex creatures
@@ -54,6 +57,7 @@ export class BatchedMeshPool {
   private tempQuaternion: THREE.Quaternion = new THREE.Quaternion();
   private tempScale: THREE.Vector3 = new THREE.Vector3(1, 1, 1);
   private tempEuler: THREE.Euler = new THREE.Euler();
+  private tempColor: THREE.Color = new THREE.Color();
   private animPhaseAttributes: THREE.InstancedBufferAttribute[] = [];
   private animSpeedAttributes: THREE.InstancedBufferAttribute[] = [];
 
@@ -106,7 +110,9 @@ export class BatchedMeshPool {
     }
 
     const totalCapacity = this.MAX_FISH_PER_TYPE * 4;
-    console.log(`🐟 Created 4 instanced mesh pools (${BODY_TYPE_NAMES.join(', ')}) for ${totalCapacity} total fish`);
+    if (DEBUG) {
+      console.log(`🐟 Created 4 instanced mesh pools (${BODY_TYPE_NAMES.join(', ')}) for ${totalCapacity} total fish`);
+    }
   }
 
   /**
@@ -115,22 +121,23 @@ export class BatchedMeshPool {
   private createFishMaterial(): THREE.MeshPhysicalMaterial {
     const material = new THREE.MeshPhysicalMaterial({
       color: 0xffffff,
-      metalness: 0.25,           // Slightly more metallic for wet scales
-      roughness: 0.35,           // Smoother for wet look
+      metalness: 0.2,            // Moderate metalness for wet scales
+      roughness: 0.28,           // Smooth for wet look
       flatShading: false,
       side: THREE.DoubleSide,
-      emissive: new THREE.Color(0x446688),
-      emissiveIntensity: 0.25,
-      iridescence: 0.6,          // More iridescence for fish scales
-      iridescenceIOR: 1.5,
-      iridescenceThicknessRange: [100, 500],
-      clearcoat: 0.5,            // Strong clearcoat for wet sheen
-      clearcoatRoughness: 0.15,  // Very smooth clearcoat
-      sheen: 0.3,                // Subtle sheen for organic look
-      sheenRoughness: 0.4,
-      sheenColor: new THREE.Color(0x88aacc),
-      transmission: 0.05,        // Very slight translucency
+      emissive: new THREE.Color(0x223355),
+      emissiveIntensity: 0.15,   // Subtle fill — main light comes from scene
+      iridescence: 0.7,          // Strong fish-scale iridescence
+      iridescenceIOR: 1.4,
+      iridescenceThicknessRange: [80, 450],
+      clearcoat: 0.45,           // Wet sheen
+      clearcoatRoughness: 0.12,  // Very smooth clearcoat
+      sheen: 0.25,               // Organic softness
+      sheenRoughness: 0.35,
+      sheenColor: new THREE.Color(0x7799bb),
+      transmission: 0.04,        // Very slight translucency
       thickness: 0.1,
+      specularIntensity: 0.7,    // Visible specular on scales
     });
 
     // Inject GPU swimming animation into vertex shader
@@ -286,8 +293,8 @@ attribute float finType;
       instance.lastYaw = yaw;
 
       this.tempEuler.set(pitch, yaw, roll, 'YXZ');
-      const targetQuat = new THREE.Quaternion().setFromEuler(this.tempEuler);
-      instance.lastQuaternion.slerp(targetQuat, 0.15);
+      this.tempQuaternion.setFromEuler(this.tempEuler);
+      instance.lastQuaternion.slerp(this.tempQuaternion, 0.15);
       this.tempQuaternion.copy(instance.lastQuaternion);
     }
 
@@ -298,26 +305,39 @@ attribute float finType;
     mesh.instanceMatrix.needsUpdate = true;
 
     // Update swimming animation attributes
+    // LOD: reduce update frequency for distant fish (>30m) to save GPU bandwidth
     if (animPhaseAttr && animSpeedAttr) {
-      const dt = _world.time.delta;
-      const maxSpeed = 3.0;
-      const raw = Math.min(1.0, speed / maxSpeed);
+      const camPos = this.renderEngine.camera.position;
+      const dx = this.tempPosition.x - camPos.x;
+      const dy = this.tempPosition.y - camPos.y;
+      const dz = this.tempPosition.z - camPos.z;
+      const distSq = dx * dx + dy * dy + dz * dz;
 
-      // Visual animation should still read at low cruising speeds.
-      // Keep a baseline so fish don't look "frozen" when they slow down.
-      const normalizedSpeed = Math.min(1.0, 0.25 + raw * 0.75);
+      // Distant fish (>30m): update every 3rd frame; very distant (>60m): every 6th
+      const frameSkip = distSq > 3600 ? 6 : (distSq > 900 ? 3 : 1);
+      const shouldUpdate = frameSkip === 1 || (instanceId % frameSkip === (Math.floor(_world.time.elapsed * 60) % frameSkip));
 
-      const currentPhase = (animPhaseAttr.array as Float32Array)[instanceId] || 0;
-      (animPhaseAttr.array as Float32Array)[instanceId] =
-        currentPhase + (2.0 + normalizedSpeed * 6.0) * dt * Math.PI * 2;
-      (animSpeedAttr.array as Float32Array)[instanceId] = normalizedSpeed;
+      if (shouldUpdate) {
+        const dt = _world.time.delta * frameSkip; // Compensate for skipped frames
+        const maxSpeed = 3.0;
+        const raw = Math.min(1.0, speed / maxSpeed);
+
+        // Visual animation should still read at low cruising speeds.
+        // Keep a baseline so fish don't look "frozen" when they slow down.
+        const normalizedSpeed = Math.min(1.0, 0.25 + raw * 0.75);
+
+        const currentPhase = (animPhaseAttr.array as Float32Array)[instanceId] || 0;
+        (animPhaseAttr.array as Float32Array)[instanceId] =
+          currentPhase + (2.0 + normalizedSpeed * 6.0) * dt * Math.PI * 2;
+        (animSpeedAttr.array as Float32Array)[instanceId] = normalizedSpeed;
+      }
     }
 
-    // Update color if changed
-    const currentColor = new THREE.Color(Color.r[eid], Color.g[eid], Color.b[eid]);
-    if (!instance.color.equals(currentColor)) {
-      instance.color.copy(currentColor);
-      mesh.setColorAt(instanceId, currentColor);
+    // Update color if changed (reuse tempColor to avoid allocation)
+    this.tempColor.setRGB(Color.r[eid], Color.g[eid], Color.b[eid]);
+    if (!instance.color.equals(this.tempColor)) {
+      instance.color.copy(this.tempColor);
+      mesh.setColorAt(instanceId, this.tempColor);
       if (mesh.instanceColor) {
         mesh.instanceColor.needsUpdate = true;
       }
@@ -405,68 +425,82 @@ attribute float finType;
     switch (type) {
       case 1: // Shark - realistic slate gray with wet skin
         return new THREE.MeshPhysicalMaterial({
-          color: 0x8898a8,
-          roughness: 0.4,         // Smoother for wet skin
-          metalness: 0.2,
-          emissive: new THREE.Color(0x3a4a5a),
-          emissiveIntensity: 0.3,
-          clearcoat: 0.3,         // Wet sheen
-          clearcoatRoughness: 0.2,
-          sheen: 0.2,
-          sheenRoughness: 0.5,
-          sheenColor: new THREE.Color(0x667788),
+          color: 0x7a8a9a,
+          roughness: 0.3,         // Smooth wet skin
+          metalness: 0.15,
+          emissive: new THREE.Color(0x2a3a4a),
+          emissiveIntensity: 0.2,
+          clearcoat: 0.4,         // Strong wet sheen
+          clearcoatRoughness: 0.15,
+          sheen: 0.25,
+          sheenRoughness: 0.4,
+          sheenColor: new THREE.Color(0x778899),
+          iridescence: 0.1,       // Very subtle sheen on wet skin
+          iridescenceIOR: 1.33,   // Water IOR for realism
         });
 
       case 2: // Dolphin - smooth wet skin with subtle iridescence
         return new THREE.MeshPhysicalMaterial({
-          color: 0x9aacbc,
-          roughness: 0.25,        // Very smooth dolphin skin
-          metalness: 0.25,
-          emissive: new THREE.Color(0x4a5a6a),
-          emissiveIntensity: 0.3,
-          clearcoat: 0.5,         // Strong wet sheen
-          clearcoatRoughness: 0.1,
-          iridescence: 0.3,       // Subtle rainbow sheen
-          iridescenceIOR: 1.4,
+          color: 0x8aa0b8,
+          roughness: 0.2,         // Very smooth dolphin skin
+          metalness: 0.2,
+          emissive: new THREE.Color(0x3a4a5a),
+          emissiveIntensity: 0.2,
+          clearcoat: 0.6,         // Strong wet sheen
+          clearcoatRoughness: 0.08,
+          iridescence: 0.35,      // Subtle rainbow sheen
+          iridescenceIOR: 1.35,
+          iridescenceThicknessRange: [100, 300],
+          sheen: 0.2,
+          sheenRoughness: 0.3,
+          sheenColor: new THREE.Color(0x8899aa),
         });
 
       case 3: // Jellyfish - highly translucent with bioluminescent glow
         return new THREE.MeshPhysicalMaterial({
-          color: 0xccddff,
-          roughness: 0.1,
+          color: 0xbbd0ff,
+          roughness: 0.05,
           metalness: 0.0,
-          transmission: 0.75,     // More translucent
-          thickness: 0.8,
+          transmission: 0.82,     // Highly translucent
+          thickness: 1.0,
           transparent: true,
-          opacity: 0.85,
-          emissive: new THREE.Color(0x7799cc),
-          emissiveIntensity: 0.7, // Stronger glow
-          ior: 1.4,               // Glass-like refraction
+          opacity: 0.9,
+          emissive: new THREE.Color(0x6688bb),
+          emissiveIntensity: 0.8, // Strong bioluminescent glow
+          ior: 1.33,              // Water-like refraction
+          iridescence: 0.4,       // Jellyfish body iridescence
+          iridescenceIOR: 1.3,
+          iridescenceThicknessRange: [150, 500],
+          specularIntensity: 0.8, // Specular highlights on bell
         });
 
-      case 4: // Ray - smooth with slight pattern
+      case 4: // Ray - smooth skin with subtle counter-shading
         return new THREE.MeshPhysicalMaterial({
-          color: 0x788888,
-          roughness: 0.35,
-          metalness: 0.15,
-          emissive: new THREE.Color(0x334444),
-          emissiveIntensity: 0.3,
-          clearcoat: 0.25,
-          clearcoatRoughness: 0.3,
+          color: 0x6a8080,
+          roughness: 0.3,
+          metalness: 0.1,
+          emissive: new THREE.Color(0x2a3a3a),
+          emissiveIntensity: 0.2,
+          clearcoat: 0.35,
+          clearcoatRoughness: 0.2,
+          sheen: 0.15,
+          sheenRoughness: 0.5,
+          sheenColor: new THREE.Color(0x668888),
         });
 
       case 5: // Turtle - realistic shell with organic patterns
         return new THREE.MeshPhysicalMaterial({
-          color: 0x7a9a6a,
-          roughness: 0.55,        // Slightly rough shell
-          metalness: 0.1,
-          emissive: new THREE.Color(0x354530),
-          emissiveIntensity: 0.3,
-          clearcoat: 0.2,         // Wet shell
-          clearcoatRoughness: 0.4,
-          sheen: 0.15,
-          sheenRoughness: 0.6,
-          sheenColor: new THREE.Color(0x556644),
+          color: 0x6a8a5a,
+          roughness: 0.5,
+          metalness: 0.08,
+          emissive: new THREE.Color(0x2a3a20),
+          emissiveIntensity: 0.2,
+          clearcoat: 0.35,        // Wet shell sheen
+          clearcoatRoughness: 0.3,
+          sheen: 0.2,
+          sheenRoughness: 0.5,
+          sheenColor: new THREE.Color(0x557744),
+          specularIntensity: 0.6, // Shell has visible specular
         });
 
       case 6: // Crab - reddish-brown (Phase 4: brighter)
@@ -498,28 +532,32 @@ attribute float finType;
 
       case 9: // Whale - realistic massive creature with wet skin
         return new THREE.MeshPhysicalMaterial({
-          color: 0x607080,
-          roughness: 0.5,         // Smoother whale skin
-          metalness: 0.15,
-          emissive: new THREE.Color(0x253545),
-          emissiveIntensity: 0.25,
-          clearcoat: 0.3,         // Wet glistening skin
-          clearcoatRoughness: 0.25,
-          sheen: 0.2,
-          sheenRoughness: 0.4,
-          sheenColor: new THREE.Color(0x556677),
+          color: 0x556878,
+          roughness: 0.35,        // Smooth whale skin
+          metalness: 0.1,
+          emissive: new THREE.Color(0x1a2a3a),
+          emissiveIntensity: 0.15,
+          clearcoat: 0.4,         // Wet glistening skin
+          clearcoatRoughness: 0.2,
+          sheen: 0.25,
+          sheenRoughness: 0.35,
+          sheenColor: new THREE.Color(0x667788),
+          iridescence: 0.08,      // Barely visible wet-skin sheen
+          iridescenceIOR: 1.33,
         });
 
       default: // Fallback fish material (for individual non-instanced fish)
         return new THREE.MeshPhysicalMaterial({
           color: 0xffffff,
-          roughness: 0.4,
-          metalness: 0.3,
-          emissive: new THREE.Color(0x224466),
-          emissiveIntensity: 0.3,
-          iridescence: 0.5,
+          roughness: 0.3,
+          metalness: 0.25,
+          emissive: new THREE.Color(0x1a3355),
+          emissiveIntensity: 0.2,
+          iridescence: 0.6,       // Strong fish-scale iridescence
           iridescenceIOR: 1.3,
           iridescenceThicknessRange: [100, 400],
+          clearcoat: 0.3,
+          clearcoatRoughness: 0.15,
         });
     }
   }
@@ -624,15 +662,30 @@ attribute float finType;
       }
       mesh.userData.lastYaw = yaw;
 
-      const targetQuat = new THREE.Quaternion();
       this.tempEuler.set(pitch, yaw, roll, 'YXZ');
-      targetQuat.setFromEuler(this.tempEuler);
-      mesh.quaternion.slerp(targetQuat, 0.15);
+      this.tempQuaternion.setFromEuler(this.tempEuler);
+      mesh.quaternion.slerp(this.tempQuaternion, 0.15);
     }
 
-    // Apply PHOTOREALISTIC biomechanical animation
+    // LOD: Skip expensive biomechanical animation for distant creatures
     const creatureType = CreatureType.type[eid];
-    applyBiomechanicalAnimationToMesh(mesh, eid, creatureType);
+    const cameraDist = mesh.position.distanceTo(this.renderEngine.camera.position);
+    if (cameraDist < 40) {
+      // Full animation for nearby creatures
+      applyBiomechanicalAnimationToMesh(mesh, eid, creatureType);
+    }
+    // Distant creatures (>40m) still get position/rotation updates but skip vertex deformation
+
+    // Emit bubble trails for fast-moving sharks (1), dolphins (2), and whales (9)
+    if (creatureType === 1 || creatureType === 2 || creatureType === 9) {
+      const bubbles = this.renderEngine.getCreatureBubbles();
+      if (bubbles && speed > 1.0) {
+        bubbles.emit(
+          Position.x[eid], Position.y[eid], Position.z[eid],
+          speed, 1.0
+        );
+      }
+    }
 
     // Update scale if exists
     if (Scale.x[eid] !== undefined) {
@@ -714,7 +767,7 @@ attribute float finType;
     }
 
     // DEBUG: Log occasionally
-    if (Math.random() < 0.01) {
+    if (DEBUG && Math.random() < 0.01) {
       const totalFishInstanced = this.fishInstanceCounts.reduce((a, b) => a + b, 0);
       const individualCount = typeCounts.shark + typeCounts.dolphin + typeCounts.jellyfish + typeCounts.ray + typeCounts.turtle + typeCounts.crab + typeCounts.starfish + typeCounts.seaUrchin + typeCounts.whale;
       const bodyTypeCounts = BODY_TYPE_NAMES.map((name, i) => `${name}:${this.fishInstanceCounts[i]}`).join(', ');

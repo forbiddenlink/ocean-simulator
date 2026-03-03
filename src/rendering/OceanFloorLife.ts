@@ -37,7 +37,7 @@ export class OceanFloorLife {
     }
     
     scene.add(group);
-    console.log('🦀 Created ocean floor life (starfish, urchins, shells)');
+    // console.log('🦀 Created ocean floor life');
     
     return group;
   }

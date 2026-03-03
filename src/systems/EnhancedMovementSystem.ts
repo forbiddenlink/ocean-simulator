@@ -100,6 +100,34 @@ export const enhancedMovementSystem = (world: OceanWorld) => {
     // Jellyfish (type 3) need periodic thrust pulses since they have no FIRA system
     if (cType === 3) {
       applyJellyfishPulse(eid, dt, world.time.elapsed);
+
+      // Day/night: jellyfish rise toward surface at night
+      const tod = world.timeOfDay;
+      const sunAngle = Math.sin(tod * Math.PI);
+      const nightFactor = 1.0 - sunAngle; // 0 at noon, 1 at midnight
+      if (nightFactor > 0.5) {
+        // Gentle upward drift at night (jellyfish vertical migration)
+        Velocity.y[eid] += 0.05 * nightFactor * dt;
+      }
+    }
+
+    // === DAY/NIGHT SPEED MODULATION ===
+    // Fish slow down at night; predators are more active at dawn/dusk
+    if (cType === 0 && FIRA.maxSpeed[eid] > 0) {
+      const tod = world.timeOfDay;
+      const sunAngle = Math.sin(tod * Math.PI);
+      // Night: reduce max speed by 30%. smoothstep from dusk to full night.
+      const nightSlowdown = 1.0 - 0.3 * (1.0 - Math.max(0, sunAngle));
+      const currentSpeed = Math.sqrt(
+        Velocity.x[eid] ** 2 + Velocity.y[eid] ** 2 + Velocity.z[eid] ** 2
+      );
+      const nightMaxSpeed = FIRA.maxSpeed[eid] * nightSlowdown;
+      if (currentSpeed > nightMaxSpeed) {
+        const scale = nightMaxSpeed / currentSpeed;
+        Velocity.x[eid] *= scale;
+        Velocity.y[eid] *= scale;
+        Velocity.z[eid] *= scale;
+      }
     }
 
     // Add buoyancy force - skip for bottom dwellers (already handled above)

@@ -4,7 +4,7 @@ import { FFTOcean } from './FFTOcean';
 import { WavelengthLighting } from './WavelengthLighting';
 import { PostProcessingPipeline } from './PostProcessingPipeline';
 import { RealisticOceanFloor } from './RealisticOceanFloor';
-import { UnderwaterParticles, BubbleSystem } from './UnderwaterParticles';
+import { UnderwaterParticles, BubbleSystem, CreatureBubbleTrails } from './UnderwaterParticles';
 import { CausticsEffect } from './Caustics';
 import { BioluminescenceSystem } from './Bioluminescence';
 import { VolumetricFog } from './VolumetricFog';
@@ -44,6 +44,7 @@ export class RenderingEngine {
   private foamSystem?: FoamSystem;
   private sprayParticles?: SprayParticles;
   private hdriEnvironment?: HDRIEnvironment;
+  private creatureBubbles?: CreatureBubbleTrails;
 
   // Store bound event handler to properly remove listener
   private boundOnWindowResize: () => void;
@@ -129,6 +130,7 @@ export class RenderingEngine {
     // Add underwater particles and bubbles
     this.particles = new UnderwaterParticles(this.scene);
     this.bubbles = new BubbleSystem(this.scene);
+    this.creatureBubbles = new CreatureBubbleTrails(this.scene);
 
     // Add caustics
     this.caustics = new CausticsEffect(this.scene, this.renderer);
@@ -157,24 +159,29 @@ export class RenderingEngine {
   private setupLights(): void {
     // Directional light (sun from above) - dramatic underwater sunlight
     // Enhanced for god rays and visible light shafts
-    this.sunLight = new THREE.DirectionalLight(0xaaddee, 2.2); // Brighter, cleaner underwater light
+    this.sunLight = new THREE.DirectionalLight(0xb0ddee, 2.4); // Slightly warm-shifted underwater sunlight
     this.sunLight.position.set(10, 50, 10);
     this.sunLight.castShadow = true;
-    this.sunLight.shadow.mapSize.width = 2048;
-    this.sunLight.shadow.mapSize.height = 2048;
+    this.sunLight.shadow.mapSize.width = 4096;  // Higher res shadows for sharper caustic-like patterns
+    this.sunLight.shadow.mapSize.height = 4096;
     this.sunLight.shadow.camera.near = 0.5;
     this.sunLight.shadow.camera.far = 500;
+    this.sunLight.shadow.camera.left = -80;    // Wider shadow frustum for full scene coverage
+    this.sunLight.shadow.camera.right = 80;
+    this.sunLight.shadow.camera.top = 80;
+    this.sunLight.shadow.camera.bottom = -80;
+    this.sunLight.shadow.bias = -0.0005;        // Reduce shadow acne
     this.scene.add(this.sunLight);
 
-    // Ambient light - balanced for realism with creature visibility
-    const ambientLight = new THREE.AmbientLight(0x5588aa, 1.2);
+    // Ambient light — deeper blue tint for underwater atmosphere
+    const ambientLight = new THREE.AmbientLight(0x4477aa, 0.9);
     this.scene.add(ambientLight);
 
-    // Hemisphere light - natural gradient from surface to depth
+    // Hemisphere light — stronger contrast between surface light and deep shadow
     const hemiLight = new THREE.HemisphereLight(
-      0xaaccee, // Sky color (bright cyan-white from surface)
-      0x223344, // Ground color (dark blue from depth)
-      1.2
+      0x99ccee, // Sky color (bright cyan-white from surface)
+      0x112233, // Ground color (darker blue-black from depth)
+      1.4       // Slightly stronger for more dramatic gradient
     );
     this.scene.add(hemiLight);
 
@@ -183,14 +190,14 @@ export class RenderingEngine {
     fillLight.position.set(0, -30, 0);
     this.scene.add(fillLight);
 
-    // Camera-attached fill light - subtle for nearby creature visibility
-    const cameraFillLight = new THREE.PointLight(0x6688aa, 0.5);
-    cameraFillLight.distance = 30; // Limited range for realism
+    // Camera-attached fill light — subtle blue tint reveals nearby creatures
+    const cameraFillLight = new THREE.PointLight(0x5580aa, 0.6);
+    cameraFillLight.distance = 35; // Slightly wider range
     cameraFillLight.decay = 2;
     this.camera.add(cameraFillLight);
     this.scene.add(this.camera);
 
-    console.log('💡 Underwater lighting configured - blue-tinted for 30m depth');
+    if (DEBUG) console.log('💡 Underwater lighting configured - blue-tinted for 30m depth');
   }
 
   private onWindowResize(): void {
@@ -200,9 +207,9 @@ export class RenderingEngine {
     this.postProcessing.setSize(window.innerWidth, window.innerHeight);
   }
 
-  public render(): void {
-    // Use post-processing for bloom and effects
-    this.postProcessing.render();
+  public render(deltaTime?: number): void {
+    // Use post-processing for bloom and effects (pass deltaTime for distortion animation)
+    this.postProcessing.render(deltaTime);
   }
 
   public update(deltaTime: number): void {
@@ -219,6 +226,9 @@ export class RenderingEngine {
     }
     if (this.bubbles) {
       this.bubbles.update(deltaTime);
+    }
+    if (this.creatureBubbles) {
+      this.creatureBubbles.update(deltaTime);
     }
     
     // Update advanced visual effects (if enabled)
@@ -274,6 +284,9 @@ export class RenderingEngine {
         this.fftOcean.updateSunDirection(sunDir);
       }
 
+      // Sync god rays sun mesh position with actual sun direction
+      this.postProcessing.updateSunPosition(sunDir.clone().multiplyScalar(40));
+
       // Day/night lighting: sun intensity and color
       // timeOfDay: 0 = midnight, 0.5 = noon, 1.0 = midnight
       const sunAngle = Math.sin(timeOfDay * Math.PI); // 0 at night, 1 at noon
@@ -317,6 +330,14 @@ export class RenderingEngine {
     this.postProcessing.updateCameraDepth(this.camera.position.y);
     // Update camera parameters for spectral absorption depth buffer reading
     this.postProcessing.updateCamera(this.camera);
+
+    // Update god rays based on camera depth (stronger near surface)
+    this.postProcessing.updateGodRayDepth(this.camera.position.y);
+
+    // Update god ray color based on time of day
+    if (this.hdriEnvironment) {
+      this.postProcessing.updateGodRayTimeOfDay(this.hdriEnvironment.getTimeOfDay());
+    }
   }
 
   /**
@@ -493,7 +514,7 @@ export class RenderingEngine {
 
     const config = presets[preset];
     if (config) {
-      console.log(`✨ Applying ${preset} quality preset`);
+      if (DEBUG) console.log(`✨ Applying ${preset} quality preset`);
       Object.entries(config).forEach(([param, value]) => {
         this.setOceanParam(param, value);
       });
@@ -505,6 +526,13 @@ export class RenderingEngine {
    */
   public getHDRIEnvironment(): HDRIEnvironment | undefined {
     return this.hdriEnvironment;
+  }
+
+  /**
+   * Get creature bubble trail system (for external emission by mesh pool)
+   */
+  public getCreatureBubbles(): CreatureBubbleTrails | undefined {
+    return this.creatureBubbles;
   }
 
   /**

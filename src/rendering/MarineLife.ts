@@ -33,7 +33,7 @@ export class MarineLife {
     }
     
     scene.add(group);
-    console.log(`🦀 Added ${count} marine creatures (starfish, urchins, crabs)`);
+    // console.log(`🦀 Added ${count} marine creatures`);
     
     return group;
   }

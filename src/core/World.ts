@@ -16,6 +16,8 @@ export interface OceanWorld extends ReturnType<typeof createWorld> {
     fixedTimestep: number;
   };
   spatialGrid: SpatialHashGrid;
+  /** Current time of day (0 = midnight, 0.5 = noon, 1.0 = midnight). Updated by RenderingEngine. */
+  timeOfDay: number;
 }
 
 /**
@@ -41,6 +43,9 @@ export function createOceanWorld(): OceanWorld {
   // Spatial partitioning for efficient neighbor queries
   // Reduces O(n²) neighbor search to O(n·k) where k ≈ 27 cells
   world.spatialGrid = createDefaultSpatialGrid();
+
+  // Day/night cycle (updated by RenderingEngine from HDRIEnvironment)
+  world.timeOfDay = 0.5; // Start at noon
 
   return world;
 }

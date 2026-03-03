@@ -34,7 +34,7 @@ export class CoralFormations {
     }
     
     scene.add(coralGroup);
-    console.log(`🪸 Created ${count} coral formations`);
+    // console.log(`🪸 Created ${count} coral formations`);
     
     return coralGroup;
   }

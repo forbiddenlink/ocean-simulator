@@ -45,6 +45,12 @@ export class FFTOcean {
   // Config
   private choppiness: number = 2.0; // Horizontal displacement strength
   private enableMultiScale: boolean = true; // Enable Gerstner + ripple layers
+  
+  // Cached FFT instance (recreated only on resolution change)
+  private fft: FFT;
+  
+  // Pre-allocated vector for normal computation
+  private _tempNormal: THREE.Vector3 = new THREE.Vector3();
 
   constructor(
     resolution: number = 512,
@@ -70,6 +76,9 @@ export class FFTOcean {
     
     // Create tiling prevention system
     this.tilingPrevention = new TilingPrevention(resolution);
+    
+    // Create cached FFT instance
+    this.fft = new FFT(resolution);
     
     // Allocate FFT data arrays
     const dataSize = resolution * resolution;
@@ -305,11 +314,15 @@ export class FFTOcean {
         return ggx1 * ggx2;
       }
       
-      // Subsurface scattering approximation
+      // Enhanced subsurface scattering with wavelength-dependent forward scatter
       vec3 subsurfaceScattering(vec3 lightDir, vec3 viewDir, vec3 normal, vec3 color) {
-        float scatter = pow(max(0.0, dot(viewDir, -lightDir)), 4.0);
-        float thickness = 0.5; // Approximation
-        return color * scatter * thickness;
+        // Forward scattering (light passing through thin water)
+        float forwardScatter = pow(max(0.0, dot(viewDir, -lightDir)), 6.0);
+        // Back-illumination scatter (light illuminating from behind wave crests)
+        float backScatter = pow(max(0.0, dot(normal, lightDir)), 3.0) * 0.3;
+        // Wavelength-dependent: blue/green scatter more than red
+        vec3 scatterColor = color * vec3(0.6, 0.85, 1.0);
+        return scatterColor * (forwardScatter * 0.6 + backScatter);
       }
       
       // Beer-Lambert law for light absorption with depth
@@ -324,6 +337,59 @@ export class FFTOcean {
         vec3 V = normalize(vViewDirection);
         vec3 L = normalize(sunDirection);
         vec3 H = normalize(V + L);
+        
+        // === SNELL'S WINDOW: Underwater view from below ===
+        if (!gl_FrontFacing) {
+          // Viewing the water surface from below
+          // Flip normal for back face
+          vec3 Nb = -N;
+          
+          // Angle between view direction and surface normal (looking up)
+          float cosViewAngle = max(dot(V, Nb), 0.0);
+          
+          // Snell's window critical angle: arcsin(1/1.333) ≈ 48.6° → cos ≈ 0.6614
+          float criticalCos = 0.6614;
+          
+          // Inside Snell's window: refracted sky visible
+          // Outside: total internal reflection (TIR) — dark blue-green mirror
+          float windowEdge = smoothstep(criticalCos - 0.08, criticalCos + 0.08, cosViewAngle);
+          
+          // Sky color seen through the window (refracted, so brighter near center)
+          vec3 skyThroughWater = vec3(0.35, 0.6, 0.85) * (0.6 + 0.4 * cosViewAngle);
+          // Sun visible through window
+          float sunDot = max(dot(V, L), 0.0);
+          vec3 sunGlare = vec3(1.0, 0.95, 0.85) * pow(sunDot, 64.0) * 2.0;
+          skyThroughWater += sunGlare;
+          
+          // Rippling distortion of the window edge
+          float ripple = sin(vWorldPosition.x * 3.0 + time * 1.5) * 0.02
+                       + sin(vWorldPosition.z * 4.0 + time * 1.2) * 0.015;
+          windowEdge = smoothstep(criticalCos - 0.08 + ripple, criticalCos + 0.08 + ripple, cosViewAngle);
+          
+          // TIR region: dark blue-green with subtle reflected caustic patterns
+          vec3 tirColor = vec3(0.04, 0.12, 0.18);
+          // Add subtle reflected light bouncing off the underside
+          float tirReflection = pow(max(dot(reflect(-V, Nb), L), 0.0), 12.0);
+          tirColor += vec3(0.05, 0.1, 0.15) * tirReflection;
+          
+          // Blend window and TIR
+          vec3 belowColor = mix(tirColor, skyThroughWater, windowEdge);
+          
+          // Fresnel rim brightening at window edge
+          float rimFresnel = pow(1.0 - cosViewAngle, 3.0) * 0.3;
+          belowColor += vec3(0.1, 0.2, 0.3) * rimFresnel;
+          
+          // Distance fog (underwater perspective)
+          float dist = length(vWorldPosition - cameraPosition);
+          float fogF = exp(-dist * 0.002);
+          vec3 underwaterFog = vec3(0.04, 0.10, 0.18);
+          belowColor = mix(underwaterFog, belowColor, fogF);
+          
+          gl_FragColor = vec4(belowColor, 0.95);
+          return;
+        }
+        
+        // === ABOVE-WATER SURFACE VIEW (original path) ===
         
         // Roughness varies with wave height (calm = smooth, rough = choppy)
         float waveRoughness = 0.02 + abs(vHeight) * 0.05;
@@ -343,38 +409,51 @@ export class FFTOcean {
         // Diffuse component (Lambert)
         float NdotL = max(dot(N, L), 0.0);
         
-        // Water color based on depth
-        float depth = abs(vHeight) + 2.0; // Approximate depth
-        vec3 baseColor = mix(shallowColor, deepColor, smoothstep(0.0, 10.0, depth));
+        // Water color based on depth — richer gradient
+        float depth = abs(vHeight) + 2.0;
+        vec3 baseColor = mix(shallowColor, deepColor, smoothstep(0.0, 8.0, depth));
         
         // Apply Beer-Lambert absorption
         vec3 absorbedColor = applyAbsorption(baseColor, depth);
         
-        // Diffuse lighting with water color
-        vec3 diffuse = absorbedColor * waterColor * (0.2 + 0.8 * NdotL);
+        // Diffuse lighting with water color — add ambient occlusion from wave troughs
+        float ao = smoothstep(-1.5, 0.5, vHeight); // Dark in troughs
+        vec3 diffuse = absorbedColor * waterColor * (0.15 + 0.85 * NdotL) * (0.7 + 0.3 * ao);
         
-        // Subsurface scattering (for thin/shallow areas)
-        vec3 sss = subsurfaceScattering(L, V, N, shallowColor) * 0.3;
+        // Enhanced subsurface scattering — brighter at wave crests where water is thin
+        float crestFactor = smoothstep(0.0, 1.5, vHeight); // More SSS at crests
+        vec3 sss = subsurfaceScattering(L, V, N, shallowColor) * (0.35 + crestFactor * 0.4);
         
-        // Specular reflection
-        vec3 specColor = sunColor * specular * sunIntensity;
+        // Specular reflection — dual-lobe: sharp sun highlight + broad sky reflection
+        vec3 specColor = sunColor * specular * sunIntensity * 1.2;
         
-        // Sky reflection approximation (would use environment map in production)
-        vec3 skyColor = mix(vec3(0.5, 0.7, 0.9), vec3(0.1, 0.3, 0.6), abs(N.y));
+        // Foam / whitecaps on wave crests — based on height and steepness
+        float foamThreshold = 1.2;
+        float foamAmount = smoothstep(foamThreshold, foamThreshold + 0.8, vHeight);
+        // Add noise-like variation using world position
+        float foamNoise = fract(sin(dot(vWorldPosition.xz * 3.0, vec2(12.9898, 78.233))) * 43758.5453);
+        foamAmount *= 0.6 + 0.4 * foamNoise;
+        vec3 foamColor = vec3(0.85, 0.92, 0.95) * foamAmount * 0.6;
+        
+        // Sky reflection with depth-varying color — richer reflections
+        vec3 skyColorUp = vec3(0.55, 0.75, 0.95); // Zenith
+        vec3 skyColorHoriz = vec3(0.25, 0.45, 0.7); // Horizon
+        vec3 skyColor = mix(skyColorHoriz, skyColorUp, max(N.y, 0.0));
         vec3 reflection = skyColor * fresnel;
         
         // Combine all components
-        vec3 finalColor = diffuse + specColor + sss + reflection * 0.5;
+        vec3 finalColor = diffuse + specColor + sss + reflection * 0.6 + foamColor;
         
-        // Apply atmospheric perspective for distant water
+        // Apply atmospheric perspective for distant water — depth-colored fog
         float distance = length(vWorldPosition - cameraPosition);
-        float fogFactor = exp(-distance * 0.001);
-        vec3 fogColor = vec3(0.5, 0.7, 0.85);
+        float fogFactor = exp(-distance * 0.0012);
+        vec3 fogColor = mix(vec3(0.08, 0.22, 0.38), vec3(0.4, 0.6, 0.8), 0.3);
         finalColor = mix(fogColor, finalColor, fogFactor);
         
-        // Alpha based on Fresnel and depth
-        float alpha = mix(0.8, 0.98, fresnel);
-        alpha = mix(alpha, 0.95, smoothstep(0.0, 5.0, depth));
+        // Alpha based on Fresnel and depth — more opaque at steep angles
+        float alpha = mix(0.85, 0.99, fresnel);
+        alpha = mix(alpha, 0.96, smoothstep(0.0, 5.0, depth));
+        alpha = mix(alpha, 1.0, foamAmount * 0.5); // Foam is more opaque
         
         gl_FragColor = vec4(finalColor, alpha);
       }
@@ -472,14 +551,12 @@ export class FFTOcean {
    * Perform 2D inverse FFT
    */
   private performIFFT(data: Float32Array): void {
-    const fft = new FFT(this.resolution);
-    
-    // Perform inverse FFT
-    fft.ifft2D(data);
+    // Perform inverse FFT (using cached instance)
+    this.fft.ifft2D(data);
     
     // Also perform IFFT on displacement fields
-    fft.ifft2D(this.displacementX);
-    fft.ifft2D(this.displacementZ);
+    this.fft.ifft2D(this.displacementX);
+    this.fft.ifft2D(this.displacementZ);
   }
 
   /**
@@ -522,13 +599,13 @@ export class FFTOcean {
         const dx = (hR - hL) / (2.0 * scale);
         const dy = (hU - hD) / (2.0 * scale);
         
-        // Normal vector: (-dx, 1, -dy)
-        const normal = new THREE.Vector3(-dx, 1.0, -dy).normalize();
+        // Normal vector: (-dx, 1, -dy) — reuse pre-allocated vector
+        this._tempNormal.set(-dx, 1.0, -dy).normalize();
         
         // Store as RGBA (map [-1,1] to [0,1])
-        data[index * 4 + 0] = normal.x * 0.5 + 0.5;
-        data[index * 4 + 1] = normal.y * 0.5 + 0.5;
-        data[index * 4 + 2] = normal.z * 0.5 + 0.5;
+        data[index * 4 + 0] = this._tempNormal.x * 0.5 + 0.5;
+        data[index * 4 + 1] = this._tempNormal.y * 0.5 + 0.5;
+        data[index * 4 + 2] = this._tempNormal.z * 0.5 + 0.5;
         data[index * 4 + 3] = 1.0;
       }
     }
@@ -591,7 +668,7 @@ export class FFTOcean {
    */
   public setSize(newSize: number): void {
     this.size = newSize;
-    this.material.uniforms.size.value = newSize;
+    this.material.uniforms.oceanSize.value = newSize;
     // Regenerate spectrum with new size
     this.updateFFT(this.time);
   }
@@ -600,8 +677,6 @@ export class FFTOcean {
    * Set FFT resolution (requires regeneration)
    */
   public setResolution(newResolution: number): void {
-    // Store current state
-    const oldResolution = this.resolution;
     this.resolution = newResolution;
 
     // Update spectrum and tiling prevention with new resolution
@@ -614,10 +689,11 @@ export class FFTOcean {
     this.geometry.rotateX(-Math.PI / 2);
     this.mesh.geometry = this.geometry;
 
-    // Recreate FFT data arrays
-    this.heightField = new Float32Array(newResolution * newResolution);
-    this.displacementX = new Float32Array(newResolution * newResolution);
-    this.displacementZ = new Float32Array(newResolution * newResolution);
+    // Recreate FFT data arrays (complex data: 2 floats per element)
+    const complexDataSize = newResolution * newResolution * 2;
+    this.heightField = new Float32Array(complexDataSize);
+    this.displacementX = new Float32Array(complexDataSize);
+    this.displacementZ = new Float32Array(complexDataSize);
 
     // Recreate textures
     this.heightTexture.dispose();
@@ -654,22 +730,23 @@ export class FFTOcean {
     this.displacementTexture.needsUpdate = true;
 
     // Update material uniforms
-    this.material.uniforms.resolution.value = newResolution;
     this.material.uniforms.heightMap.value = this.heightTexture;
     this.material.uniforms.normalMap.value = this.normalTexture;
     this.material.uniforms.displacementMap.value = this.displacementTexture;
 
+    // Recreate cached FFT instance for new resolution
+    this.fft = new FFT(newResolution);
+
     // Regenerate ocean data
     this.updateFFT(this.time);
-
-    console.log(`🌊 FFT Ocean resolution updated: ${oldResolution} → ${newResolution}`);
   }
 
   /**
    * Set wave amplitude
    */
   public setAmplitude(amplitude: number): void {
-    this.material.uniforms.amplitude.value = amplitude;
+    this.spectrum.setWaveAmplitude(amplitude);
+    this.updateFFT(this.time);
   }
 
   /**
