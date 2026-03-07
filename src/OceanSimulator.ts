@@ -111,6 +111,15 @@ export class OceanSimulator {
 
     // Setup debug GUI
     this.debugGui = new GUI({ title: 'Ocean Simulator Debug' });
+    
+    // Style the debug GUI to prevent HUD conflicts
+    const guiContainer = this.debugGui.domElement.parentElement;
+    if (guiContainer) {
+      guiContainer.style.zIndex = '900'; // Below custom UI panels (z-index: 1000)
+      guiContainer.style.top = '280px';  // Below info panel
+      guiContainer.style.right = '20px';
+    }
+    
     this.setupDebugGui();
 
     // Apply initial look preset
