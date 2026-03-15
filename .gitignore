@@ -60,3 +60,9 @@ coverage/
 test_run/
 supabase/.temp/
 dist/
+
+# Build output
+.next/
+dist/
+build/
+out/
