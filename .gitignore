@@ -67,3 +67,4 @@ build/
 out/
 
 # Next.js
+.env*
