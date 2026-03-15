@@ -17,7 +17,7 @@
     "three-stdlib": "^2.36.1",
     "typescript": "~5.9.3",
     "vite": "^7.2.4",
-    "vitest": "^4.0.16"
+    "vitest": "^4.1.0"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
