@@ -29,6 +29,6 @@
     "postprocessing": "^6.38.2",
     "three": "^0.182.0",
     "vite-plugin-glsl": "^1.5.5",
-    "zustand": "^5.0.9"
+    "zustand": "^5.0.11"
   }
 }
