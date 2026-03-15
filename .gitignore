@@ -41,7 +41,6 @@ thoughts/
 .vercel
 
 # Local tool configs (project uses npm, not pnpm)
-pnpm-lock.yaml
 pnpm-workspace.yaml
 squirrel.toml
 .claude
