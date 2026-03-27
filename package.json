@@ -27,7 +27,7 @@
     "bitecs": "^0.4.0",
     "lil-gui": "^0.21.0",
     "postprocessing": "^6.38.2",
-    "three": "^0.182.0",
+    "three": "^0.183.2",
     "vite-plugin-glsl": "^1.5.5",
     "zustand": "^5.0.11"
   }
