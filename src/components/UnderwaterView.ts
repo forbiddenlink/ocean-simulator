@@ -68,12 +68,12 @@ export class UnderwaterView {
 
   // Post-processing elements
   private fullscreenQuad: THREE.Mesh | null = null;
-  private postProcessScene: THREE.Scene;
-  private postProcessCamera: THREE.OrthographicCamera;
+  private _postProcessScene: THREE.Scene;
+  private _postProcessCamera: THREE.OrthographicCamera;
 
   // Settings
   private enableCaustics: boolean;
-  private enableGodRays: boolean;
+  private _enableGodRays: boolean;
   private enableDepthFog: boolean;
 
   constructor(config: UnderwaterViewConfig) {
@@ -82,7 +82,7 @@ export class UnderwaterView {
     this.renderer = config.renderer;
     this.surfaceY = config.surfaceY ?? 0;
     this.enableCaustics = config.enableCaustics ?? true;
-    this.enableGodRays = config.enableGodRays ?? true;
+    this._enableGodRays = config.enableGodRays ?? true;
     this.enableDepthFog = config.enableDepthFog ?? true;
 
     // Initialize underwater lighting
@@ -98,8 +98,8 @@ export class UnderwaterView {
     this.underwaterFog = new THREE.FogExp2(0x0a4a6b, 0.015);
 
     // Setup post-processing
-    this.postProcessScene = new THREE.Scene();
-    this.postProcessCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    this._postProcessScene = new THREE.Scene();
+    this._postProcessCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   }
 
   /**
@@ -222,7 +222,7 @@ export class UnderwaterView {
    * Enable/disable god rays
    */
   public setGodRaysEnabled(enabled: boolean): void {
-    this.enableGodRays = enabled;
+    this._enableGodRays = enabled;
   }
 
   /**
