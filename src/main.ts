@@ -1,5 +1,15 @@
 import './style.css';
+import posthog from 'posthog-js';
 import { OceanSimulator } from './OceanSimulator';
+
+// Initialize PostHog
+if (import.meta.env.VITE_POSTHOG_KEY) {
+  posthog.init(import.meta.env.VITE_POSTHOG_KEY as string, {
+    api_host: (import.meta.env.VITE_POSTHOG_HOST as string) || 'https://us.posthog.com',
+    capture_pageview: true,
+    capture_pageleave: true,
+  });
+}
 
 // Create canvas element
 const canvas = document.createElement('canvas');

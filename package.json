@@ -11,9 +11,13 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "biome:check": "biome check .",
+    "biome:fix": "biome check . --write",
+    "biome:format": "biome format . --write"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.9",
     "@vitest/ui": "^4.0.16",
     "terser": "^5.44.1",
     "three-stdlib": "^2.36.1",
@@ -26,6 +30,7 @@
     "@types/three": "^0.182.0",
     "bitecs": "^0.4.0",
     "lil-gui": "^0.21.0",
+    "posthog-js": "^1.364.1",
     "postprocessing": "^6.38.2",
     "three": "^0.183.2",
     "vite-plugin-glsl": "^1.5.5",
