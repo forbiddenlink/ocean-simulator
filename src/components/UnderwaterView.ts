@@ -9,13 +9,13 @@
  * - Bubble and particle effects
  */
 
-import * as THREE from 'three';
+import * as THREE from "three";
 import {
   UnderwaterLighting,
   CausticsGenerator,
   type WaterType,
   ABSORPTION_COEFFICIENTS,
-} from '../lib/fluid';
+} from "../lib/fluid";
 
 export interface UnderwaterViewConfig {
   /** Three.js scene */
@@ -87,7 +87,7 @@ export class UnderwaterView {
 
     // Initialize underwater lighting
     this.underwaterLighting = new UnderwaterLighting({
-      waterType: config.waterType ?? 'averageOcean',
+      waterType: config.waterType ?? "averageOcean",
       surfaceY: this.surfaceY,
     });
 
@@ -153,11 +153,15 @@ export class UnderwaterView {
    */
   private updateUnderwaterEffects(deltaTime: number): void {
     // Update fog density based on depth
-    const visibility = this.underwaterLighting.calculateVisibility(this.currentDepth);
-    this.underwaterFog.density = 1 / visibility * 0.1;
+    const visibility = this.underwaterLighting.calculateVisibility(
+      this.currentDepth,
+    );
+    this.underwaterFog.density = (1 / visibility) * 0.1;
 
     // Update fog color based on absorption
-    const waterColor = this.underwaterLighting.getWaterColorAtDepth(this.currentDepth);
+    const waterColor = this.underwaterLighting.getWaterColorAtDepth(
+      this.currentDepth,
+    );
     this.underwaterFog.color = waterColor;
 
     // Update caustics
@@ -168,7 +172,7 @@ export class UnderwaterView {
     // Update ambient light intensity
     const ambientIntensity = this.underwaterLighting.getAmbientIntensityAtDepth(
       this.currentDepth,
-      1.0
+      1.0,
     );
 
     // Apply to scene ambient lights
@@ -186,9 +190,15 @@ export class UnderwaterView {
     return {
       isUnderwater: this.isUnderwater,
       depth: this.currentDepth,
-      visibility: this.underwaterLighting.calculateVisibility(this.currentDepth),
-      ambientLight: this.underwaterLighting.getAmbientIntensityAtDepth(this.currentDepth),
-      waterColor: this.underwaterLighting.getWaterColorAtDepth(this.currentDepth),
+      visibility: this.underwaterLighting.calculateVisibility(
+        this.currentDepth,
+      ),
+      ambientLight: this.underwaterLighting.getAmbientIntensityAtDepth(
+        this.currentDepth,
+      ),
+      waterColor: this.underwaterLighting.getWaterColorAtDepth(
+        this.currentDepth,
+      ),
     };
   }
 
