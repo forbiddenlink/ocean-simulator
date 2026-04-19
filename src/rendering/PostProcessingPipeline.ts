@@ -302,7 +302,6 @@ export class PostProcessingPipeline {
 
     mainEffects.push(
       this.depthOfField,
-      this.underwaterDistortion,  // Heat-haze distortion before color grading
       this.underwaterColorGrading,
       toneMappingEffect,
       this.vignetteEffect,
@@ -315,6 +314,10 @@ export class PostProcessingPipeline {
     // Main effects pass (non-convolution effects + SMAA)
     const mainEffectPass = new EffectPass(camera, ...mainEffects);
     this.composer.addPass(mainEffectPass);
+
+    // Underwater distortion transforms UVs - convolution effect, needs own pass
+    const distortionPass = new EffectPass(camera, this.underwaterDistortion);
+    this.composer.addPass(distortionPass);
 
     // Chromatic aberration is a convolution effect - must be in its own pass
     const chromaPass = new EffectPass(camera, this.chromaAberration);
