@@ -18,10 +18,10 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          three: ['three'],
-          rapier: ['@dimforge/rapier3d-compat'],
-          ecs: ['bitecs'],
+        manualChunks(id: string) {
+          if (id.includes('node_modules/three')) return 'three';
+          if (id.includes('node_modules/@dimforge/rapier3d-compat')) return 'rapier';
+          if (id.includes('node_modules/bitecs')) return 'ecs';
         },
       },
     },
