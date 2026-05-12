@@ -13,6 +13,177 @@ export const FishBodyType = {
 export type FishBodyType = typeof FishBodyType[keyof typeof FishBodyType];
 
 /**
+ * Helper: Create a 3D curved fin with thickness and smooth profile
+ */
+function createCurvedFin(
+  points: THREE.Vector2[],
+  thickness: number,
+  segments: number = 12
+): THREE.BufferGeometry {
+  // Create a smooth shape from control points
+  const shape = new THREE.Shape();
+  shape.moveTo(points[0].x, points[0].y);
+
+  if (points.length === 3) {
+    shape.quadraticCurveTo(points[1].x, points[1].y, points[2].x, points[2].y);
+    shape.lineTo(points[0].x, points[0].y);
+  } else if (points.length === 4) {
+    shape.bezierCurveTo(
+      points[1].x, points[1].y,
+      points[2].x, points[2].y,
+      points[3].x, points[3].y
+    );
+    shape.lineTo(points[0].x, points[0].y);
+  } else {
+    // Use spline for more points
+    const splinePoints = points.slice(1);
+    shape.splineThru(splinePoints);
+    shape.lineTo(points[0].x, points[0].y);
+  }
+
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth: thickness,
+    bevelEnabled: true,
+    bevelThickness: thickness * 0.3,
+    bevelSize: thickness * 0.2,
+    bevelSegments: 3,
+    curveSegments: segments
+  });
+
+  return geom;
+}
+
+/**
+ * Helper: Create a forked/lunate tail fin with 3D curvature
+ */
+function createForkedTail(
+  width: number,
+  height: number,
+  thickness: number,
+  forkDepth: number = 0.4
+): THREE.BufferGeometry {
+  // Create lunate (crescent moon) tail shape
+  const shape = new THREE.Shape();
+  const hw = width;
+  const hh = height * 0.5;
+  const forkY = hh * forkDepth;
+
+  // Start at base center
+  shape.moveTo(0, 0);
+  // Upper lobe
+  shape.bezierCurveTo(
+    hw * 0.3, hh * 0.2,
+    hw * 0.7, hh * 0.8,
+    hw, hh
+  );
+  // Tip curve of upper lobe
+  shape.bezierCurveTo(
+    hw * 0.85, hh * 0.7,
+    hw * 0.5, forkY * 0.5,
+    hw * 0.4, 0
+  );
+  // Fork indent (the V between lobes)
+  shape.bezierCurveTo(
+    hw * 0.5, -forkY * 0.5,
+    hw * 0.85, -hh * 0.7,
+    hw, -hh
+  );
+  // Lower lobe
+  shape.bezierCurveTo(
+    hw * 0.7, -hh * 0.8,
+    hw * 0.3, -hh * 0.2,
+    0, 0
+  );
+
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth: thickness,
+    bevelEnabled: true,
+    bevelThickness: thickness * 0.4,
+    bevelSize: thickness * 0.3,
+    bevelSegments: 3,
+    curveSegments: 16
+  });
+
+  return geom;
+}
+
+/**
+ * Helper: Create a smooth curved dorsal/anal fin
+ */
+function createSmoothDorsalFin(
+  baseLength: number,
+  peakHeight: number,
+  thickness: number,
+  curveOffset: number = 0.3
+): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+  const halfLen = baseLength * 0.5;
+
+  // Start at front base
+  shape.moveTo(-halfLen, 0);
+  // Rise to peak with smooth curve
+  shape.bezierCurveTo(
+    -halfLen * curveOffset, peakHeight * 0.9,
+    halfLen * 0.2, peakHeight,
+    halfLen * 0.5, peakHeight * 0.6
+  );
+  // Taper down to back base
+  shape.bezierCurveTo(
+    halfLen * 0.7, peakHeight * 0.3,
+    halfLen * 0.9, peakHeight * 0.1,
+    halfLen, 0
+  );
+  // Close along base
+  shape.lineTo(-halfLen, 0);
+
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth: thickness,
+    bevelEnabled: true,
+    bevelThickness: thickness * 0.3,
+    bevelSize: thickness * 0.2,
+    bevelSegments: 2,
+    curveSegments: 14
+  });
+
+  return geom;
+}
+
+/**
+ * Helper: Create a leaf-shaped pectoral fin with 3D curvature
+ */
+function createLeafFin(
+  finLength: number,
+  finWidth: number,
+  thickness: number
+): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+
+  // Leaf/teardrop shape
+  shape.moveTo(0, 0);
+  shape.bezierCurveTo(
+    finLength * 0.3, finWidth * 0.5,
+    finLength * 0.7, finWidth * 0.4,
+    finLength, 0
+  );
+  shape.bezierCurveTo(
+    finLength * 0.7, -finWidth * 0.4,
+    finLength * 0.3, -finWidth * 0.5,
+    0, 0
+  );
+
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth: thickness,
+    bevelEnabled: true,
+    bevelThickness: thickness * 0.4,
+    bevelSize: thickness * 0.3,
+    bevelSegments: 2,
+    curveSegments: 14
+  });
+
+  return geom;
+}
+
+/**
  * Simple Fish Geometry - creates obviously fish-shaped meshes
  * using basic primitives for guaranteed recognizable fish appearance.
  * Supports 4 distinct body types for visual variety.
@@ -53,79 +224,60 @@ export class SimpleFishGeometry {
 
     const group = new THREE.Group();
 
-    // === BODY: Elongated ellipsoid ===
-    // Use a sphere scaled to be fish-shaped (longer than tall/wide)
-    const bodyGeom = new THREE.SphereGeometry(1, 24, 16);
-    // Scale: long (X), medium height (Y), narrow (Z) - fusiform fish shape
+    // === BODY: Elongated ellipsoid with higher segment count for smoothness ===
+    const bodyGeom = new THREE.SphereGeometry(1, 32, 20);
     const bodyMesh = new THREE.Mesh(bodyGeom);
     bodyMesh.scale.set(length * 0.45, bodyHeight * 0.5, bodyHeight * 0.35);
     bodyMesh.position.x = 0;
     group.add(bodyMesh);
 
-    // === TAIL FIN: Large triangular tail ===
-    const tailShape = new THREE.Shape();
-    tailShape.moveTo(0, 0);
-    tailShape.lineTo(length * 0.35, bodyHeight * 0.5);
-    tailShape.lineTo(length * 0.35, -bodyHeight * 0.5);
-    tailShape.closePath();
-
-    const tailGeom = new THREE.ExtrudeGeometry(tailShape, {
-      depth: bodyHeight * 0.08,
-      bevelEnabled: false
-    });
+    // === TAIL FIN: Forked/lunate 3D tail ===
+    const tailGeom = createForkedTail(
+      length * 0.3,
+      bodyHeight * 0.9,
+      bodyHeight * 0.12,
+      0.35
+    );
     const tailMesh = new THREE.Mesh(tailGeom);
-    tailMesh.position.set(length * 0.35, 0, -bodyHeight * 0.04);
+    tailMesh.position.set(length * 0.35, 0, -bodyHeight * 0.06);
     tailMesh.name = 'tail';
     group.add(tailMesh);
 
-    // === DORSAL FIN: Triangular top fin ===
-    const dorsalShape = new THREE.Shape();
-    dorsalShape.moveTo(0, 0);
-    dorsalShape.lineTo(-length * 0.15, bodyHeight * 0.45);
-    dorsalShape.lineTo(length * 0.15, bodyHeight * 0.15);
-    dorsalShape.closePath();
-
-    const dorsalGeom = new THREE.ExtrudeGeometry(dorsalShape, {
-      depth: bodyHeight * 0.06,
-      bevelEnabled: false
-    });
+    // === DORSAL FIN: Smooth curved profile with thickness ===
+    const dorsalGeom = createSmoothDorsalFin(
+      length * 0.3,
+      bodyHeight * 0.45,
+      bodyHeight * 0.08
+    );
     const dorsalMesh = new THREE.Mesh(dorsalGeom);
-    dorsalMesh.position.set(-length * 0.05, bodyHeight * 0.18, -bodyHeight * 0.03);
+    dorsalMesh.position.set(-length * 0.05, bodyHeight * 0.2, -bodyHeight * 0.04);
     dorsalMesh.name = 'dorsal';
     group.add(dorsalMesh);
 
-    // === ANAL FIN: Small bottom fin ===
-    const analShape = new THREE.Shape();
-    analShape.moveTo(0, 0);
-    analShape.lineTo(-length * 0.08, -bodyHeight * 0.25);
-    analShape.lineTo(length * 0.08, -bodyHeight * 0.1);
-    analShape.closePath();
-
-    const analGeom = new THREE.ExtrudeGeometry(analShape, {
-      depth: bodyHeight * 0.04,
-      bevelEnabled: false
-    });
+    // === ANAL FIN: Smaller curved fin ===
+    const analGeom = createSmoothDorsalFin(
+      length * 0.18,
+      bodyHeight * 0.25,
+      bodyHeight * 0.06
+    );
     const analMesh = new THREE.Mesh(analGeom);
-    analMesh.position.set(length * 0.1, -bodyHeight * 0.15, -bodyHeight * 0.02);
+    analMesh.position.set(length * 0.1, -bodyHeight * 0.2, -bodyHeight * 0.03);
+    analMesh.rotation.x = Math.PI; // Flip for bottom
     analMesh.name = 'anal';
     group.add(analMesh);
 
-    // === PECTORAL FINS: Side fins ===
-    const pectoralShape = new THREE.Shape();
-    pectoralShape.moveTo(0, 0);
-    pectoralShape.quadraticCurveTo(length * 0.15, -bodyHeight * 0.1, length * 0.2, -bodyHeight * 0.25);
-    pectoralShape.lineTo(length * 0.05, -bodyHeight * 0.1);
-    pectoralShape.closePath();
-
-    const pectoralGeom = new THREE.ExtrudeGeometry(pectoralShape, {
-      depth: bodyHeight * 0.02,
-      bevelEnabled: false
-    });
+    // === PECTORAL FINS: Leaf-shaped with 3D form ===
+    const pectoralGeom = createLeafFin(
+      length * 0.2,
+      bodyHeight * 0.15,
+      bodyHeight * 0.04
+    );
 
     // Left pectoral
     const pectoralLeft = new THREE.Mesh(pectoralGeom);
     pectoralLeft.position.set(-length * 0.15, -bodyHeight * 0.05, bodyHeight * 0.15);
     pectoralLeft.rotation.y = Math.PI * 0.3;
+    pectoralLeft.rotation.x = -0.2;
     pectoralLeft.name = 'pectoral_left';
     group.add(pectoralLeft);
 
@@ -133,6 +285,7 @@ export class SimpleFishGeometry {
     const pectoralRight = new THREE.Mesh(pectoralGeom);
     pectoralRight.position.set(-length * 0.15, -bodyHeight * 0.05, -bodyHeight * 0.15);
     pectoralRight.rotation.y = -Math.PI * 0.3;
+    pectoralRight.rotation.x = 0.2;
     pectoralRight.scale.z = -1;
     pectoralRight.name = 'pectoral_right';
     group.add(pectoralRight);
@@ -141,22 +294,20 @@ export class SimpleFishGeometry {
     const eyeRadius = bodyHeight * 0.08;
     const eyeGeom = new THREE.SphereGeometry(eyeRadius, 12, 8);
 
-    // Left eye
     const eyeLeft = new THREE.Mesh(eyeGeom);
     eyeLeft.position.set(-length * 0.3, bodyHeight * 0.08, bodyHeight * 0.12);
     eyeLeft.name = 'eye';
     group.add(eyeLeft);
 
-    // Right eye
     const eyeRight = new THREE.Mesh(eyeGeom);
     eyeRight.position.set(-length * 0.3, bodyHeight * 0.08, -bodyHeight * 0.12);
     eyeRight.name = 'eye';
     group.add(eyeRight);
 
     // === SNOUT: Pointed nose cone ===
-    const snoutGeom = new THREE.ConeGeometry(bodyHeight * 0.15, length * 0.2, 12);
+    const snoutGeom = new THREE.ConeGeometry(bodyHeight * 0.15, length * 0.2, 16);
     const snoutMesh = new THREE.Mesh(snoutGeom);
-    snoutMesh.rotation.z = Math.PI / 2; // Point forward
+    snoutMesh.rotation.z = Math.PI / 2;
     snoutMesh.position.set(-length * 0.5, 0, 0);
     snoutMesh.name = 'snout';
     group.add(snoutMesh);
@@ -178,79 +329,59 @@ export class SimpleFishGeometry {
   } = {}): THREE.BufferGeometry {
     const {
       length = 1.0,
-      bodyHeight = 0.25 // Narrower default
+      bodyHeight = 0.25
     } = params;
 
     const group = new THREE.Group();
 
     // === BODY: Very elongated ellipsoid ===
-    const bodyGeom = new THREE.SphereGeometry(1, 24, 16);
+    const bodyGeom = new THREE.SphereGeometry(1, 32, 20);
     const bodyMesh = new THREE.Mesh(bodyGeom);
-    // Extra long, narrow body
     bodyMesh.scale.set(length * 0.55, bodyHeight * 0.35, bodyHeight * 0.3);
     bodyMesh.position.x = 0;
     group.add(bodyMesh);
 
-    // === TAIL FIN: Smaller, forked tail ===
-    const tailShape = new THREE.Shape();
-    tailShape.moveTo(0, 0);
-    tailShape.lineTo(length * 0.25, bodyHeight * 0.4);
-    tailShape.lineTo(length * 0.2, 0);
-    tailShape.lineTo(length * 0.25, -bodyHeight * 0.4);
-    tailShape.closePath();
-
-    const tailGeom = new THREE.ExtrudeGeometry(tailShape, {
-      depth: bodyHeight * 0.06,
-      bevelEnabled: false
-    });
+    // === TAIL FIN: Forked tail, smaller for slender body ===
+    const tailGeom = createForkedTail(
+      length * 0.22,
+      bodyHeight * 0.7,
+      bodyHeight * 0.08,
+      0.4
+    );
     const tailMesh = new THREE.Mesh(tailGeom);
-    tailMesh.position.set(length * 0.45, 0, -bodyHeight * 0.03);
+    tailMesh.position.set(length * 0.45, 0, -bodyHeight * 0.04);
     tailMesh.name = 'tail';
     group.add(tailMesh);
 
     // === DORSAL FIN: Small, set back ===
-    const dorsalShape = new THREE.Shape();
-    dorsalShape.moveTo(0, 0);
-    dorsalShape.lineTo(-length * 0.08, bodyHeight * 0.3);
-    dorsalShape.lineTo(length * 0.08, bodyHeight * 0.1);
-    dorsalShape.closePath();
-
-    const dorsalGeom = new THREE.ExtrudeGeometry(dorsalShape, {
-      depth: bodyHeight * 0.04,
-      bevelEnabled: false
-    });
+    const dorsalGeom = createSmoothDorsalFin(
+      length * 0.16,
+      bodyHeight * 0.3,
+      bodyHeight * 0.05
+    );
     const dorsalMesh = new THREE.Mesh(dorsalGeom);
-    dorsalMesh.position.set(length * 0.1, bodyHeight * 0.12, -bodyHeight * 0.02);
+    dorsalMesh.position.set(length * 0.1, bodyHeight * 0.12, -bodyHeight * 0.025);
     dorsalMesh.name = 'dorsal';
     group.add(dorsalMesh);
 
     // === ANAL FIN: Small ===
-    const analShape = new THREE.Shape();
-    analShape.moveTo(0, 0);
-    analShape.lineTo(-length * 0.05, -bodyHeight * 0.2);
-    analShape.lineTo(length * 0.05, -bodyHeight * 0.08);
-    analShape.closePath();
-
-    const analGeom = new THREE.ExtrudeGeometry(analShape, {
-      depth: bodyHeight * 0.03,
-      bevelEnabled: false
-    });
+    const analGeom = createSmoothDorsalFin(
+      length * 0.12,
+      bodyHeight * 0.2,
+      bodyHeight * 0.04
+    );
     const analMesh = new THREE.Mesh(analGeom);
-    analMesh.position.set(length * 0.15, -bodyHeight * 0.1, -bodyHeight * 0.015);
+    analMesh.position.set(length * 0.15, -bodyHeight * 0.1, -bodyHeight * 0.02);
+    analMesh.rotation.x = Math.PI;
     analMesh.name = 'anal';
     group.add(analMesh);
 
     // === PECTORAL FINS: Small, swept back ===
-    const pectoralShape = new THREE.Shape();
-    pectoralShape.moveTo(0, 0);
-    pectoralShape.quadraticCurveTo(length * 0.1, -bodyHeight * 0.08, length * 0.12, -bodyHeight * 0.18);
-    pectoralShape.lineTo(length * 0.03, -bodyHeight * 0.06);
-    pectoralShape.closePath();
-
-    const pectoralGeom = new THREE.ExtrudeGeometry(pectoralShape, {
-      depth: bodyHeight * 0.015,
-      bevelEnabled: false
-    });
+    const pectoralGeom = createLeafFin(
+      length * 0.12,
+      bodyHeight * 0.1,
+      bodyHeight * 0.03
+    );
 
     const pectoralLeft = new THREE.Mesh(pectoralGeom);
     pectoralLeft.position.set(-length * 0.25, -bodyHeight * 0.03, bodyHeight * 0.12);
@@ -265,7 +396,7 @@ export class SimpleFishGeometry {
     pectoralRight.name = 'pectoral_right';
     group.add(pectoralRight);
 
-    // === EYES: Small spheres ===
+    // === EYES ===
     const eyeRadius = bodyHeight * 0.07;
     const eyeGeom = new THREE.SphereGeometry(eyeRadius, 12, 8);
 
@@ -279,8 +410,8 @@ export class SimpleFishGeometry {
     eyeRight.name = 'eye';
     group.add(eyeRight);
 
-    // === SNOUT: Long, pointed snout ===
-    const snoutGeom = new THREE.ConeGeometry(bodyHeight * 0.1, length * 0.3, 12);
+    // === SNOUT: Long, pointed ===
+    const snoutGeom = new THREE.ConeGeometry(bodyHeight * 0.1, length * 0.3, 16);
     const snoutMesh = new THREE.Mesh(snoutGeom);
     snoutMesh.rotation.z = Math.PI / 2;
     snoutMesh.position.set(-length * 0.6, 0, 0);
@@ -301,79 +432,62 @@ export class SimpleFishGeometry {
     bodyHeight?: number;
   } = {}): THREE.BufferGeometry {
     const {
-      length = 0.8, // Shorter
-      bodyHeight = 0.6 // Taller
+      length = 0.8,
+      bodyHeight = 0.6
     } = params;
 
     const group = new THREE.Group();
 
     // === BODY: Disc-shaped, tall and thin ===
-    const bodyGeom = new THREE.SphereGeometry(1, 24, 16);
+    const bodyGeom = new THREE.SphereGeometry(1, 32, 20);
     const bodyMesh = new THREE.Mesh(bodyGeom);
-    // Tall, short, thin - laterally compressed
     bodyMesh.scale.set(length * 0.35, bodyHeight * 0.5, bodyHeight * 0.2);
     bodyMesh.position.x = 0;
     group.add(bodyMesh);
 
-    // === TAIL FIN: Fan-shaped ===
-    const tailShape = new THREE.Shape();
-    tailShape.moveTo(0, 0);
-    tailShape.lineTo(length * 0.2, bodyHeight * 0.25);
-    tailShape.quadraticCurveTo(length * 0.25, 0, length * 0.2, -bodyHeight * 0.25);
-    tailShape.closePath();
-
-    const tailGeom = new THREE.ExtrudeGeometry(tailShape, {
-      depth: bodyHeight * 0.04,
-      bevelEnabled: false
-    });
+    // === TAIL FIN: Fan-shaped with 3D form ===
+    const tailGeom = createForkedTail(
+      length * 0.18,
+      bodyHeight * 0.45,
+      bodyHeight * 0.06,
+      0.2 // Less forked, more fan-like
+    );
     const tailMesh = new THREE.Mesh(tailGeom);
-    tailMesh.position.set(length * 0.25, 0, -bodyHeight * 0.02);
+    tailMesh.position.set(length * 0.25, 0, -bodyHeight * 0.03);
     tailMesh.name = 'tail';
     group.add(tailMesh);
 
     // === DORSAL FIN: Tall, flowing ===
-    const dorsalShape = new THREE.Shape();
-    dorsalShape.moveTo(0, 0);
-    dorsalShape.quadraticCurveTo(-length * 0.1, bodyHeight * 0.5, -length * 0.2, bodyHeight * 0.6);
-    dorsalShape.lineTo(length * 0.15, bodyHeight * 0.15);
-    dorsalShape.closePath();
-
-    const dorsalGeom = new THREE.ExtrudeGeometry(dorsalShape, {
-      depth: bodyHeight * 0.03,
-      bevelEnabled: false
-    });
+    const dorsalGeom = createSmoothDorsalFin(
+      length * 0.4,
+      bodyHeight * 0.55,
+      bodyHeight * 0.05,
+      0.5
+    );
     const dorsalMesh = new THREE.Mesh(dorsalGeom);
-    dorsalMesh.position.set(0, bodyHeight * 0.2, -bodyHeight * 0.015);
+    dorsalMesh.position.set(0, bodyHeight * 0.22, -bodyHeight * 0.025);
     dorsalMesh.name = 'dorsal';
     group.add(dorsalMesh);
 
     // === ANAL FIN: Tall, flowing (mirrors dorsal) ===
-    const analShape = new THREE.Shape();
-    analShape.moveTo(0, 0);
-    analShape.quadraticCurveTo(-length * 0.08, -bodyHeight * 0.4, -length * 0.15, -bodyHeight * 0.5);
-    analShape.lineTo(length * 0.1, -bodyHeight * 0.1);
-    analShape.closePath();
-
-    const analGeom = new THREE.ExtrudeGeometry(analShape, {
-      depth: bodyHeight * 0.025,
-      bevelEnabled: false
-    });
+    const analGeom = createSmoothDorsalFin(
+      length * 0.3,
+      bodyHeight * 0.45,
+      bodyHeight * 0.04,
+      0.4
+    );
     const analMesh = new THREE.Mesh(analGeom);
-    analMesh.position.set(0, -bodyHeight * 0.18, -bodyHeight * 0.0125);
+    analMesh.position.set(0, -bodyHeight * 0.2, -bodyHeight * 0.02);
+    analMesh.rotation.x = Math.PI;
     analMesh.name = 'anal';
     group.add(analMesh);
 
     // === PECTORAL FINS: Rounded, delicate ===
-    const pectoralShape = new THREE.Shape();
-    pectoralShape.moveTo(0, 0);
-    pectoralShape.quadraticCurveTo(length * 0.12, -bodyHeight * 0.05, length * 0.15, -bodyHeight * 0.15);
-    pectoralShape.lineTo(length * 0.04, -bodyHeight * 0.05);
-    pectoralShape.closePath();
-
-    const pectoralGeom = new THREE.ExtrudeGeometry(pectoralShape, {
-      depth: bodyHeight * 0.01,
-      bevelEnabled: false
-    });
+    const pectoralGeom = createLeafFin(
+      length * 0.15,
+      bodyHeight * 0.1,
+      bodyHeight * 0.025
+    );
 
     const pectoralLeft = new THREE.Mesh(pectoralGeom);
     pectoralLeft.position.set(-length * 0.1, 0, bodyHeight * 0.08);
@@ -388,7 +502,7 @@ export class SimpleFishGeometry {
     pectoralRight.name = 'pectoral_right';
     group.add(pectoralRight);
 
-    // === EYES: Larger, more prominent ===
+    // === EYES ===
     const eyeRadius = bodyHeight * 0.08;
     const eyeGeom = new THREE.SphereGeometry(eyeRadius, 12, 8);
 
@@ -403,7 +517,7 @@ export class SimpleFishGeometry {
     group.add(eyeRight);
 
     // === SNOUT: Small, blunt ===
-    const snoutGeom = new THREE.ConeGeometry(bodyHeight * 0.1, length * 0.12, 12);
+    const snoutGeom = new THREE.ConeGeometry(bodyHeight * 0.1, length * 0.12, 16);
     const snoutMesh = new THREE.Mesh(snoutGeom);
     snoutMesh.rotation.z = Math.PI / 2;
     snoutMesh.position.set(-length * 0.35, 0, 0);
@@ -425,81 +539,60 @@ export class SimpleFishGeometry {
   } = {}): THREE.BufferGeometry {
     const {
       length = 1.0,
-      bodyHeight = 0.5 // Taller/wider
+      bodyHeight = 0.5
     } = params;
 
     const group = new THREE.Group();
 
     // === BODY: Thick, rounded ===
-    const bodyGeom = new THREE.SphereGeometry(1, 24, 16);
+    const bodyGeom = new THREE.SphereGeometry(1, 32, 20);
     const bodyMesh = new THREE.Mesh(bodyGeom);
-    // Robust, rounded body
     bodyMesh.scale.set(length * 0.4, bodyHeight * 0.5, bodyHeight * 0.45);
     bodyMesh.position.x = 0;
     group.add(bodyMesh);
 
-    // === TAIL FIN: Rounded, sturdy ===
-    const tailShape = new THREE.Shape();
-    tailShape.moveTo(0, 0);
-    tailShape.quadraticCurveTo(length * 0.15, bodyHeight * 0.2, length * 0.25, bodyHeight * 0.35);
-    tailShape.lineTo(length * 0.28, 0);
-    tailShape.lineTo(length * 0.25, -bodyHeight * 0.35);
-    tailShape.quadraticCurveTo(length * 0.15, -bodyHeight * 0.2, 0, 0);
-    tailShape.closePath();
-
-    const tailGeom = new THREE.ExtrudeGeometry(tailShape, {
-      depth: bodyHeight * 0.08,
-      bevelEnabled: false
-    });
+    // === TAIL FIN: Rounded, sturdy forked tail ===
+    const tailGeom = createForkedTail(
+      length * 0.25,
+      bodyHeight * 0.65,
+      bodyHeight * 0.1,
+      0.25 // Less deeply forked
+    );
     const tailMesh = new THREE.Mesh(tailGeom);
-    tailMesh.position.set(length * 0.3, 0, -bodyHeight * 0.04);
+    tailMesh.position.set(length * 0.3, 0, -bodyHeight * 0.05);
     tailMesh.name = 'tail';
     group.add(tailMesh);
 
     // === DORSAL FIN: Rounded, continuous ===
-    const dorsalShape = new THREE.Shape();
-    dorsalShape.moveTo(-length * 0.15, 0);
-    dorsalShape.quadraticCurveTo(-length * 0.05, bodyHeight * 0.35, length * 0.1, bodyHeight * 0.3);
-    dorsalShape.lineTo(length * 0.15, bodyHeight * 0.1);
-    dorsalShape.lineTo(-length * 0.15, 0);
-    dorsalShape.closePath();
-
-    const dorsalGeom = new THREE.ExtrudeGeometry(dorsalShape, {
-      depth: bodyHeight * 0.05,
-      bevelEnabled: false
-    });
+    const dorsalGeom = createSmoothDorsalFin(
+      length * 0.35,
+      bodyHeight * 0.35,
+      bodyHeight * 0.07,
+      0.4
+    );
     const dorsalMesh = new THREE.Mesh(dorsalGeom);
-    dorsalMesh.position.set(-length * 0.05, bodyHeight * 0.2, -bodyHeight * 0.025);
+    dorsalMesh.position.set(-length * 0.05, bodyHeight * 0.22, -bodyHeight * 0.035);
     dorsalMesh.name = 'dorsal';
     group.add(dorsalMesh);
 
     // === ANAL FIN: Rounded ===
-    const analShape = new THREE.Shape();
-    analShape.moveTo(0, 0);
-    analShape.quadraticCurveTo(-length * 0.05, -bodyHeight * 0.2, 0, -bodyHeight * 0.25);
-    analShape.lineTo(length * 0.1, -bodyHeight * 0.1);
-    analShape.closePath();
-
-    const analGeom = new THREE.ExtrudeGeometry(analShape, {
-      depth: bodyHeight * 0.04,
-      bevelEnabled: false
-    });
+    const analGeom = createSmoothDorsalFin(
+      length * 0.2,
+      bodyHeight * 0.25,
+      bodyHeight * 0.05
+    );
     const analMesh = new THREE.Mesh(analGeom);
-    analMesh.position.set(length * 0.05, -bodyHeight * 0.18, -bodyHeight * 0.02);
+    analMesh.position.set(length * 0.05, -bodyHeight * 0.2, -bodyHeight * 0.025);
+    analMesh.rotation.x = Math.PI;
     analMesh.name = 'anal';
     group.add(analMesh);
 
     // === PECTORAL FINS: Rounded, paddle-like ===
-    const pectoralShape = new THREE.Shape();
-    pectoralShape.moveTo(0, 0);
-    pectoralShape.quadraticCurveTo(length * 0.1, -bodyHeight * 0.05, length * 0.15, -bodyHeight * 0.2);
-    pectoralShape.quadraticCurveTo(length * 0.08, -bodyHeight * 0.15, length * 0.03, -bodyHeight * 0.08);
-    pectoralShape.closePath();
-
-    const pectoralGeom = new THREE.ExtrudeGeometry(pectoralShape, {
-      depth: bodyHeight * 0.02,
-      bevelEnabled: false
-    });
+    const pectoralGeom = createLeafFin(
+      length * 0.18,
+      bodyHeight * 0.14,
+      bodyHeight * 0.04
+    );
 
     const pectoralLeft = new THREE.Mesh(pectoralGeom);
     pectoralLeft.position.set(-length * 0.15, -bodyHeight * 0.05, bodyHeight * 0.2);
@@ -514,7 +607,7 @@ export class SimpleFishGeometry {
     pectoralRight.name = 'pectoral_right';
     group.add(pectoralRight);
 
-    // === EYES: Medium size ===
+    // === EYES ===
     const eyeRadius = bodyHeight * 0.07;
     const eyeGeom = new THREE.SphereGeometry(eyeRadius, 12, 8);
 
@@ -529,7 +622,7 @@ export class SimpleFishGeometry {
     group.add(eyeRight);
 
     // === SNOUT: Blunt, wide mouth ===
-    const snoutGeom = new THREE.ConeGeometry(bodyHeight * 0.18, length * 0.15, 12);
+    const snoutGeom = new THREE.ConeGeometry(bodyHeight * 0.18, length * 0.15, 16);
     const snoutMesh = new THREE.Mesh(snoutGeom);
     snoutMesh.rotation.z = Math.PI / 2;
     snoutMesh.position.set(-length * 0.42, 0, 0);
