@@ -61,8 +61,8 @@ export class CoralFormations {
     }
     geometry.computeVertexNormals();
     
-    // Muted coral colors (desaturated ~20%)
-    const colors = [0xcc5588, 0xdd8866, 0xddaa55, 0x88bbaa];
+    // Vibrant coral colors
+    const colors = [0xff6699, 0xff9955, 0xffcc44, 0x66ddbb];
     const color = colors[Math.floor(Math.random() * colors.length)];
 
     const material = new THREE.MeshStandardMaterial({
@@ -70,7 +70,7 @@ export class CoralFormations {
       roughness: 0.8,
       metalness: 0.1,
       emissive: color,
-      emissiveIntensity: 0.25,
+      emissiveIntensity: 0.45,
     });
     
     const mesh = new THREE.Mesh(geometry, material);

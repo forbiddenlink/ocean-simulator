@@ -130,7 +130,7 @@ export class UnderwaterParticles {
           // Scale based on size attribute - larger particles for marine snow
           // Use perspective-correct sizing
           float perspectiveScale = 350.0 / max(-mvPosition.z, 1.0);
-          gl_PointSize = scale * 5.0 * perspectiveScale;
+          gl_PointSize = scale * 6.5 * perspectiveScale;
 
           // Clamp to reasonable range
           gl_PointSize = clamp(gl_PointSize, 1.0, 12.0);
@@ -155,7 +155,7 @@ export class UnderwaterParticles {
           float alpha = smoothstep(0.5, edgeSoftness, dist) * vAlpha;
 
           // Enhanced visibility - clearly visible floating particles
-          alpha *= 0.7;
+          alpha *= 0.9;
 
           gl_FragColor = vec4(vColor, alpha);
         }

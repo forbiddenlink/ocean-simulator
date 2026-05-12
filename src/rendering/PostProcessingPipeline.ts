@@ -62,15 +62,15 @@ const underwaterColorGradingShader = /* glsl */ `
     // Water scatters light, adding a blue-green tint at distance
     // Enhanced for more realistic underwater atmosphere
     float scatterFactor = 1.0 - exp(-pixelDistance * 0.035);
-    vec3 scatterColor = vec3(0.08, 0.22, 0.38) * (1.0 + cameraDepth * 0.015);
-    color = mix(color, scatterColor, scatterFactor * 0.55);
+    vec3 scatterColor = vec3(0.15, 0.35, 0.55) * (1.0 + cameraDepth * 0.015);
+    color = mix(color, scatterColor, scatterFactor * 0.35);
 
     // === CAMERA DEPTH EFFECTS ===
     // Additional effects based on how deep the camera is
     float depthFactor = clamp(cameraDepth / 60.0, 0.0, 1.0);
 
     // Gentle desaturation at extreme depth
-    float saturation = 1.0 - depthFactor * 0.15;
+    float saturation = 1.0 - depthFactor * 0.05;
     float luminance = dot(color, vec3(0.299, 0.587, 0.114));
     color = mix(vec3(luminance), color, saturation);
 
@@ -148,11 +148,11 @@ class UnderwaterColorGradingEffect extends Effect {
       uniforms: new Map<string, THREE.Uniform>([
         // Beer-Lambert absorption coefficients (per meter)
         // Tuned for dramatic, physically-motivated underwater color shift
-        ['absorptionR', new THREE.Uniform(0.55)],   // Red fades fastest — very noticeable
-        ['absorptionG', new THREE.Uniform(0.16)],   // Green fades moderately
-        ['absorptionB', new THREE.Uniform(0.035)],  // Blue penetrates deepest
-        ['absorptionScale', new THREE.Uniform(0.08)], // Balanced absorption strength
-        ['turbidity', new THREE.Uniform(0.45)],      // Moderate turbidity for clear-ish water
+        ['absorptionR', new THREE.Uniform(0.25)],   // Red fades fastest — gentle
+        ['absorptionG', new THREE.Uniform(0.06)],   // Green barely fades
+        ['absorptionB', new THREE.Uniform(0.02)],   // Blue penetrates deepest
+        ['absorptionScale', new THREE.Uniform(0.05)], // Light absorption for tropical clarity
+        ['turbidity', new THREE.Uniform(0.25)],      // Low turbidity — crystal clear tropical water
         ['cameraDepth', new THREE.Uniform(12.0)],
         // Camera projection parameters for depth buffer reading
         ['cameraNear', new THREE.Uniform(0.1)],
@@ -267,7 +267,7 @@ export class PostProcessingPipeline {
       mode: 2, // ACES Filmic — best for underwater with wide dynamic range
       resolution: 256,
       whitePoint: 5.0, // Slightly higher to preserve bright caustics and specular
-      middleGrey: 0.55, // Slightly lower for deeper, richer darks
+      middleGrey: 0.65, // Brighter midtones for underwater visibility
       minLuminance: 0.005,
       averageLuminance: 0.35,
       adaptationRate: 0.8, // Slower adaptation for smoother exposure changes
@@ -283,7 +283,7 @@ export class PostProcessingPipeline {
     // Vignette — natural underwater visibility falloff at edges
     this.vignetteEffect = new VignetteEffect({
       offset: 0.35,
-      darkness: 0.55,
+      darkness: 0.35,
     });
 
     // SMAA antialiasing for smooth edges

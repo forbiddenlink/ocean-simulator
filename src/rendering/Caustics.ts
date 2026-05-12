@@ -213,7 +213,7 @@ export class CausticsEffect {
 
           // Caustics are strongest in top 10m, then fade exponentially
           float shallowBoost = smoothstep(15.0, 0.0, depth) * 0.5 + 0.5; // Extra bright near surface
-          float depthFade = exp(-normalizedDepth * 2.5) * shallowBoost;
+          float depthFade = exp(-normalizedDepth * 1.2) * shallowBoost;
           causticsColor *= depthFade;
 
           // Sun direction influence (caustics follow light direction)

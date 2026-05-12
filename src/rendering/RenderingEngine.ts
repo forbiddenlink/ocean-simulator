@@ -54,7 +54,7 @@ export class RenderingEngine {
 
     // Create scene
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x4da6c7); // Ocean blue - much clearer
+    this.scene.background = new THREE.Color(0x2a8aaa); // Bright tropical ocean blue
 
     // Initialize depth-based fog for realistic underwater visibility (DISABLED - might cause white)
     // new DepthBasedFog(this.scene);
@@ -69,8 +69,8 @@ export class RenderingEngine {
       0.1,
       1000
     );
-    // Position: centered in the fish swimming area so creatures surround the viewer
-    this.camera.position.set(0, -12, 0);
+    // Position: shallow depth for more light, looking forward into reef
+    this.camera.position.set(0, -8, 15);
     this.camera.lookAt(0, -12, -10);
 
     // Create renderer with WebGL2
@@ -78,6 +78,7 @@ export class RenderingEngine {
       canvas: this.canvas,
       antialias: true,
       alpha: false,
+      preserveDrawingBuffer: true, // Required for screenshots/toDataURL
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -173,20 +174,20 @@ export class RenderingEngine {
     this.sunLight.shadow.bias = -0.0005;        // Reduce shadow acne
     this.scene.add(this.sunLight);
 
-    // Ambient light — deeper blue tint for underwater atmosphere
-    const ambientLight = new THREE.AmbientLight(0x4477aa, 0.9);
+    // Ambient light — bright blue-white for underwater visibility
+    const ambientLight = new THREE.AmbientLight(0x6699cc, 1.2);
     this.scene.add(ambientLight);
 
     // Hemisphere light — stronger contrast between surface light and deep shadow
     const hemiLight = new THREE.HemisphereLight(
       0x99ccee, // Sky color (bright cyan-white from surface)
-      0x112233, // Ground color (darker blue-black from depth)
+      0x223344, // Ground color (subtle blue from depth)
       1.4       // Slightly stronger for more dramatic gradient
     );
     this.scene.add(hemiLight);
 
-    // Subtle fill light from below - simulates bioluminescence and floor bounce
-    const fillLight = new THREE.DirectionalLight(0x224455, 0.4);
+    // Fill light from below - simulates bioluminescence and floor bounce
+    const fillLight = new THREE.DirectionalLight(0x335566, 0.6);
     fillLight.position.set(0, -30, 0);
     this.scene.add(fillLight);
 

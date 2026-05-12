@@ -53,20 +53,20 @@ export class OceanSimulator {
     // Cinematic / Post
     bloomIntensity: 0.8,
     bloomThreshold: 0.45,
-    absorptionScale: 0.08,
-    turbidity: 0.45,
+    absorptionScale: 0.05,
+    turbidity: 0.25,
     vignetteOffset: 0.35,
-    vignetteDarkness: 0.55,
+    vignetteDarkness: 0.35,
     chromaX: 0.001,
     chromaY: 0.0006,
 
     // Lighting
-    ambientIntensity: 0.9,
-    sunIntensity: 2.4,
+    ambientIntensity: 1.2,
+    sunIntensity: 3.0,
 
     // Camera
     cameraX: 0,
-    cameraY: -12,
+    cameraY: -8,
     cameraZ: 0,
     fov: 75,
   };
@@ -110,7 +110,8 @@ export class OceanSimulator {
     this.spawnInitialFish();
 
     // Setup debug GUI
-    this.debugGui = new GUI({ title: 'Ocean Simulator Debug' });
+    this.debugGui = new GUI({ title: 'Ocean Simulator Debug', closeFolders: true });
+    this.debugGui.close(); // Start collapsed so ocean is visible
     
     // Style the debug GUI to prevent HUD conflicts
     const guiContainer = this.debugGui.domElement.parentElement;
@@ -137,26 +138,26 @@ export class OceanSimulator {
       'tropical-clear': {
         bloomIntensity: 0.8,
         bloomThreshold: 0.45,
-        absorptionScale: 0.08,
-        turbidity: 0.45,
+        absorptionScale: 0.05,
+        turbidity: 0.25,
         vignetteOffset: 0.35,
-        vignetteDarkness: 0.55,
+        vignetteDarkness: 0.35,
         chromaX: 0.001,
         chromaY: 0.0006,
-        ambientIntensity: 0.9,
-        sunIntensity: 2.4,
+        ambientIntensity: 1.2,
+        sunIntensity: 3.0,
       },
       'inky-cinematic': {
         bloomIntensity: 0.35,
         bloomThreshold: 0.7,
-        absorptionScale: 0.095,
-        turbidity: 0.75,
+        absorptionScale: 0.07,
+        turbidity: 0.55,
         vignetteOffset: 0.28,
-        vignetteDarkness: 0.55,
+        vignetteDarkness: 0.45,
         chromaX: 0.0012,
         chromaY: 0.0009,
-        ambientIntensity: 0.2,
-        sunIntensity: 1.35,
+        ambientIntensity: 0.5,
+        sunIntensity: 1.8,
       },
     };
 
@@ -182,7 +183,7 @@ export class OceanSimulator {
 
     // Background
     this.renderEngine.scene.background =
-      preset === 'inky-cinematic' ? new THREE.Color(0x05090f) : new THREE.Color(0x4da6c7);
+      preset === 'inky-cinematic' ? new THREE.Color(0x08121a) : new THREE.Color(0x2a8aaa);
 
     this.debugGui?.controllersRecursive().forEach((c) => c.updateDisplay());
     if (DEBUG) console.log(`🎬 Applied look preset: ${preset}`);
@@ -346,9 +347,9 @@ export class OceanSimulator {
       createJellyfish(this.world, x, y, z, species);
     }
     
-    // Rays (bottom dwellers and gliders) - more variety
+    // Rays (bottom dwellers and gliders)
     const raySpecies = ['manta', 'eagle', 'stingray', 'stingray'] as const;
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 8; i++) {
       const x = (Math.random() - 0.5) * 60;
       const y = -22 - Math.random() * 8; // Near ocean floor
       const z = (Math.random() - 0.5) * 60;
@@ -364,10 +365,10 @@ export class OceanSimulator {
       createTurtle(this.world, x, y, z, ['green', 'hawksbill', 'loggerhead'][Math.floor(Math.random() * 3)] as 'green' | 'hawksbill' | 'loggerhead');
     }
 
-    // Whales (1-2, rare majestic creatures in distance)
-    createWhale(this.world, 40, -15, -35, 'humpback');
+    // Whales (1-2, rare majestic creatures in far distance)
+    createWhale(this.world, 60, -18, -50, 'humpback');
     if (Math.random() > 0.5) {
-      createWhale(this.world, -40, -20, 40, 'blue');
+      createWhale(this.world, -60, -22, 55, 'blue');
     }
 
     // Bottom dwellers - crabs (30-50, scattered on floor)

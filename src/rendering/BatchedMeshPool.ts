@@ -116,17 +116,17 @@ export class BatchedMeshPool {
   }
 
   /**
-   * Create fish material with GPU swimming animation
+   * Create fish material with GPU swimming animation and procedural scale pattern
    */
   private createFishMaterial(): THREE.MeshPhysicalMaterial {
     const material = new THREE.MeshPhysicalMaterial({
       color: 0xffffff,
-      metalness: 0.2,            // Moderate metalness for wet scales
-      roughness: 0.28,           // Smooth for wet look
+      metalness: 0.1,            // Low metalness preserves color saturation
+      roughness: 0.35,           // Slightly rougher for better color visibility
       flatShading: false,
       side: THREE.DoubleSide,
-      emissive: new THREE.Color(0x223355),
-      emissiveIntensity: 0.15,   // Subtle fill — main light comes from scene
+      emissive: new THREE.Color(0x556688),
+      emissiveIntensity: 0.25,   // Moderate fill to fight absorption without washing out color
       iridescence: 0.7,          // Strong fish-scale iridescence
       iridescenceIOR: 1.4,
       iridescenceThicknessRange: [80, 450],
@@ -140,8 +140,9 @@ export class BatchedMeshPool {
       specularIntensity: 0.7,    // Visible specular on scales
     });
 
-    // Inject GPU swimming animation into vertex shader
+    // Inject GPU swimming animation + procedural scale pattern
     material.onBeforeCompile = (shader) => {
+      // === VERTEX SHADER: Swimming animation + pass varyings to fragment ===
       shader.vertexShader = shader.vertexShader.replace(
         '#include <common>',
         `#include <common>
@@ -186,6 +187,8 @@ attribute float finType;
 }
 `
       );
+
+      // Fragment shader: no custom modifications — rely on PBR material properties
     };
 
     return material;
@@ -398,12 +401,12 @@ attribute float finType;
       case 8: // Sea Urchin - Bottom dweller
         return BottomDwellerGeometry.createSeaUrchin(0.15);
 
-      case 9: // Whale - PHOTOREALISTIC
+      case 9: // Whale - PHOTOREALISTIC (scaled down to not dominate scene)
         const whaleVariant = variant;
         if (whaleVariant === 1) {
-          return WhaleGeometry.createBlueWhale(15.0);
+          return WhaleGeometry.createBlueWhale(6.0);
         }
-        return WhaleGeometry.createHumpback(12.0);
+        return WhaleGeometry.createHumpback(5.0);
 
       default: // Fish - TESTING: Simple geometry
         return ProceduralFishGeometry.createFish({
@@ -456,31 +459,30 @@ attribute float finType;
           sheenColor: new THREE.Color(0x8899aa),
         });
 
-      case 3: // Jellyfish - highly translucent with bioluminescent glow
+      case 3: // Jellyfish - translucent with bright bioluminescent glow
         return new THREE.MeshPhysicalMaterial({
-          color: 0xbbd0ff,
-          roughness: 0.05,
+          color: 0xaaccff,
+          roughness: 0.1,
           metalness: 0.0,
-          transmission: 0.82,     // Highly translucent
-          thickness: 1.0,
           transparent: true,
-          opacity: 0.9,
-          emissive: new THREE.Color(0x6688bb),
-          emissiveIntensity: 0.8, // Strong bioluminescent glow
-          ior: 1.33,              // Water-like refraction
-          iridescence: 0.4,       // Jellyfish body iridescence
+          opacity: 0.45,          // Very see-through
+          emissive: new THREE.Color(0x6699cc),
+          emissiveIntensity: 1.5, // Strong bioluminescent glow
+          side: THREE.DoubleSide,
+          depthWrite: false,      // Proper transparency sorting
+          iridescence: 0.5,       // Jellyfish body iridescence
           iridescenceIOR: 1.3,
           iridescenceThicknessRange: [150, 500],
-          specularIntensity: 0.8, // Specular highlights on bell
+          specularIntensity: 1.0,
         });
 
-      case 4: // Ray - smooth skin with subtle counter-shading
+      case 4: // Ray - smooth skin with counter-shading
         return new THREE.MeshPhysicalMaterial({
-          color: 0x6a8080,
+          color: 0x8aaaaa,
           roughness: 0.3,
           metalness: 0.1,
-          emissive: new THREE.Color(0x2a3a3a),
-          emissiveIntensity: 0.2,
+          emissive: new THREE.Color(0x4a6666),
+          emissiveIntensity: 0.4,
           clearcoat: 0.35,
           clearcoatRoughness: 0.2,
           sheen: 0.15,
@@ -532,11 +534,11 @@ attribute float finType;
 
       case 9: // Whale - realistic massive creature with wet skin
         return new THREE.MeshPhysicalMaterial({
-          color: 0x556878,
+          color: 0x6a7a8a,
           roughness: 0.35,        // Smooth whale skin
           metalness: 0.1,
-          emissive: new THREE.Color(0x1a2a3a),
-          emissiveIntensity: 0.15,
+          emissive: new THREE.Color(0x2a3a4a),
+          emissiveIntensity: 0.3,
           clearcoat: 0.4,         // Wet glistening skin
           clearcoatRoughness: 0.2,
           sheen: 0.25,

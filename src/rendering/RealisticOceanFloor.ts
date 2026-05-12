@@ -66,9 +66,9 @@ export class RealisticOceanFloor {
     const material = new THREE.ShaderMaterial({
       uniforms: {
         time: { value: 0 },
-        sandColor1: { value: new THREE.Color(0x3a3830) }, // Dark sand (deep underwater)
-        sandColor2: { value: new THREE.Color(0x2a2825) }, // Very dark wet sand
-        rockColor: { value: new THREE.Color(0x353530) }, // Dark gray rocks
+        sandColor1: { value: new THREE.Color(0x8B7D6B) }, // Realistic sandy color
+        sandColor2: { value: new THREE.Color(0x7A6E5D) }, // Darker wet sand
+        rockColor: { value: new THREE.Color(0x6B6860) }, // Gray-brown rocks
         detailScale: { value: 35.0 },
         lightDirection: { value: new THREE.Vector3(0.1, 1.0, 0.1).normalize() }, // From surface
         absorptionCoeffs: { value: new THREE.Vector3(0.5, 0.2, 0.08) }, // Stronger absorption
@@ -155,10 +155,10 @@ export class RealisticOceanFloor {
             sandColor = mix(sandColor, rockColor, (rockNoise - 0.92) * 10.0);
           }
           
-          // Add lighting - DARK for deep underwater (30m depth)
+          // Add lighting
           float diffuse = max(dot(vNormal, lightDirection), 0.0);
-          float ambient = 0.08; // Very low ambient for deep water
-          vec3 litColor = sandColor * (ambient + 0.25 * diffuse); // Low diffuse
+          float ambient = 0.25; // Reasonable ambient for underwater
+          vec3 litColor = sandColor * (ambient + 0.5 * diffuse); // Balanced diffuse
 
           // Apply strong Beer-Lambert wavelength-dependent absorption
           vec3 absorption = exp(-absorptionCoeffs * waterDepth * 1.5);
@@ -174,9 +174,8 @@ export class RealisticOceanFloor {
           float ao = smoothstep(-1.0, 1.0, vHeight);
           litColor *= 0.5 + 0.5 * ao;
 
-          // Final darkening for deep underwater - clamp max brightness
-          litColor = min(litColor, vec3(0.25)); // Never brighter than dark gray
-          litColor *= 0.6; // Additional darkening
+          // Soft brightness cap
+          litColor = min(litColor, vec3(0.7));
 
           gl_FragColor = vec4(litColor, 1.0);
         }
@@ -199,11 +198,11 @@ export class RealisticOceanFloor {
     
     const rockGeometry = new THREE.DodecahedronGeometry(1, 1);
     const rockMaterial = new THREE.MeshStandardMaterial({
-      color: 0x5a5a52, // Slightly brighter gray-brown
+      color: 0x8a8a80, // Visible gray-brown
       roughness: 0.85,
       metalness: 0.1,
       emissive: new THREE.Color(0x1a1a18),
-      emissiveIntensity: 0.3,
+      emissiveIntensity: 0.5,
     });
     
     // Scatter rocks across the floor
@@ -253,7 +252,7 @@ export class RealisticOceanFloor {
     geometry.computeVertexNormals();
     
     const material = new THREE.MeshStandardMaterial({
-      color: 0x3a3830, // Very dark to match deep underwater sand
+      color: 0x8B7D6B, // Sandy color to match floor
       roughness: 0.9,
       metalness: 0.0,
       transparent: true,
