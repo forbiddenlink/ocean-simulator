@@ -16,6 +16,7 @@ import { KelpForest } from './KelpForest';
 import { FoamSystem } from './FoamSystem';
 import { SprayParticles } from './SprayParticles';
 import { HDRIEnvironment } from './HDRIEnvironment';
+import { ExtraOceanLife } from './ExtraOceanLife';
 
 // Debug flag - set to true for development debugging
 const DEBUG = false;
@@ -45,6 +46,8 @@ export class RenderingEngine {
   private sprayParticles?: SprayParticles;
   private hdriEnvironment?: HDRIEnvironment;
   private creatureBubbles?: CreatureBubbleTrails;
+  private extraOceanLife?: ExtraOceanLife;
+  private elapsedTime: number = 0;
 
   // Store bound event handler to properly remove listener
   private boundOnWindowResize: () => void;
@@ -69,9 +72,9 @@ export class RenderingEngine {
       0.1,
       1000
     );
-    // Position: shallow depth for more light, looking forward into reef
-    this.camera.position.set(0, -8, 15);
-    this.camera.lookAt(0, -12, -10);
+    // Mid-water cinematic angle: shows surface light, dolphins/sharks mid-water, reef + floor life
+    this.camera.position.set(0, -10, 25);
+    this.camera.lookAt(0, -14, -5);
 
     // Create renderer with WebGL2
     this.renderer = new THREE.WebGLRenderer({
@@ -108,14 +111,17 @@ export class RenderingEngine {
     // Add marine life decorations
     this.marineLife = MarineLife.createMarineCreatures(this.scene, -30, 120);
 
+    // Add extra critters: octopuses, seahorses, eels, lobsters, nudibranchs
+    this.extraOceanLife = new ExtraOceanLife(this.scene, -30);
+
     // Add Water Surface - choose between FFT ocean (photorealistic) or basic water
     if (this.useFFTOcean) {
       this.fftOcean = new FFTOcean(
-        512, // Resolution for detail
-        1200, // Larger ocean size for expansive feel
-        28, // Wind speed for dynamic waves
-        new THREE.Vector2(1, 0.3), // wind direction
-        2.5 // Wave amplitude
+        256, // FFT resolution — perf-friendly while keeping nice detail
+        1200,
+        28,
+        new THREE.Vector2(1, 0.3),
+        2.5
       );
       this.fftOcean.mesh.position.y = 0; // Sea level
       this.scene.add(this.fftOcean.mesh);
@@ -163,8 +169,8 @@ export class RenderingEngine {
     this.sunLight = new THREE.DirectionalLight(0xb0ddee, 2.4); // Slightly warm-shifted underwater sunlight
     this.sunLight.position.set(10, 50, 10);
     this.sunLight.castShadow = true;
-    this.sunLight.shadow.mapSize.width = 4096;  // Higher res shadows for sharper caustic-like patterns
-    this.sunLight.shadow.mapSize.height = 4096;
+    this.sunLight.shadow.mapSize.width = 2048;
+    this.sunLight.shadow.mapSize.height = 2048;
     this.sunLight.shadow.camera.near = 0.5;
     this.sunLight.shadow.camera.far = 500;
     this.sunLight.shadow.camera.left = -80;    // Wider shadow frustum for full scene coverage
@@ -214,6 +220,11 @@ export class RenderingEngine {
   }
 
   public update(deltaTime: number): void {
+    this.elapsedTime += deltaTime;
+    // Animate extra critters
+    if (this.extraOceanLife) {
+      this.extraOceanLife.update(deltaTime, this.elapsedTime);
+    }
     // Update water surface
     if (this.fftOcean) {
       this.fftOcean.update(deltaTime);

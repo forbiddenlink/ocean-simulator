@@ -39,9 +39,9 @@ export class CausticsEffect {
     return new THREE.ShaderMaterial({
       uniforms: {
         time: { value: 0 },
-        intensity: { value: 0.85 }, // Stronger caustics for dramatic effect
-        scale: { value: 22.0 }, // Slightly larger patterns for visibility
-        speed: { value: 0.5 }, // Slower, more natural animation
+        intensity: { value: 0.55 }, // Subtler caustics so they don't tile-grid
+        scale: { value: 14.0 }, // Larger organic patterns
+        speed: { value: 0.42 },
         causticsTex: { value: null },
         waterHeightMap: { value: this.waterHeightTexture || null },
         chromaticAberration: { value: 0.045 }, // More chromatic aberration for rainbow effect

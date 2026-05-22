@@ -6,7 +6,7 @@ import * as THREE from 'three';
  */
 export class UnderwaterParticles {
   private particleSystem: THREE.Points;
-  private particleCount = 1200; // Double particles for rich underwater atmosphere
+  private particleCount = 1800; // Atmospheric particle density
   private particleGeometry: THREE.BufferGeometry;
   private particleMaterial: THREE.ShaderMaterial;
   private velocities: Float32Array;

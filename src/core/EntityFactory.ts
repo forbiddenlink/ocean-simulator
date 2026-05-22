@@ -45,9 +45,10 @@ export function createFish(
   Rotation.z[eid] = 0;
 
   addComponent(world, eid, Scale);
-  Scale.x[eid] = 2.5; // Much larger for clear visibility
-  Scale.y[eid] = 2.5;
-  Scale.z[eid] = 2.5;
+  // Realistic fish size — large enough to be clearly recognizable, small enough not to look blocky.
+  Scale.x[eid] = 1.6;
+  Scale.y[eid] = 1.6;
+  Scale.z[eid] = 1.6;
 
   // Biology
   addComponent(world, eid, Health);
@@ -118,22 +119,32 @@ export function createFish(
   Mesh.visible[eid] = 1;
 
   addComponent(world, eid, Color);
-  // Vibrant tropical fish color palettes - highly saturated for underwater visibility
+  // Vibrant tropical fish color palettes — wide variety, highly saturated
   const colorPalettes = [
-    { r: 1.0, g: 0.4, b: 0.0 },   // Clownfish orange (more saturated)
-    { r: 0.0, g: 0.5, b: 1.0 },   // Blue tang (vivid blue)
-    { r: 1.0, g: 0.95, b: 0.0 },  // Yellow tang (bright yellow)
-    { r: 1.0, g: 0.1, b: 0.2 },   // Red snapper (vivid red)
-    { r: 0.0, g: 1.0, b: 0.4 },   // Green chromis (bright green)
-    { r: 0.7, g: 0.2, b: 1.0 },   // Purple anthias (vivid purple)
-    { r: 1.0, g: 0.5, b: 0.0 },   // Butterflyfish (orange-gold)
+    { r: 1.0, g: 0.4, b: 0.0 },   // Clownfish orange
+    { r: 0.0, g: 0.5, b: 1.0 },   // Blue tang
+    { r: 1.0, g: 0.95, b: 0.0 },  // Yellow tang
+    { r: 1.0, g: 0.1, b: 0.2 },   // Red snapper
+    { r: 0.0, g: 1.0, b: 0.4 },   // Green chromis
+    { r: 0.7, g: 0.2, b: 1.0 },   // Purple anthias
+    { r: 1.0, g: 0.5, b: 0.0 },   // Butterflyfish
     { r: 0.2, g: 0.6, b: 1.0 },   // Blue schooling fish
     { r: 1.0, g: 0.3, b: 0.5 },   // Pink anthias
-    { r: 1.0, g: 0.8, b: 0.0 },   // Goldfish (bright gold)
+    { r: 1.0, g: 0.8, b: 0.0 },   // Goldfish gold
     { r: 0.0, g: 0.8, b: 0.8 },   // Cyan damselfish
-    { r: 0.5, g: 1.0, b: 0.2 },   // Lime green wrasse
+    { r: 0.5, g: 1.0, b: 0.2 },   // Lime wrasse
     { r: 1.0, g: 0.6, b: 0.8 },   // Pink parrotfish
     { r: 0.3, g: 0.3, b: 1.0 },   // Electric blue damsel
+    { r: 0.85, g: 0.3, b: 0.95 }, // Magenta anthias
+    { r: 0.95, g: 0.6, b: 0.2 },  // Tangerine angelfish
+    { r: 0.15, g: 0.55, b: 0.3 }, // Forest-green parrotfish
+    { r: 0.95, g: 0.95, b: 0.95 },// White bannerfish
+    { r: 0.2, g: 0.15, b: 0.4 },  // Indigo regal angel
+    { r: 0.9, g: 0.85, b: 0.55 }, // Sandy moorish idol
+    { r: 0.55, g: 0.85, b: 0.95 },// Sky pale damselfish
+    { r: 0.85, g: 0.18, b: 0.05 },// Crimson grouper
+    { r: 0.95, g: 0.7, b: 0.55 }, // Salmon clownfish
+    { r: 0.3, g: 0.95, b: 0.85 }, // Teal chromis
   ];
   const palette = colorPalettes[Math.floor(Math.random() * colorPalettes.length)];
   // Add slight variation within the palette

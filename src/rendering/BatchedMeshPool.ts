@@ -44,7 +44,7 @@ export class BatchedMeshPool {
   private fishInstances: Map<number, InstanceData> = new Map(); // eid -> instance data
   private fishInstanceCounts: number[] = [0, 0, 0, 0]; // Count per body type
   private freeInstanceSlots: number[][] = [[], [], [], []]; // Reusable slots per body type
-  private readonly MAX_FISH_PER_TYPE = 500; // 500 per type = 2000 total
+  private readonly MAX_FISH_PER_TYPE = 1200; // 1200 per type = 4800 total — dense bait balls
 
   // Individual meshes for complex creatures (sharks, dolphins, rays, jellyfish)
   private individualMeshes: Map<number, THREE.Mesh | THREE.Group> = new Map();
@@ -121,23 +121,23 @@ export class BatchedMeshPool {
   private createFishMaterial(): THREE.MeshPhysicalMaterial {
     const material = new THREE.MeshPhysicalMaterial({
       color: 0xffffff,
-      metalness: 0.1,            // Low metalness preserves color saturation
-      roughness: 0.35,           // Slightly rougher for better color visibility
+      metalness: 0.25,
+      roughness: 0.28,
       flatShading: false,
       side: THREE.DoubleSide,
-      emissive: new THREE.Color(0x556688),
-      emissiveIntensity: 0.25,   // Moderate fill to fight absorption without washing out color
-      iridescence: 0.7,          // Strong fish-scale iridescence
-      iridescenceIOR: 1.4,
-      iridescenceThicknessRange: [80, 450],
-      clearcoat: 0.45,           // Wet sheen
-      clearcoatRoughness: 0.12,  // Very smooth clearcoat
-      sheen: 0.25,               // Organic softness
-      sheenRoughness: 0.35,
-      sheenColor: new THREE.Color(0x7799bb),
-      transmission: 0.04,        // Very slight translucency
-      thickness: 0.1,
-      specularIntensity: 0.7,    // Visible specular on scales
+      emissive: new THREE.Color(0x334455),
+      emissiveIntensity: 0.18,
+      iridescence: 0.85,         // Strong fish-scale iridescence
+      iridescenceIOR: 1.45,
+      iridescenceThicknessRange: [100, 520],
+      clearcoat: 0.6,            // Wet sheen
+      clearcoatRoughness: 0.08,
+      sheen: 0.4,
+      sheenRoughness: 0.3,
+      sheenColor: new THREE.Color(0x88bbff),
+      transmission: 0.03,
+      thickness: 0.12,
+      specularIntensity: 0.9,
     });
 
     // Inject GPU swimming animation + procedural scale pattern
@@ -156,26 +156,34 @@ attribute float finType;
         '#include <begin_vertex>',
         `#include <begin_vertex>
 {
+  // === Body undulation (carangiform wave) — amplitude grows toward tail ===
   float posAlongBody = clamp((position.x + 0.4) / 0.8, 0.0, 1.0);
-  float ampEnvelope = smoothstep(0.0, 1.0, posAlongBody);
-  float amplitude = ampEnvelope * animSpeed * 0.08;
-  float lateralDisp = sin(posAlongBody * 6.28318 - animPhase) * amplitude;
+  float ampEnvelope = pow(posAlongBody, 1.8);
+  float bodyAmp = ampEnvelope * (0.18 + animSpeed * 0.22);
+  float lateralDisp = sin(posAlongBody * 6.28318 - animPhase) * bodyAmp;
   transformed.z += lateralDisp;
 
+  // Subtle vertical lift in the tail region (porpoising)
+  transformed.y += ampEnvelope * sin(animPhase * 0.5) * 0.025 * animSpeed;
+
   if (finType > 0.5 && finType < 1.5) {
-    float tailProgress = clamp((position.x - 0.3) / 0.25, 0.0, 1.0);
-    float tailAmp = tailProgress * animSpeed * 0.15;
-    float tailWave = sin(animPhase * 1.2) * tailAmp;
+    // Tail fin — exaggerated lateral sweep
+    float tailProgress = clamp((position.x - 0.28) / 0.27, 0.0, 1.0);
+    float tailAmp = tailProgress * (0.22 + animSpeed * 0.35);
+    float tailWave = sin(animPhase * 1.3) * tailAmp;
     transformed.z += tailWave;
+    transformed.x -= tailProgress * abs(sin(animPhase * 1.3)) * 0.04;
   }
   else if (finType > 1.5 && finType < 2.5) {
-    float finSway = sin(animPhase * 0.8 + position.y * 2.0) * animSpeed * 0.02;
+    // Dorsal / anal — gentle sway
+    float finSway = sin(animPhase * 0.8 + position.y * 2.0) * (0.025 + animSpeed * 0.04);
     transformed.z += finSway;
   }
   else if (finType > 2.5) {
+    // Pectoral fin — alternating flap (the side variable creates phase offset between left/right)
     float side = sign(position.z);
     float flapPhase = animPhase * 2.0 + side * 1.57;
-    float flapAmp = animSpeed * 0.06;
+    float flapAmp = 0.06 + animSpeed * 0.10;
     float flapAngle = sin(flapPhase) * flapAmp;
     float cosF = cos(flapAngle);
     float sinF = sin(flapAngle);
@@ -188,7 +196,98 @@ attribute float finType;
 `
       );
 
-      // Fragment shader: no custom modifications — rely on PBR material properties
+      // === FRAGMENT SHADER: Procedural stripe / countershade pattern per body ===
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <uv_pars_vertex>',
+        `#include <uv_pars_vertex>
+varying vec3 vLocalPosition;
+varying float vAnimPhase;
+`
+      );
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <project_vertex>',
+        `vLocalPosition = position;
+vAnimPhase = animPhase;
+#include <project_vertex>
+`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <uv_pars_fragment>',
+        `#include <uv_pars_fragment>
+varying vec3 vLocalPosition;
+varying float vAnimPhase;
+`
+      );
+
+      // Inject pattern + countershade right after diffuseColor is established
+      shader.fragmentShader = shader.fragmentShader.replace(
+        'vec4 diffuseColor = vec4( diffuse, opacity );',
+        `vec4 diffuseColor = vec4( diffuse, opacity );
+
+// === Per-fish procedural pattern ===
+float fishSeed = vAnimPhase;
+float patternType = floor(mod(fishSeed * 13.37, 7.0)); // 0..6 — 7 distinct patterns
+
+// Horizontal stripes along body length
+float bodyStripes = sin(vLocalPosition.x * 22.0 + fishSeed * 6.28) * 0.5 + 0.5;
+bodyStripes = smoothstep(0.35, 0.65, bodyStripes);
+
+// Vertical bands across body height
+float bandFreq = 8.0 + mod(fishSeed * 9.0, 12.0);
+float verticalBands = sin(vLocalPosition.x * bandFreq + fishSeed) * 0.5 + 0.5;
+verticalBands = smoothstep(0.4, 0.6, verticalBands);
+
+// Spots
+float spots = sin(vLocalPosition.x * 14.0 + fishSeed * 2.0) *
+              sin(vLocalPosition.z * 18.0 + fishSeed * 3.0);
+spots = smoothstep(0.25, 0.55, spots);
+
+// Larger blotches (leopard pattern)
+float blotches = sin(vLocalPosition.x * 5.5 + fishSeed * 1.7) *
+                 sin(vLocalPosition.z * 7.0 + fishSeed * 4.3) *
+                 sin(vLocalPosition.y * 9.0);
+blotches = smoothstep(0.1, 0.5, blotches);
+
+// Head-to-tail gradient
+float headTail = clamp((vLocalPosition.x + 0.45) / 0.9, 0.0, 1.0);
+
+// Countershade — lighter belly
+float belly = smoothstep(-0.18, 0.18, -vLocalPosition.y);
+
+vec3 patternDark = diffuseColor.rgb * 0.45;
+vec3 patternLight = diffuseColor.rgb * 1.35;
+vec3 patternAccent = vec3(1.0) - diffuseColor.rgb;
+patternAccent = mix(diffuseColor.rgb, patternAccent, 0.45);
+vec3 patterned = diffuseColor.rgb;
+
+if (patternType < 1.0) {
+  // Striped (clownfish / clown loach)
+  patterned = mix(diffuseColor.rgb, patternDark, bodyStripes * 0.7);
+} else if (patternType < 2.0) {
+  // Vertical bands (angelfish / sergeant major)
+  patterned = mix(diffuseColor.rgb, patternDark, verticalBands * 0.65);
+} else if (patternType < 3.0) {
+  // Spotted (leopard wrasse)
+  patterned = mix(diffuseColor.rgb, patternAccent, spots * 0.55);
+} else if (patternType < 4.0) {
+  // Leopard blotches (grouper)
+  patterned = mix(diffuseColor.rgb, patternDark, blotches * 0.6);
+} else if (patternType < 5.0) {
+  // Head-to-tail gradient (mahi / parrotfish)
+  patterned = mix(patternDark, patternLight, headTail);
+} else if (patternType < 6.0) {
+  // Two-tone (lighter belly) — surgeonfish style
+  patterned = mix(patternDark, patternLight, belly);
+}
+// else: solid color (anthias)
+
+// Apply soft countershade on every fish
+patterned = mix(patterned * 0.92, patterned * 1.12, belly);
+
+diffuseColor.rgb = patterned;
+`
+      );
     };
 
     return material;

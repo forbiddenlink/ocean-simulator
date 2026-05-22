@@ -24,6 +24,7 @@ if (mainContent) {
 // Initialize simulator
 try {
   const simulator = new OceanSimulator(canvas);
+  (window as unknown as { __sim: OceanSimulator }).__sim = simulator;
   simulator.start();
 
   // Cleanup on page unload

@@ -139,16 +139,14 @@ export class WavelengthLighting {
     public applyToSceneFog(scene: THREE.Scene, cameraY: number): void {
         const depth = Math.max(0, -cameraY);
 
-        // Dynamic fog density - balanced for creature visibility and depth feel
-        // At surface: 0.010, at 30m: ~0.015 (reduced for better creature visibility)
-        const baseDensity = 0.006;
-        const depthFactor = depth * 0.0001;
+        // Dynamic fog density - tuned for cinematic depth without crushing close-up creatures.
+        const baseDensity = 0.012;
+        const depthFactor = depth * 0.00015;
         const density = baseDensity + depthFactor;
 
-        // Fog color shifts from blue-green (shallow) to deep blue (deep)
-        // BRIGHTER fog colors for visible underwater atmosphere (Phase 1 visual fix)
-        const shallowFog = new THREE.Color(0x5aa0b5); // Brighter teal
-        const deepFog = new THREE.Color(0x2a6a8a); // Brighter blue
+        // Fog color shifts from teal (shallow) to deep navy (depth)
+        const shallowFog = new THREE.Color(0x4a90a5);
+        const deepFog = new THREE.Color(0x10405a);
         const fogMix = Math.min(depth / 100, 1.0);
         const fogColor = shallowFog.clone().lerp(deepFog, fogMix);
 

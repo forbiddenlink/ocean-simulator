@@ -287,108 +287,113 @@ export class OceanSimulator {
   
   private spawnInitialFish(): void {
     if (DEBUG) console.log('🐠 Spawning COMPREHENSIVE marine ecosystem...');
-    
-    // MASSIVE schools of small bait fish (sardines/anchovies) - foundation of food chain
-    this.spawnFishSchool(80, -8, 0, 0, 15, 0.6);     // Main bait ball - center
-    this.spawnFishSchool(60, -10, 30, -20, 12, 0.6); // Right bait school
-    this.spawnFishSchool(60, -9, -30, 25, 12, 0.6);  // Left bait school
-    this.spawnFishSchool(50, -15, 20, 30, 10, 0.6);  // Deeper school
-    
-    // Medium-sized schooling fish (tuna, mackerel)
-    this.spawnFishSchool(40, -12, 10, -10, 10, 1.0); // Mid-sized hunters
-    this.spawnFishSchool(35, -14, -15, 15, 10, 1.0); // Another mid-size group
-    this.spawnFishSchool(30, -10, 0, -25, 8, 1.0);   // Surface feeders
-    
-    // Larger reef fish (groupers, snappers)
-    this.spawnFishSchool(25, -18, 15, 10, 8, 1.3);   // Near reef
-    this.spawnFishSchool(20, -20, -10, -15, 7, 1.3); // Reef dwellers
-    
-    // Solitary larger fish scattered throughout
-    for (let i = 0; i < 15; i++) {
-      const x = (Math.random() - 0.5) * 60;
-      const y = -8 - Math.random() * 15;
-      const z = (Math.random() - 0.5) * 60;
-      createFish(this.world, x, y, z, 2);
+
+    // === BAIT BALLS — schools of small fish in mid-water ===
+    this.spawnFishSchool(80, -10, 0, -5, 14, 0.55);
+    this.spawnFishSchool(60, -12, 28, -22, 12, 0.55);
+    this.spawnFishSchool(60, -9, -28, 22, 12, 0.55);
+    this.spawnFishSchool(55, -16, 18, 28, 11, 0.55);
+    this.spawnFishSchool(50, -7, -10, -30, 10, 0.55);
+    this.spawnFishSchool(45, -19, -25, -10, 10, 0.55);
+
+    // === MEDIUM SCHOOLS — tuna, mackerel, jacks ===
+    this.spawnFishSchool(40, -13, 8, -8, 11, 1.0);
+    this.spawnFishSchool(35, -15, -14, 16, 10, 1.0);
+    this.spawnFishSchool(30, -10, 2, -22, 9, 1.0);
+    this.spawnFishSchool(28, -17, 22, 4, 9, 1.0);
+
+    // === LARGER REEF FISH — groupers, parrotfish, snappers ===
+    this.spawnFishSchool(30, -19, 14, 10, 8, 1.4);
+    this.spawnFishSchool(28, -21, -12, -16, 7, 1.4);
+    this.spawnFishSchool(22, -23, 20, -18, 6, 1.5);
+
+    // === SOLITARY DRIFTERS scattered widely ===
+    for (let i = 0; i < 25; i++) {
+      const x = (Math.random() - 0.5) * 70;
+      const y = -6 - Math.random() * 20;
+      const z = (Math.random() - 0.5) * 70;
+      createFish(this.world, x, y, z, 1 + Math.floor(Math.random() * 4));
     }
-    
-    // Sharks (apex predators) - more variety and numbers
-    const sharkSpecies = ['great-white', 'hammerhead', 'tiger', 'reef', 'reef', 'reef'] as const;
-    for (let i = 0; i < 8; i++) {
-      const x = (Math.random() - 0.5) * 60;
-      const y = -12 - Math.random() * 15;
-      const z = (Math.random() - 0.5) * 60;
+
+    // === SHARKS — diverse apex predators ===
+    const sharkSpecies = ['great-white', 'hammerhead', 'tiger', 'reef', 'reef', 'reef', 'reef'] as const;
+    for (let i = 0; i < 12; i++) {
+      const x = (Math.random() - 0.5) * 70;
+      const y = -10 - Math.random() * 18;
+      const z = (Math.random() - 0.5) * 70;
       const species = sharkSpecies[Math.floor(Math.random() * sharkSpecies.length)];
       createShark(this.world, x, y, z, species);
     }
-    
-    // Dolphins (intelligent social creatures) - multiple pods
-    for (let pod = 0; pod < 2; pod++) {
-      const dolphinPodSize = 4 + Math.floor(Math.random() * 4); // 4-7 dolphins
-      const podX = (Math.random() - 0.5) * 50;
-      const podZ = (Math.random() - 0.5) * 50;
+
+    // === DOLPHINS — three social pods at different depths ===
+    for (let pod = 0; pod < 3; pod++) {
+      const dolphinPodSize = 5 + Math.floor(Math.random() * 4);
+      const podX = (Math.random() - 0.5) * 55;
+      const podZ = (Math.random() - 0.5) * 55;
+      const podY = -4 - pod * 3;
       for (let i = 0; i < dolphinPodSize; i++) {
         const angle = (i / dolphinPodSize) * Math.PI * 2;
-        const radius = 6;
+        const radius = 5 + Math.random() * 3;
         const x = podX + Math.cos(angle) * radius;
-        const y = -5 - Math.random() * 5;
+        const y = podY + (Math.random() - 0.5) * 2;
         const z = podZ + Math.sin(angle) * radius;
-        const species = (i === 0 && Math.random() > 0.8) ? 'orca' : 'bottlenose';
+        const species = (i === 0 && pod === 2) ? 'orca' : 'bottlenose';
         createDolphin(this.world, x, y, z, species as any);
       }
     }
-    
-    // Jellyfish (drifters) - distributed across depths
+
+    // === JELLYFISH BLOOM — drifting at all depths, dense near surface ===
     const jellyfishSpecies = ['moon', 'box', 'crystal', 'lion'] as const;
-    for (let i = 0; i < 30; i++) {
-      const x = (Math.random() - 0.5) * 70;
-      const y = -3 - Math.random() * 25; // From near surface to deep
-      const z = (Math.random() - 0.5) * 70;
+    for (let i = 0; i < 60; i++) {
+      const x = (Math.random() - 0.5) * 75;
+      const y = -2 - Math.random() * 26;
+      const z = (Math.random() - 0.5) * 75;
       const species = jellyfishSpecies[Math.floor(Math.random() * jellyfishSpecies.length)];
       createJellyfish(this.world, x, y, z, species);
     }
-    
-    // Rays (bottom dwellers and gliders)
-    const raySpecies = ['manta', 'eagle', 'stingray', 'stingray'] as const;
-    for (let i = 0; i < 8; i++) {
-      const x = (Math.random() - 0.5) * 60;
-      const y = -22 - Math.random() * 8; // Near ocean floor
-      const z = (Math.random() - 0.5) * 60;
+
+    // === RAYS — gliding near floor ===
+    const raySpecies = ['manta', 'eagle', 'stingray', 'stingray', 'eagle'] as const;
+    for (let i = 0; i < 14; i++) {
+      const x = (Math.random() - 0.5) * 65;
+      const y = -20 - Math.random() * 10;
+      const z = (Math.random() - 0.5) * 65;
       const species = raySpecies[Math.floor(Math.random() * raySpecies.length)];
       createRay(this.world, x, y, z, species);
     }
-    
-    // Sea turtles (3-5, graceful swimmers)
-    for (let i = 0; i < 4; i++) {
-      const x = (Math.random() - 0.5) * 60;
-      const z = (Math.random() - 0.5) * 60;
-      const y = -8 - Math.random() * 12; // -8 to -20 depth
-      createTurtle(this.world, x, y, z, ['green', 'hawksbill', 'loggerhead'][Math.floor(Math.random() * 3)] as 'green' | 'hawksbill' | 'loggerhead');
+
+    // === SEA TURTLES — graceful mid-water swimmers ===
+    const turtleSpecies = ['green', 'hawksbill', 'loggerhead'] as const;
+    for (let i = 0; i < 8; i++) {
+      const x = (Math.random() - 0.5) * 65;
+      const z = (Math.random() - 0.5) * 65;
+      const y = -6 - Math.random() * 16;
+      createTurtle(this.world, x, y, z, turtleSpecies[Math.floor(Math.random() * 3)]);
     }
 
-    // Whales (1-2, rare majestic creatures in far distance)
-    createWhale(this.world, 60, -18, -50, 'humpback');
-    if (Math.random() > 0.5) {
-      createWhale(this.world, -60, -22, 55, 'blue');
+    // === WHALES — rare giants in far distance ===
+    createWhale(this.world, 55, -17, -55, 'humpback');
+    createWhale(this.world, -60, -21, 50, 'blue');
+    if (Math.random() > 0.4) {
+      createWhale(this.world, -45, -14, -55, 'humpback');
     }
 
-    // Bottom dwellers - crabs (30-50, scattered on floor)
-    for (let i = 0; i < 40; i++) {
-      const x = (Math.random() - 0.5) * 80;
-      const z = (Math.random() - 0.5) * 80;
-      createCrab(this.world, x, 0, z); // y ignored, uses floor position
+    // === FLOOR LIFE — crabs, starfish, urchins densely populating the seabed ===
+    for (let i = 0; i < 70; i++) {
+      const x = (Math.random() - 0.5) * 85;
+      const z = (Math.random() - 0.5) * 85;
+      createCrab(this.world, x, 0, z);
     }
 
-    // Starfish (20-30, scattered on floor)
-    for (let i = 0; i < 25; i++) {
-      const x = (Math.random() - 0.5) * 80;
-      const z = (Math.random() - 0.5) * 80;
+    for (let i = 0; i < 45; i++) {
+      const x = (Math.random() - 0.5) * 85;
+      const z = (Math.random() - 0.5) * 85;
       createStarfish(this.world, x, 0, z);
     }
 
-    // Sea urchins (15-20, scattered on floor)
-    for (let i = 0; i < 18; i++) {
-      const x = (Math.random() - 0.5) * 80;
-      const z = (Math.random() - 0.5) * 80;
+    for (let i = 0; i < 35; i++) {
+      const x = (Math.random() - 0.5) * 85;
+      const z = (Math.random() - 0.5) * 85;
       createSeaUrchin(this.world, x, 0, z);
     }
 
