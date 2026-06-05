@@ -18,7 +18,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.9",
-    "@vitest/ui": "^4.0.16",
+    "@vitest/ui": "^4.1.8",
     "terser": "^5.44.1",
     "three-stdlib": "^2.36.1",
     "typescript": "~5.9.3",
