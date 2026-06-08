@@ -30,7 +30,7 @@
     "@types/three": "^0.182.0",
     "bitecs": "^0.4.0",
     "lil-gui": "^0.21.0",
-    "posthog-js": "^1.381.0",
+    "posthog-js": "^1.382.0",
     "postprocessing": "^6.39.1",
     "three": "^0.184.0",
     "vite-plugin-glsl": "^1.6.0",
