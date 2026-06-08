@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
-    "@types/three": "^0.182.0",
+    "@types/three": "^0.184.1",
     "bitecs": "^0.4.0",
     "lil-gui": "^0.21.0",
     "posthog-js": "^1.382.0",
