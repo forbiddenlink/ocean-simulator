@@ -16,7 +16,7 @@ export default defineConfig({
     target: 'esnext',
     minify: 'terser',
     sourcemap: true,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         manualChunks(id: string) {
           if (id.includes('node_modules/three')) return 'three';
