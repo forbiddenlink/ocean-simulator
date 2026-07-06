@@ -17,22 +17,22 @@
     "biome:format": "biome format . --write"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.1",
+    "@biomejs/biome": "^2.5.2",
     "@vitest/ui": "^4.1.8",
     "terser": "^5.48.0",
     "three-stdlib": "^2.36.1",
     "typescript": "~6.0.3",
-    "vite": "^8.0.13",
+    "vite": "^8.1.0",
     "vitest": "^4.1.9"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
-    "@types/three": "^0.184.1",
+    "@types/three": "^0.185.0",
     "bitecs": "^0.4.0",
     "lil-gui": "^0.21.0",
-    "posthog-js": "^1.391.9",
-    "postprocessing": "^6.39.1",
-    "three": "^0.184.0",
+    "posthog-js": "^1.396.2",
+    "postprocessing": "^6.39.2",
+    "three": "^0.185.0",
     "vite-plugin-glsl": "^1.6.0",
     "zustand": "^5.0.14"
   },
