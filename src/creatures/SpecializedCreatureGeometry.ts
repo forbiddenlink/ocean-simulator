@@ -390,6 +390,23 @@ export class SpecializedCreatureGeometry {
     return new THREE.Mesh(geometry);
   }
 
+  /**
+   * Extrude a fin outline into a thin 3D slab (with a soft bevel) centered on its own
+   * plane, so fins have real volume instead of vanishing edge-on like cardboard cutouts.
+   */
+  private static extrudedFin(shape: THREE.Shape, depth: number): THREE.BufferGeometry {
+    const geometry = new THREE.ExtrudeGeometry(shape, {
+      depth,
+      bevelEnabled: true,
+      bevelThickness: depth * 0.4,
+      bevelSize: depth * 0.4,
+      bevelSegments: 1,
+      steps: 1,
+    });
+    geometry.translate(0, 0, -depth / 2); // center the thickness on the fin plane
+    return geometry;
+  }
+
   private static createSharkDorsalFin(length: number, scale: number): THREE.Mesh {
     const finLength = length * 0.25 * scale;
     const finHeight = length * 0.3 * scale;
@@ -400,7 +417,7 @@ export class SpecializedCreatureGeometry {
     shape.quadraticCurveTo(finLength * 0.5, finHeight * 0.6, finLength, 0);
     shape.lineTo(0, 0);
 
-    const geometry = new THREE.ShapeGeometry(shape);
+    const geometry = SpecializedCreatureGeometry.extrudedFin(shape, finHeight * 0.14);
     const colors = new Float32Array(geometry.attributes.position.count * 3);
     colors.fill(0.6);
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -417,7 +434,7 @@ export class SpecializedCreatureGeometry {
     shape.lineTo(finLength * 0.9, finLength * 0.05);
     shape.quadraticCurveTo(finLength * 0.3, finLength * 0.1, 0, 0);
 
-    const geometry = new THREE.ShapeGeometry(shape);
+    const geometry = SpecializedCreatureGeometry.extrudedFin(shape, finLength * 0.12);
     const colors = new Float32Array(geometry.attributes.position.count * 3);
     colors.fill(0.65);
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -434,7 +451,7 @@ export class SpecializedCreatureGeometry {
     shape.lineTo(finLength * 0.8, 0);
     shape.lineTo(0, 0);
 
-    const geometry = new THREE.ShapeGeometry(shape);
+    const geometry = SpecializedCreatureGeometry.extrudedFin(shape, finLength * 0.12);
     const colors = new Float32Array(geometry.attributes.position.count * 3);
     colors.fill(0.65);
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -451,7 +468,7 @@ export class SpecializedCreatureGeometry {
     shape.lineTo(finLength, 0);
     shape.lineTo(0, 0);
 
-    const geometry = new THREE.ShapeGeometry(shape);
+    const geometry = SpecializedCreatureGeometry.extrudedFin(shape, finLength * 0.12);
     const colors = new Float32Array(geometry.attributes.position.count * 3);
     colors.fill(0.65);
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -642,7 +659,7 @@ export class SpecializedCreatureGeometry {
     shape.lineTo(finLength, 0);
     shape.lineTo(0, 0);
 
-    const geometry = new THREE.ShapeGeometry(shape);
+    const geometry = SpecializedCreatureGeometry.extrudedFin(shape, finHeight * 0.14);
     const colors = new Float32Array(geometry.attributes.position.count * 3);
     colors.fill(0.55);
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -659,7 +676,7 @@ export class SpecializedCreatureGeometry {
     shape.lineTo(finLength, 0);
     shape.lineTo(0, 0);
 
-    const geometry = new THREE.ShapeGeometry(shape);
+    const geometry = SpecializedCreatureGeometry.extrudedFin(shape, finLength * 0.12);
     const colors = new Float32Array(geometry.attributes.position.count * 3);
     colors.fill(0.6);
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
