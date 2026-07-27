@@ -17,6 +17,7 @@ export class ExtraOceanLife {
     this.spawnMorayEels(floorDepth, 8);
     this.spawnLobsters(floorDepth, 10);
     this.spawnNudibranchs(floorDepth, 18);
+    this.spawnAnglerfish(floorDepth, 6);
 
     scene.add(this.group);
   }
@@ -31,9 +32,90 @@ export class ExtraOceanLife {
         const t = elapsed + (child.userData.phase as number);
         child.position.y = (child.userData.baseY as number) + Math.sin(t * 0.8) * 0.15;
         child.rotation.z = Math.sin(t * 0.5) * 0.08;
+      } else if (child.userData.kind === 'angler') {
+        // Hover + drift, and pulse the lure so it throbs like real biolume.
+        const t = elapsed + (child.userData.phase as number);
+        child.position.y = (child.userData.baseY as number) + Math.sin(t * 0.5) * 0.5;
+        child.rotation.y = (child.userData.baseYaw as number) + Math.sin(t * 0.25) * 0.5;
+        const lure = child.userData.lure as THREE.Mesh | undefined;
+        if (lure) {
+          const pulse = 0.7 + 0.3 * Math.sin(t * 2.2);
+          lure.scale.setScalar(pulse);
+          (lure.material as THREE.MeshBasicMaterial).color.setRGB(0.4 * pulse, 1.0 * pulse, 0.85 * pulse);
+        }
       }
     }
     void deltaTime;
+  }
+
+  // === ANGLERFISH — deep-sea predator with a bioluminescent lure. The lure is an
+  // unlit bright mesh so it blooms and, in the bioluminescent night look, becomes one
+  // of the few light sources in the scene. ===
+  private spawnAnglerfish(floorY: number, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const angler = new THREE.Group();
+      const bodyMat = this.makeWaveMaterial(new THREE.Color(0x14181f), 0.05, 2.2);
+
+      // Bulbous body tapering to a thin tail.
+      const bodyGeo = new THREE.SphereGeometry(1.0, 20, 16);
+      const bpos = bodyGeo.attributes.position;
+      for (let v = 0; v < bpos.count; v++) {
+        const x = bpos.getX(v);
+        const taper = x < 0 ? 1 - 0.7 * Math.min(1, -x) : 1; // pinch the tail (-x)
+        bpos.setY(v, bpos.getY(v) * taper);
+        bpos.setZ(v, bpos.getZ(v) * taper);
+      }
+      bodyGeo.computeVertexNormals();
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.scale.set(1.1, 0.95, 0.9);
+      angler.add(body);
+
+      // Gaping lower jaw — a ring of needle teeth at the front (+x).
+      const toothMat = new THREE.MeshBasicMaterial({ color: 0xdfe6ea });
+      for (let t = 0; t < 10; t++) {
+        const a = (t / 10) * Math.PI * 2;
+        const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.34, 5), toothMat);
+        tooth.position.set(0.92, Math.sin(a) * 0.34, Math.cos(a) * 0.34);
+        tooth.rotation.z = Math.PI / 2; // point forward (+x)
+        angler.add(tooth);
+      }
+
+      // Big eye.
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xf6e7a0 });
+      for (const ez of [-0.42, 0.42]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), eyeMat);
+        eye.position.set(0.5, 0.34, ez);
+        angler.add(eye);
+        const pup = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color: 0x0a0a0a }));
+        pup.position.set(0.6, 0.34, ez);
+        angler.add(pup);
+      }
+
+      // Illicium (stalk) curving forward over the mouth, ending in the glowing lure.
+      const stalkMat = new THREE.MeshBasicMaterial({ color: 0x0d1216 });
+      const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.05, 1.5, 6), stalkMat);
+      stalk.position.set(0.5, 1.0, 0);
+      stalk.rotation.z = -0.9; // lean forward over the head
+      angler.add(stalk);
+
+      const lureMat = new THREE.MeshBasicMaterial({ color: 0x66ffd8 });
+      const lure = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), lureMat);
+      lure.position.set(1.25, 1.5, 0);
+      angler.add(lure);
+
+      // Hover somewhere in the lower-mid water column (anglerfish are deep).
+      const baseY = floorY + 2 + Math.random() * 12;
+      const baseYaw = Math.random() * Math.PI * 2;
+      angler.position.set((Math.random() - 0.5) * 80, baseY, (Math.random() - 0.5) * 80);
+      angler.rotation.y = baseYaw;
+      angler.scale.setScalar(0.8 + Math.random() * 0.6);
+      angler.userData.kind = 'angler';
+      angler.userData.baseY = baseY;
+      angler.userData.baseYaw = baseYaw;
+      angler.userData.phase = Math.random() * Math.PI * 2;
+      angler.userData.lure = lure;
+      this.group.add(angler);
+    }
   }
 
   private makeWaveMaterial(color: THREE.Color, amplitude: number, freq: number): THREE.ShaderMaterial {

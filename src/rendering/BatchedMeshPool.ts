@@ -36,6 +36,18 @@ interface InstanceData {
 // Body type names for logging
 const BODY_TYPE_NAMES = ['standard', 'slender', 'disc', 'chunky'];
 
+// Maps an individual-creature CreatureType to the species key used by the optional GLTF
+// model registry (see CreatureModelLoader). Only large individual creatures are eligible;
+// instanced fish (type 0) stay procedural. If a model is registered for the key it replaces
+// the procedural body; otherwise the procedural path runs unchanged.
+const MODEL_KEY_BY_TYPE: Record<number, string> = {
+  1: 'shark',
+  2: 'dolphin',
+  4: 'ray',
+  5: 'turtle',
+  9: 'whale',
+};
+
 export class BatchedMeshPool {
   private renderEngine: RenderingEngine;
 
@@ -52,6 +64,17 @@ export class BatchedMeshPool {
   // Shared resources - geometries and materials per body type
   private fishGeometries: THREE.BufferGeometry[] = [];
   private fishMaterials: THREE.Material[] = [];
+  // Shared clock for animated caustic dapples on creatures — one object referenced by
+  // every creature shader (fish + large bodies), advanced once per frame in updateTime.
+  private causticTime = { value: 0 };
+  private frameCount = 0;
+  // Optional GLTF creature models keyed by species (empty = fully procedural).
+  private creatureModels = new Map<string, THREE.BufferGeometry>();
+
+  /** Register loaded GLTF creature models; new large creatures use them in place of procedural bodies. */
+  public setCreatureModels(models: Map<string, THREE.BufferGeometry>): void {
+    this.creatureModels = models;
+  }
   private tempMatrix: THREE.Matrix4 = new THREE.Matrix4();
   private tempPosition: THREE.Vector3 = new THREE.Vector3();
   private tempQuaternion: THREE.Quaternion = new THREE.Quaternion();
@@ -135,13 +158,15 @@ export class BatchedMeshPool {
       sheen: 0.4,
       sheenRoughness: 0.3,
       sheenColor: new THREE.Color(0x88bbff),
-      transmission: 0.03,
-      thickness: 0.12,
+      transmission: 0.0, // opaque fish — transmission caused dark grazing-angle artifacts
+      thickness: 0.0,
       specularIntensity: 0.9,
     });
 
     // Inject GPU swimming animation + procedural scale pattern
+    const causticTime = this.causticTime;
     material.onBeforeCompile = (shader) => {
+      shader.uniforms.uCausticTime = causticTime;
       // === VERTEX SHADER: Swimming animation + pass varyings to fragment ===
       shader.vertexShader = shader.vertexShader.replace(
         '#include <common>',
@@ -157,22 +182,24 @@ attribute float finType;
         `#include <begin_vertex>
 {
   // === Body undulation (carangiform wave) — amplitude grows toward tail ===
+  // Amplitude kept low: real fish flex gently. High amplitude here crescents the
+  // whole body into a boomerang, which is the #1 "fish look wrong" tell.
   float posAlongBody = clamp((position.x + 0.4) / 0.8, 0.0, 1.0);
-  float ampEnvelope = pow(posAlongBody, 1.8);
-  float bodyAmp = ampEnvelope * (0.18 + animSpeed * 0.22);
-  float lateralDisp = sin(posAlongBody * 6.28318 - animPhase) * bodyAmp;
+  float ampEnvelope = pow(posAlongBody, 2.0);
+  float bodyAmp = ampEnvelope * (0.045 + animSpeed * 0.075);
+  float lateralDisp = sin(posAlongBody * 5.2 - animPhase) * bodyAmp;
   transformed.z += lateralDisp;
 
   // Subtle vertical lift in the tail region (porpoising)
-  transformed.y += ampEnvelope * sin(animPhase * 0.5) * 0.025 * animSpeed;
+  transformed.y += ampEnvelope * sin(animPhase * 0.5) * 0.015 * animSpeed;
 
   if (finType > 0.5 && finType < 1.5) {
-    // Tail fin — exaggerated lateral sweep
+    // Tail fin — the main propulsive sweep, but still restrained
     float tailProgress = clamp((position.x - 0.28) / 0.27, 0.0, 1.0);
-    float tailAmp = tailProgress * (0.22 + animSpeed * 0.35);
+    float tailAmp = tailProgress * (0.07 + animSpeed * 0.13);
     float tailWave = sin(animPhase * 1.3) * tailAmp;
     transformed.z += tailWave;
-    transformed.x -= tailProgress * abs(sin(animPhase * 1.3)) * 0.04;
+    transformed.x -= tailProgress * abs(sin(animPhase * 1.3)) * 0.025;
   }
   else if (finType > 1.5 && finType < 2.5) {
     // Dorsal / anal — gentle sway
@@ -202,12 +229,14 @@ attribute float finType;
         `#include <uv_pars_vertex>
 varying vec3 vLocalPosition;
 varying float vAnimPhase;
+varying vec3 vFishWPos;
 `
       );
       shader.vertexShader = shader.vertexShader.replace(
         '#include <project_vertex>',
         `vLocalPosition = position;
 vAnimPhase = animPhase;
+vFishWPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
 #include <project_vertex>
 `
       );
@@ -217,6 +246,31 @@ vAnimPhase = animPhase;
         `#include <uv_pars_fragment>
 varying vec3 vLocalPosition;
 varying float vAnimPhase;
+varying vec3 vFishWPos;
+uniform float uCausticTime;
+`
+      );
+
+      // Fresnel rim light — a cool edge glow that reads as underwater backscatter and
+      // makes the stylized low-poly bodies feel lit and premium rather than flat.
+      shader.fragmentShader = shader.fragmentShader.replace(
+        'vec3 totalEmissiveRadiance = emissive;',
+        `vec3 totalEmissiveRadiance = emissive;
+{
+  vec3 rimV = normalize(vViewPosition);
+  vec3 rimN = normalize(vNormal);
+  float rim = pow(1.0 - clamp(dot(rimN, rimV), 0.0, 1.0), 2.6);
+  totalEmissiveRadiance += vec3(0.20, 0.52, 0.78) * rim * 0.65;
+
+  // Caustic dapples on the fish's upper body (same seabed light, on the school).
+  float fishUp = smoothstep(-0.1, 0.25, vLocalPosition.y);
+  vec2 fcuv = vFishWPos.xz * 0.18;
+  float fct = uCausticTime;
+  float fcaus = sin(fcuv.x * 3.0 + sin(fcuv.y * 1.7 + fct) * 1.5 + fct)
+              * sin(fcuv.y * 3.0 + cos(fcuv.x * 1.9 - fct * 0.8) * 1.5 + fct * 1.1);
+  fcaus = smoothstep(0.15, 0.9, fcaus * 0.5 + 0.5);
+  totalEmissiveRadiance += vec3(0.45, 0.6, 0.5) * fcaus * fishUp * 0.45;
+}
 `
       );
 
@@ -424,13 +478,13 @@ diffuseColor.rgb = patterned;
         const maxSpeed = 3.0;
         const raw = Math.min(1.0, speed / maxSpeed);
 
-        // Visual animation should still read at low cruising speeds.
-        // Keep a baseline so fish don't look "frozen" when they slow down.
-        const normalizedSpeed = Math.min(1.0, 0.25 + raw * 0.75);
+        // Visual animation should still read at low cruising speeds, but calmly —
+        // a small baseline so fish idle-flex without looking frozen or frantic.
+        const normalizedSpeed = Math.min(1.0, 0.15 + raw * 0.85);
 
         const currentPhase = (animPhaseAttr.array as Float32Array)[instanceId] || 0;
         (animPhaseAttr.array as Float32Array)[instanceId] =
-          currentPhase + (2.0 + normalizedSpeed * 6.0) * dt * Math.PI * 2;
+          currentPhase + (1.1 + normalizedSpeed * 3.2) * dt * Math.PI * 2;
         (animSpeedAttr.array as Float32Array)[instanceId] = normalizedSpeed;
       }
     }
@@ -452,6 +506,13 @@ diffuseColor.rgb = patterned;
   private createGeometryForCreature(eid: number): THREE.BufferGeometry | THREE.Group {
     const type = CreatureType.type[eid];
     const variant = CreatureType.variant[eid];
+
+    // Prefer a loaded GLTF model for this species if one is registered (else procedural).
+    if (this.creatureModels.size > 0) {
+      const modelKey = MODEL_KEY_BY_TYPE[type];
+      const model = modelKey ? this.creatureModels.get(modelKey) : undefined;
+      if (model) return model.clone();
+    }
 
     switch (type) {
       case 1: // Shark - PHOTOREALISTIC
@@ -664,6 +725,103 @@ diffuseColor.rgb = patterned;
   }
 
   /**
+   * Upgrade a large-creature body material so it reads as a lit animal rather than
+   * a flat grey capsule. Injects two cheap-but-decisive cues via onBeforeCompile:
+   *   1. Countershading — dorsal darkened, ventral brightened toward a pale belly,
+   *      driven by the world-space normal.y (bounds-independent, works on any body).
+   *   2. Fresnel rim — cool edge glow that reads as underwater backscatter and gives
+   *      the silhouette form against the murk.
+   * Idempotent + safe to call on shared materials. Skips eyes (MeshBasicMaterial)
+   * and translucent bodies (jellyfish) where countershading would look wrong.
+   */
+  private enhanceBodyMaterial(mat: THREE.Material | THREE.Material[] | undefined): void {
+    if (!mat) return;
+    if (Array.isArray(mat)) {
+      for (const m of mat) this.enhanceBodyMaterial(m);
+      return;
+    }
+    const isLit =
+      (mat as THREE.MeshStandardMaterial).isMeshStandardMaterial === true ||
+      (mat as THREE.MeshPhysicalMaterial).isMeshPhysicalMaterial === true;
+    if (!isLit) return; // skip eyes / basic accents
+    if ((mat as THREE.MeshStandardMaterial).transparent) return; // skip jellyfish etc.
+    if (mat.userData.__bodyEnhanced) return;
+    mat.userData.__bodyEnhanced = true;
+
+    const prev = mat.onBeforeCompile;
+    const causticTime = this.causticTime;
+    mat.onBeforeCompile = (shader, renderer) => {
+      if (prev) prev(shader, renderer);
+      shader.uniforms.uCausticTime = causticTime;
+
+      // Vertex: carry a world-space normal (countershading) + world position (caustics).
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vBodyWNormal;
+varying vec3 vBodyWPos;`
+      );
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <beginnormal_vertex>',
+        `#include <beginnormal_vertex>
+vBodyWNormal = normalize(mat3(modelMatrix) * objectNormal);`
+      );
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+vBodyWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+      );
+
+      // Fragment: declare varyings + shared caustic clock.
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vBodyWNormal;
+varying vec3 vBodyWPos;
+uniform float uCausticTime;`
+      );
+
+      // Countershading on the base diffuse color.
+      shader.fragmentShader = shader.fragmentShader.replace(
+        'vec4 diffuseColor = vec4( diffuse, opacity );',
+        `vec4 diffuseColor = vec4( diffuse, opacity );
+{
+  // t = 1 on the back (normal up), 0 on the belly (normal down).
+  float t = clamp(vBodyWNormal.y * 0.5 + 0.5, 0.0, 1.0);
+  // Dorsal darkens, ventral brightens toward a pale belly — the core "animal" read.
+  diffuseColor.rgb *= mix(1.5, 0.5, t);
+  // Push the belly slightly cool-pale (real countershading is near-white underneath).
+  vec3 paleBelly = mix(diffuseColor.rgb, vec3(0.72, 0.80, 0.88), 0.35);
+  diffuseColor.rgb = mix(paleBelly, diffuseColor.rgb, t);
+}`
+      );
+
+      // Fresnel rim into emissive so it survives the dim ambient.
+      shader.fragmentShader = shader.fragmentShader.replace(
+        'vec3 totalEmissiveRadiance = emissive;',
+        `vec3 totalEmissiveRadiance = emissive;
+{
+  vec3 rimV = normalize(vViewPosition);
+  vec3 rimN = normalize(vNormal);
+  float rim = pow(1.0 - clamp(dot(rimN, rimV), 0.0, 1.0), 2.8);
+  totalEmissiveRadiance += vec3(0.18, 0.48, 0.72) * rim * 0.55;
+
+  // Caustic dapples: animated refracted-sunlight patches on upward-facing surfaces,
+  // tying the creature into the same light that pools on the seabed.
+  float upFace = clamp(vBodyWNormal.y, 0.0, 1.0);
+  vec2 cuv = vBodyWPos.xz * 0.18;
+  float ct = uCausticTime;
+  float caus = sin(cuv.x * 3.0 + sin(cuv.y * 1.7 + ct) * 1.5 + ct)
+             * sin(cuv.y * 3.0 + cos(cuv.x * 1.9 - ct * 0.8) * 1.5 + ct * 1.1);
+  caus = smoothstep(0.15, 0.9, caus * 0.5 + 0.5);
+  totalEmissiveRadiance += vec3(0.45, 0.6, 0.5) * caus * upFace * 0.5;
+}`
+      );
+    };
+    mat.needsUpdate = true;
+  }
+
+  /**
    * Get or create individual mesh for complex creatures
    */
   private getIndividualMesh(eid: number): THREE.Mesh | THREE.Group {
@@ -674,6 +832,12 @@ diffuseColor.rgb = patterned;
 
       if (geometryOrGroup instanceof THREE.Group) {
         meshOrGroup = geometryOrGroup;
+        // Multi-part creatures (whale/shark/dolphin/ray/turtle) bake their materials
+        // in the geometry factory — upgrade each body part so it reads as a lit animal.
+        meshOrGroup.traverse((o) => {
+          const m = (o as THREE.Mesh).material;
+          if (m) this.enhanceBodyMaterial(m);
+        });
       } else {
         // Ensure geometry has normals (tangents are computed in shader)
         if (!geometryOrGroup.attributes.normal) {
@@ -697,6 +861,7 @@ diffuseColor.rgb = patterned;
         }
         
         const material = this.createCreatureMaterial(eid);
+        this.enhanceBodyMaterial(material);
 
         meshOrGroup = new THREE.Mesh(geometryOrGroup, material);
         (meshOrGroup as THREE.Mesh).castShadow = true;
@@ -803,20 +968,14 @@ diffuseColor.rgb = patterned;
   public updateMeshes(world: OceanWorld): void {
     const entities = query(world, [Position, MeshComponent]);
 
-    // Track which entities still exist for cleanup
-    const existingEntities = new Set<number>(entities);
-
-    // DEBUG: Count by type
-    const typeCounts = { fish: 0, shark: 0, dolphin: 0, jellyfish: 0, ray: 0, turtle: 0, crab: 0, starfish: 0, seaUrchin: 0, whale: 0 };
+    // Despawns are rare, so only reconcile mesh cleanup periodically instead of
+    // allocating a Set + scanning both mesh maps every frame (this was ~a third of the
+    // per-frame mesh-sync cost). The hot path is just the transform update below.
+    this.frameCount++;
+    const doCleanup = this.frameCount % 20 === 0;
 
     for (const eid of entities) {
       const creatureType = CreatureType.type[eid] ?? -1;
-
-      // Count types
-      const typeNames = ['fish', 'shark', 'dolphin', 'jellyfish', 'ray', 'turtle', 'crab', 'starfish', 'seaUrchin', 'whale'];
-      if (creatureType >= 0 && creatureType < 10) {
-        typeCounts[typeNames[creatureType] as keyof typeof typeCounts]++;
-      }
 
       if (creatureType === 0) {
         // Fish - use instancing
@@ -830,49 +989,43 @@ diffuseColor.rgb = patterned;
       }
     }
 
-    // Cleanup: Remove meshes for entities that no longer exist
-    // Clean up individual meshes
-    for (const [eid, mesh] of this.individualMeshes) {
-      if (!existingEntities.has(eid)) {
-        this.renderEngine.scene.remove(mesh);
-        if (mesh instanceof THREE.Mesh) {
-          mesh.geometry?.dispose();
-          if (Array.isArray(mesh.material)) {
-            mesh.material.forEach(m => m.dispose());
-          } else {
-            mesh.material?.dispose();
-          }
-        } else if (mesh instanceof THREE.Group) {
-          mesh.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-              child.geometry?.dispose();
-              if (Array.isArray(child.material)) {
-                child.material.forEach(m => m.dispose());
-              } else {
-                child.material?.dispose();
-              }
+    if (doCleanup) {
+      const existingEntities = new Set<number>(entities);
+
+      // Clean up individual meshes for entities that no longer exist
+      for (const [eid, mesh] of this.individualMeshes) {
+        if (!existingEntities.has(eid)) {
+          this.renderEngine.scene.remove(mesh);
+          if (mesh instanceof THREE.Mesh) {
+            mesh.geometry?.dispose();
+            if (Array.isArray(mesh.material)) {
+              mesh.material.forEach(m => m.dispose());
+            } else {
+              mesh.material?.dispose();
             }
-          });
+          } else if (mesh instanceof THREE.Group) {
+            mesh.traverse((child) => {
+              if (child instanceof THREE.Mesh) {
+                child.geometry?.dispose();
+                if (Array.isArray(child.material)) {
+                  child.material.forEach(m => m.dispose());
+                } else {
+                  child.material?.dispose();
+                }
+              }
+            });
+          }
+          this.individualMeshes.delete(eid);
         }
-        this.individualMeshes.delete(eid);
       }
-    }
 
-    // Clean up fish instances (add freed slots to reuse pool)
-    for (const [eid, instance] of this.fishInstances) {
-      if (!existingEntities.has(eid)) {
-        // Add the instance slot to the free pool for reuse
-        this.freeInstanceSlots[instance.bodyType].push(instance.instanceId);
-        this.fishInstances.delete(eid);
+      // Clean up fish instances (add freed slots to reuse pool)
+      for (const [eid, instance] of this.fishInstances) {
+        if (!existingEntities.has(eid)) {
+          this.freeInstanceSlots[instance.bodyType].push(instance.instanceId);
+          this.fishInstances.delete(eid);
+        }
       }
-    }
-
-    // DEBUG: Log occasionally
-    if (DEBUG && Math.random() < 0.01) {
-      const totalFishInstanced = this.fishInstanceCounts.reduce((a, b) => a + b, 0);
-      const individualCount = typeCounts.shark + typeCounts.dolphin + typeCounts.jellyfish + typeCounts.ray + typeCounts.turtle + typeCounts.crab + typeCounts.starfish + typeCounts.seaUrchin + typeCounts.whale;
-      const bodyTypeCounts = BODY_TYPE_NAMES.map((name, i) => `${name}:${this.fishInstanceCounts[i]}`).join(', ');
-      console.log(`🐟 Mesh Pool: ${typeCounts.fish} fish (${bodyTypeCounts}, total:${totalFishInstanced}), ${individualCount} individual`);
     }
 
     // Mark animation attributes for GPU upload (once per frame, for all body types)
@@ -886,6 +1039,8 @@ diffuseColor.rgb = patterned;
    * Update shader time uniform (disabled for simple material)
    */
   public updateTime(time: number): void {
+    // Advance the shared caustic clock (drives dapples on every creature shader).
+    this.causticTime.value = time;
     // Update time uniforms for all fish materials
     for (const material of this.fishMaterials) {
       const shaderMat = material as THREE.ShaderMaterial;

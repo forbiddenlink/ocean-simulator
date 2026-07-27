@@ -33,7 +33,8 @@ export class RealisticOceanFloor {
    * Create sandy floor with procedural detail
    */
   private static createSandyFloor(depth: number): THREE.Mesh {
-    const geometry = new THREE.PlaneGeometry(200, 200, 128, 128);
+    // Large enough that the far edge dissolves into fog (no hard horizon seam).
+    const geometry = new THREE.PlaneGeometry(420, 420, 200, 200);
     
     // Add procedural height variation
     const positions = geometry.attributes.position;
@@ -104,61 +105,80 @@ export class RealisticOceanFloor {
         varying vec2 vUv;
         varying float vHeight;
         
-        // Hash for procedural noise
+        // iq-style hash — far less griddy than sin(dot()), which produced a visible
+        // diagonal weave (the main "tiled floor" tell).
         float hash(vec2 p) {
-          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+          p = fract(p * vec2(123.34, 456.21));
+          p += dot(p, p + 45.32);
+          return fract(p.x * p.y);
         }
-        
+
         // Smooth noise
         float noise(vec2 p) {
           vec2 i = floor(p);
           vec2 f = fract(p);
           f = f * f * (3.0 - 2.0 * f);
-          
+
           float a = hash(i);
           float b = hash(i + vec2(1.0, 0.0));
           float c = hash(i + vec2(0.0, 1.0));
           float d = hash(i + vec2(1.0, 1.0));
-          
+
           return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
         }
-        
-        // Fractal Brownian Motion
+
+        // Fractal Brownian Motion — each octave rotated to decorrelate the lattice.
         float fbm(vec2 p) {
           float value = 0.0;
           float amplitude = 0.5;
-          float frequency = 1.0;
-          
-          for (int i = 0; i < 4; i++) {
-            value += amplitude * noise(p * frequency);
-            frequency *= 2.0;
+          const mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
+
+          for (int i = 0; i < 5; i++) {
+            value += amplitude * noise(p);
+            p = rot * p * 2.0;
             amplitude *= 0.5;
           }
-          
+
           return value;
         }
-        
+
         void main() {
-          // Get sand grain detail
-          float detail = fbm(vUv * detailScale);
-          float coarseDetail = fbm(vUv * detailScale * 0.3);
-          
+          // Domain-warp the sample so there is no repeating grain lattice.
+          vec2 warp = vec2(fbm(vUv * 9.0), fbm(vUv * 9.0 + vec2(5.2, 1.3)));
+          float detail = fbm(vUv * detailScale + warp * 1.8);
+          // Fine grain on top of the base detail breaks up the blocky value-noise cells
+          // that read as a tiled floor.
+          float grain = fbm(vUv * detailScale * 2.7 + warp * 0.6);
+          detail = mix(detail, grain, 0.35);
+
+          // Broad tonal mottling — large soft patches of lighter/darker sand so the bed
+          // is never a uniform tone (the #1 "flat pool bottom" tell).
+          float patchMix = fbm(vUv * 3.2 + warp * 0.4);
+
           // Mix sand colors based on detail
           vec3 sandColor = mix(sandColor1, sandColor2, detail * 0.5 + 0.25);
-          
+          sandColor = mix(sandColor * 0.78, sandColor * 1.18, smoothstep(0.25, 0.75, patchMix));
+
           // Add slight height-based color variation
           sandColor = mix(sandColor, sandColor2, smoothstep(-0.5, 0.5, vHeight) * 0.3);
-          
+
           // Add occasional rocks/shells
           float rockNoise = noise(vUv * 15.0 + vec2(123.4, 567.8));
           if (rockNoise > 0.92) {
             sandColor = mix(sandColor, rockColor, (rockNoise - 0.92) * 10.0);
           }
-          
+
           // Add lighting
           float diffuse = max(dot(vNormal, lightDirection), 0.0);
           float ambient = 0.25; // Reasonable ambient for underwater
           vec3 litColor = sandColor * (ambient + 0.5 * diffuse); // Balanced diffuse
+
+          // Caustic light pooling — slow, animated bright dapples like refracted sunlight
+          // sweeping the seabed. Sharpened fbm gives soft-edged pools, not a grid.
+          vec2 cw = vec2(fbm(vUv * 6.0 + time * 0.03), fbm(vUv * 6.0 - time * 0.025 + 9.1));
+          float caustic = fbm(vUv * 16.0 + cw * 2.0 + time * 0.04);
+          caustic = pow(smoothstep(0.45, 0.95, caustic), 2.0);
+          litColor += vec3(0.35, 0.55, 0.6) * caustic * (0.35 + 0.65 * diffuse);
 
           // Apply strong Beer-Lambert wavelength-dependent absorption
           vec3 absorption = exp(-absorptionCoeffs * waterDepth * 1.5);
@@ -174,8 +194,15 @@ export class RealisticOceanFloor {
           float ao = smoothstep(-1.0, 1.0, vHeight);
           litColor *= 0.5 + 0.5 * ao;
 
-          // Soft brightness cap
-          litColor = min(litColor, vec3(0.7));
+          // Soft brightness cap (raised — the floor was capped artificially dark).
+          litColor = min(litColor, vec3(0.85));
+
+          // Distance dissolve — the far seabed fades into the navy murk so there is no
+          // hard horizon seam and the tiled read disappears with distance.
+          float camDist = length(cameraPosition - vPosition);
+          float fogF = 1.0 - exp(-camDist * 0.018);
+          vec3 deepMurk = vec3(0.03, 0.09, 0.14);
+          litColor = mix(litColor, deepMurk, clamp(fogF, 0.0, 0.85));
 
           gl_FragColor = vec4(litColor, 1.0);
         }
@@ -206,11 +233,11 @@ export class RealisticOceanFloor {
     });
     
     // Scatter rocks across the floor
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 160; i++) {
       const rock = new THREE.Mesh(rockGeometry, rockMaterial);
 
-      const x = (Math.random() - 0.5) * 180;
-      const z = (Math.random() - 0.5) * 180;
+      const x = (Math.random() - 0.5) * 340;
+      const z = (Math.random() - 0.5) * 340;
       // Mix of small and large rocks: ~20% chance of a large rock (3.0-5.0)
       const scale = Math.random() < 0.2
         ? 3.0 + Math.random() * 2.0
@@ -237,8 +264,8 @@ export class RealisticOceanFloor {
    * Create sand ripple patterns
    */
   private static createSandRipples(depth: number): THREE.Mesh {
-    const geometry = new THREE.PlaneGeometry(200, 200, 256, 256);
-    
+    const geometry = new THREE.PlaneGeometry(420, 420, 256, 256);
+
     // Create ripple pattern
     const positions = geometry.attributes.position;
     for (let i = 0; i < positions.count; i++) {

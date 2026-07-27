@@ -19,11 +19,14 @@ export class UIManager {
   private onTimeOfDayChange?: (time: number) => void;
   private onWeatherChange?: (weather: string) => void;
   private onQualityChange?: (quality: string) => void;
-  
+  private onToggleLook?: () => 'tropical-clear' | 'inky-cinematic' | 'bioluminescent';
+  private onReplayIntro?: () => void;
+
   constructor(parentElement: HTMLElement = document.body) {
+    this.injectStyles();
     this.container = this.createContainer();
     parentElement.appendChild(this.container);
-    
+
     this.statsPanel = this.createStatsPanel();
     this.controlsPanel = this.createControlsPanel();
     this.infoPanel = this.createInfoPanel();
@@ -37,6 +40,234 @@ export class UIManager {
     this.setupEventListeners();
   }
   
+  /**
+   * Inject the HUD design system. Deliberately not glassmorphism: a precise, dark
+   * instrument — hairline borders, tracked micro-labels, tabular numerals, one restrained
+   * accent, no emoji. The goal is "control surface of a research submersible", not a toy.
+   */
+  private injectStyles(): void {
+    if (document.getElementById('ocean-ui-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'ocean-ui-styles';
+    style.textContent = `
+      #ocean-ui {
+        --acc: #5fd3e0;
+        --ink: #d3e3e9;
+        --muted: #6d8b95;
+        --line: rgba(130, 190, 205, 0.14);
+        --panel: rgba(7, 13, 19, 0.72);
+        font-feature-settings: "tnum" 1, "cv01" 1;
+      }
+      #ocean-ui .op {
+        position: absolute;
+        background: var(--panel);
+        -webkit-backdrop-filter: blur(4px) saturate(1.1);
+        backdrop-filter: blur(4px) saturate(1.1);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 14px 16px;
+        color: var(--ink);
+        box-shadow: 0 12px 44px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        pointer-events: auto;
+        font-size: 12px;
+      }
+      #ocean-ui .op-eyebrow {
+        margin: 0 0 12px;
+        font-size: 9.5px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        font-weight: 600;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      #ocean-ui .op-eyebrow::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--line);
+      }
+      #ocean-ui .wordmark {
+        font-size: 12px;
+        letter-spacing: 0.34em;
+        text-transform: uppercase;
+        font-weight: 300;
+        color: #eaf6f9;
+      }
+      #ocean-ui .wordmark b { font-weight: 600; color: var(--acc); }
+      #ocean-ui .op-total {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      #ocean-ui .op-total .n {
+        font-size: 26px;
+        font-weight: 300;
+        line-height: 1;
+        color: #fff;
+        font-variant-numeric: tabular-nums;
+      }
+      #ocean-ui .op-total .l {
+        font-size: 9px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      #ocean-ui .stat-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 5px 16px;
+      }
+      #ocean-ui .stat-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        border-bottom: 1px solid rgba(130, 190, 205, 0.06);
+        padding-bottom: 3px;
+      }
+      #ocean-ui .stat-row .k {
+        font-size: 10px;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        text-transform: capitalize;
+      }
+      #ocean-ui .stat-row .v {
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        color: var(--ink);
+        font-weight: 600;
+      }
+      #ocean-ui .op-split {
+        display: flex;
+        gap: 14px;
+        margin-top: 12px;
+        padding-top: 11px;
+        border-top: 1px solid var(--line);
+      }
+      #ocean-ui .op-split div { flex: 1; }
+      #ocean-ui .op-split .k {
+        font-size: 9px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+        display: block;
+        margin-bottom: 2px;
+      }
+      #ocean-ui .op-split .v { font-size: 15px; font-weight: 300; font-variant-numeric: tabular-nums; }
+      #ocean-ui .op-split .pred .v { color: #e8896b; }
+      #ocean-ui .op-split .prey .v { color: #7fc898; }
+      #ocean-ui .keys { display: grid; gap: 7px; }
+      #ocean-ui .keys div { display: flex; align-items: center; gap: 9px; font-size: 11px; color: #9fb9c1; }
+      #ocean-ui kbd {
+        font: 500 10px/1 ui-monospace, "SF Mono", Menlo, monospace;
+        letter-spacing: 0.03em;
+        color: #cfe6ec;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(150, 200, 210, 0.2);
+        border-bottom-color: rgba(150, 200, 210, 0.3);
+        border-radius: 4px;
+        padding: 3px 6px;
+        min-width: 18px;
+        text-align: center;
+      }
+      #ocean-ui .op-btn {
+        display: block;
+        width: 100%;
+        text-align: center;
+        background: rgba(255, 255, 255, 0.035);
+        border: 1px solid rgba(130, 190, 205, 0.18);
+        border-radius: 5px;
+        padding: 8px 10px;
+        color: #cfe6ec;
+        font-size: 10.5px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-weight: 500;
+        cursor: pointer;
+        transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+      }
+      #ocean-ui .op-btn:hover {
+        border-color: rgba(95, 211, 224, 0.55);
+        background: rgba(95, 211, 224, 0.1);
+        color: #eaf6f9;
+      }
+      #ocean-ui .op-btn.primary {
+        border-color: rgba(95, 211, 224, 0.35);
+        color: #dff6fa;
+      }
+      #ocean-ui .op-field { margin-bottom: 13px; }
+      #ocean-ui .op-field > label {
+        display: flex;
+        justify-content: space-between;
+        font-size: 9.5px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      #ocean-ui .op-field > label span { color: var(--acc); letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+      #ocean-ui select {
+        width: 100%;
+        padding: 7px 8px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(130, 190, 205, 0.18);
+        border-radius: 5px;
+        color: var(--ink);
+        font-size: 11px;
+        cursor: pointer;
+        appearance: none;
+      }
+      #ocean-ui select:focus { outline: none; border-color: rgba(95, 211, 224, 0.5); }
+      #ocean-ui input[type="range"] {
+        width: 100%;
+        height: 2px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: rgba(130, 190, 205, 0.2);
+        border-radius: 2px;
+        cursor: pointer;
+      }
+      #ocean-ui input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--acc);
+        box-shadow: 0 0 8px rgba(95, 211, 224, 0.6);
+      }
+      #ocean-ui input[type="range"]::-moz-range-thumb {
+        width: 12px; height: 12px; border: none; border-radius: 50%; background: var(--acc);
+      }
+      #ocean-ui .op-note {
+        margin-top: 12px;
+        padding-top: 11px;
+        border-top: 1px solid var(--line);
+        font-size: 10px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+      #ocean-ui .feat { display: grid; gap: 6px; margin: 2px 0 0; }
+      #ocean-ui .feat div {
+        font-size: 10.5px;
+        color: #9fb9c1;
+        display: flex;
+        gap: 9px;
+        align-items: baseline;
+      }
+      #ocean-ui .feat div::before {
+        content: "";
+        width: 4px; height: 4px; margin-top: 5px;
+        border-radius: 50%;
+        background: var(--acc);
+        flex: none;
+        opacity: 0.7;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
   private createContainer(): HTMLElement {
     const container = document.createElement('div');
     container.id = 'ocean-ui';
@@ -57,263 +288,129 @@ export class UIManager {
   private createStatsPanel(): HTMLElement {
     const panel = document.createElement('div');
     panel.id = 'stats-panel';
-    panel.className = 'ocean-panel';
-    panel.style.cssText = `
-      position: absolute;
-      top: 20px;
-      left: 20px;
-      background: rgba(0, 20, 40, 0.92);
-      -webkit-backdrop-filter: blur(10px);
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(100, 200, 255, 0.4);
-      border-radius: 10px;
-      padding: 12px;
-      width: 200px;
-      max-width: 200px;
-      pointer-events: auto;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    `;
-    
+    panel.className = 'ocean-panel op';
+    panel.style.cssText = 'top: 22px; left: 22px; width: 226px;';
+
+    const species: Array<[string, string]> = [
+      ['fish', 'Fish'], ['shark', 'Sharks'], ['dolphin', 'Dolphins'], ['jellyfish', 'Jellies'],
+      ['ray', 'Rays'], ['turtle', 'Turtles'], ['whale', 'Whales'], ['crab', 'Crabs'],
+      ['starfish', 'Starfish'], ['urchin', 'Urchins'],
+    ];
+    const rows = species
+      .map(([id, label]) => `<div class="stat-row"><span class="k">${label}</span><span class="v" id="stat-${id}">0</span></div>`)
+      .join('');
+
     panel.innerHTML = `
-      <h2 style="margin: 0 0 10px 0; font-size: 15px; color: #4dd0e1; border-bottom: 2px solid rgba(77, 208, 225, 0.3); padding-bottom: 6px;">
-        🌊 Ecosystem
-      </h2>
-      <div id="stats-content" style="font-size: 12px; line-height: 1.6;">
-        <div style="margin-bottom: 8px;">
-          <strong style="color: #80deea;">Total:</strong> <span id="stat-total">0</span>
-        </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 8px; font-size: 11px;">
-          <div>🐟 <span id="stat-fish">0</span></div>
-          <div>🦈 <span id="stat-shark">0</span></div>
-          <div>🐬 <span id="stat-dolphin">0</span></div>
-          <div>🪼 <span id="stat-jellyfish">0</span></div>
-          <div>🐡 <span id="stat-ray">0</span></div>
-          <div>🐢 <span id="stat-turtle">0</span></div>
-          <div>🦀 <span id="stat-crab">0</span></div>
-          <div>⭐ <span id="stat-starfish">0</span></div>
-          <div>🟣 <span id="stat-urchin">0</span></div>
-          <div>🐋 <span id="stat-whale">0</span></div>
-        </div>
-        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(100, 200, 255, 0.2); font-size: 11px;">
-          <div style="color: #ff8a65;">⚔️ <span id="stat-predators">0</span></div>
-          <div style="color: #81c784;">🌿 <span id="stat-prey">0</span></div>
-        </div>
+      <div class="op-eyebrow"><span class="wordmark">Ocean<b>Sim</b></span></div>
+      <div class="op-total">
+        <span class="n" id="stat-total">0</span>
+        <span class="l">Living entities</span>
+      </div>
+      <div class="stat-grid">${rows}</div>
+      <div class="op-split">
+        <div class="pred"><span class="k">Predators</span><span class="v" id="stat-predators">0</span></div>
+        <div class="prey"><span class="k">Prey</span><span class="v" id="stat-prey">0</span></div>
       </div>
     `;
-    
+
     return panel;
   }
   
   private createControlsPanel(): HTMLElement {
     const panel = document.createElement('div');
     panel.id = 'controls-panel';
-    panel.className = 'ocean-panel';
-    panel.style.cssText = `
-      position: absolute;
-      bottom: 20px;
-      left: 20px;
-      background: rgba(0, 20, 40, 0.92);
-      -webkit-backdrop-filter: blur(10px);
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(100, 200, 255, 0.4);
-      border-radius: 10px;
-      padding: 12px;
-      width: 200px;
-      max-width: 200px;
-      pointer-events: auto;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    `;
-    
+    panel.className = 'ocean-panel op';
+    panel.style.cssText = 'bottom: 22px; left: 22px; width: 206px;';
+
     panel.innerHTML = `
-      <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #4dd0e1;">⚙️ Controls</h3>
-      <div style="font-size: 11px; line-height: 1.8;">
-        <div><kbd style="background: rgba(255,255,255,0.15); padding: 1px 4px; border-radius: 3px; font-size: 10px;">WASD</kbd> Move</div>
-        <div><kbd style="background: rgba(255,255,255,0.15); padding: 1px 4px; border-radius: 3px; font-size: 10px;">Q/E</kbd> Up/Down</div>
-        <div><kbd style="background: rgba(255,255,255,0.15); padding: 1px 4px; border-radius: 3px; font-size: 10px;">Mouse</kbd> Look</div>
-        <div><kbd style="background: rgba(255,255,255,0.15); padding: 1px 4px; border-radius: 3px; font-size: 10px;">H</kbd> Toggle UI</div>
+      <div class="op-eyebrow">Navigation</div>
+      <div class="keys">
+        <div><kbd>W A S D</kbd> Swim</div>
+        <div><kbd>Q</kbd> <kbd>E</kbd> Ascend / dive</div>
+        <div><kbd>Mouse</kbd> Look</div>
+        <div><kbd>H</kbd> Hide interface</div>
       </div>
-      <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(100, 200, 255, 0.2); display: flex; flex-direction: column; gap: 6px;">
-        <button id="btn-pause" class="ocean-button" style="
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          border: none;
-          color: white;
-          padding: 8px 12px;
-          border-radius: 5px;
-          cursor: pointer;
-          font-size: 12px;
-          font-weight: bold;
-          width: 100%;
-        ">⏸️ Pause</button>
-        <button id="btn-speed" class="ocean-button" style="
-          background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-          border: none;
-          color: white;
-          padding: 8px 12px;
-          border-radius: 5px;
-          cursor: pointer;
-          font-size: 12px;
-          font-weight: bold;
-          width: 100%;
-        ">⚡ Speed: 1x</button>
+      <div style="display: grid; gap: 7px; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--line);">
+        <button id="btn-pause" class="op-btn">Pause</button>
+        <button id="btn-speed" class="op-btn">Speed &middot; 1&times;</button>
       </div>
     `;
-    
+
     return panel;
   }
   
   private createInfoPanel(): HTMLElement {
     const panel = document.createElement('div');
     panel.id = 'info-panel';
-    panel.className = 'ocean-panel';
-    panel.style.cssText = `
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      background: rgba(0, 20, 40, 0.92);
-      -webkit-backdrop-filter: blur(10px);
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(100, 200, 255, 0.4);
-      border-radius: 10px;
-      padding: 12px;
-      width: 240px;
-      max-width: 240px;
-      pointer-events: auto;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-      animation-delay: 0.1s;
-    `;
-    
+    panel.className = 'ocean-panel op';
+    panel.style.cssText = 'top: 22px; right: 22px; width: 232px;';
+
     panel.innerHTML = `
-      <h2 style="margin: 0 0 10px 0; font-size: 15px; color: #4dd0e1;">🔬 About</h2>
-      <div style="font-size: 11px; line-height: 1.5; color: #b0bec5;">
-        <p style="margin: 0 0 8px 0;">
-          <strong style="color: #80deea;">Photorealistic Ocean</strong>
-        </p>
-        <p style="margin: 0 0 6px 0;">
-          🌊 FFT Wave Simulation<br/>
-          ✨ PBR Shader<br/>
-          🎨 Multi-Scale Detail<br/>
-          💨 Dynamic Foam & Spray<br/>
-          🌅 HDRI Environment
-        </p>
-        <p style="margin: 8px 0 0 0; padding-top: 8px; border-top: 1px solid rgba(100, 200, 255, 0.2); color: #4dd0e1; font-size: 10px;">
-          Cinema-quality rendering with living ecosystem
-        </p>
+      <div class="op-eyebrow">Cinematic Deep</div>
+      <div class="feat">
+        <div>FFT ocean surface</div>
+        <div>Volumetric light shafts</div>
+        <div>Beer&ndash;Lambert depth grading</div>
+        <div>Real-time schooling AI</div>
+        <div>AgX filmic tonemap &middot; depth of field</div>
       </div>
+      <p class="op-note">Physically-graded underwater rendering over a living, self-balancing ecosystem.</p>
     `;
-    
+
     return panel;
   }
   
   private createOceanPanel(): HTMLElement {
     const panel = document.createElement('div');
     panel.id = 'ocean-panel';
-    panel.className = 'ocean-panel';
-    panel.style.cssText = `
-      position: absolute;
-      bottom: 20px;
-      right: 20px;
-      background: rgba(0, 20, 40, 0.92);
-      -webkit-backdrop-filter: blur(10px);
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(100, 200, 255, 0.4);
-      border-radius: 10px;
-      padding: 12px;
-      width: 280px;
-      max-width: 280px;
-      pointer-events: auto;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-      max-height: 500px;
-      overflow-y: auto;
-      animation-delay: 0.15s;
-    `;
-    
+    panel.className = 'ocean-panel op';
+    panel.style.cssText = 'bottom: 22px; right: 22px; width: 250px; max-height: 78vh; overflow-y: auto;';
+
     panel.innerHTML = `
-      <h2 style="margin: 0 0 10px 0; font-size: 15px; color: #4dd0e1; border-bottom: 2px solid rgba(77, 208, 225, 0.3); padding-bottom: 6px;">
-        🌊 Ocean Settings
-      </h2>
-      
-      <!-- Quality Presets -->
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 11px; color: #80deea; margin-bottom: 4px; font-weight: bold;">
-          Quality Preset
-        </label>
-        <select id="ocean-quality" style="
-          width: 100%;
-          padding: 6px;
-          background: rgba(255, 255, 255, 0.1);
-          border: 1px solid rgba(100, 200, 255, 0.3);
-          border-radius: 5px;
-          color: white;
-          font-size: 11px;
-          cursor: pointer;
-        ">
-          <option value="low">Low (Performance)</option>
-          <option value="medium" selected>Medium (Balanced)</option>
-          <option value="high">High (Quality)</option>
-          <option value="ultra">Ultra (Photorealistic)</option>
+      <div class="op-eyebrow">Environment</div>
+
+      <div class="op-field">
+        <label>Fidelity</label>
+        <select id="ocean-quality">
+          <option value="low">Low &middot; performance</option>
+          <option value="medium" selected>Medium &middot; balanced</option>
+          <option value="high">High &middot; quality</option>
+          <option value="ultra">Ultra &middot; maximum</option>
         </select>
       </div>
-      
-      <!-- Weather -->
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 11px; color: #80deea; margin-bottom: 4px; font-weight: bold;">
-          Weather
-        </label>
-        <select id="ocean-weather" style="
-          width: 100%;
-          padding: 6px;
-          background: rgba(255, 255, 255, 0.1);
-          border: 1px solid rgba(100, 200, 255, 0.3);
-          border-radius: 5px;
-          color: white;
-          font-size: 11px;
-          cursor: pointer;
-        ">
-          <option value="clear" selected>☀️ Clear</option>
-          <option value="cloudy">☁️ Cloudy</option>
-          <option value="stormy">⛈️ Stormy</option>
-          <option value="sunset">🌅 Sunset</option>
+
+      <div class="op-field">
+        <label>Weather</label>
+        <select id="ocean-weather">
+          <option value="clear" selected>Clear</option>
+          <option value="cloudy">Overcast</option>
+          <option value="stormy">Storm</option>
+          <option value="sunset">Sunset</option>
         </select>
       </div>
-      
-      <!-- Time of Day -->
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 11px; color: #80deea; margin-bottom: 4px; font-weight: bold;">
-          Time of Day: <span id="ocean-time-value">12:00</span>
-        </label>
-        <input type="range" id="ocean-time" min="0" max="1" step="0.01" value="0.5" style="
-          width: 100%;
-          cursor: pointer;
-        "/>
+
+      <div class="op-field">
+        <label>Time of day <span id="ocean-time-value">12:00</span></label>
+        <input type="range" id="ocean-time" min="0" max="1" step="0.01" value="0.5" />
       </div>
-      
-      <!-- Wind Speed -->
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 11px; color: #80deea; margin-bottom: 4px; font-weight: bold;">
-          Wind Speed: <span id="ocean-wind-value">25</span> m/s
-        </label>
-        <input type="range" id="ocean-wind" min="10" max="40" step="1" value="25" style="
-          width: 100%;
-          cursor: pointer;
-        "/>
+
+      <div class="op-field">
+        <label>Wind <span id="ocean-wind-value">25</span></label>
+        <input type="range" id="ocean-wind" min="10" max="40" step="1" value="25" />
       </div>
-      
-      <!-- Wave Amplitude -->
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 11px; color: #80deea; margin-bottom: 4px; font-weight: bold;">
-          Wave Height: <span id="ocean-amplitude-value">2.0</span>x
-        </label>
-        <input type="range" id="ocean-amplitude" min="0.5" max="4" step="0.1" value="2.0" style="
-          width: 100%;
-          cursor: pointer;
-        "/>
+
+      <div class="op-field" style="margin-bottom: 4px;">
+        <label>Swell <span id="ocean-amplitude-value">2.0</span></label>
+        <input type="range" id="ocean-amplitude" min="0.5" max="4" step="0.1" value="2.0" />
       </div>
-      
-      <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(100, 200, 255, 0.2); font-size: 10px; color: #b0bec5;">
-        💡 Adjust settings in real-time
+
+      <div class="op-eyebrow" style="margin-top: 15px;">Presentation</div>
+      <div style="display: grid; gap: 7px;">
+        <button id="ocean-look-toggle" class="op-btn primary">Look &middot; Cinematic Deep</button>
+        <button id="ocean-replay-intro" class="op-btn">Replay flythrough</button>
       </div>
     `;
-    
+
     return panel;
   }
   
@@ -396,8 +493,28 @@ export class UIManager {
         }
       });
     }
+
+    // Look toggle (Cinematic Deep ⇄ Clean tropical)
+    const lookToggle = document.getElementById('ocean-look-toggle');
+    if (lookToggle) {
+      lookToggle.addEventListener('click', () => {
+        const next = this.onToggleLook?.();
+        const labels: Record<string, string> = {
+          'inky-cinematic': 'Look · Cinematic Deep',
+          'bioluminescent': 'Look · Bioluminescent',
+          'tropical-clear': 'Look · Clean Tropical',
+        };
+        if (next) lookToggle.textContent = labels[next];
+      });
+    }
+
+    // Replay intro flythrough
+    const replayIntro = document.getElementById('ocean-replay-intro');
+    if (replayIntro) {
+      replayIntro.addEventListener('click', () => this.onReplayIntro?.());
+    }
   }
-  
+
   public toggleVisibility(): void {
     this.isVisible = !this.isVisible;
     
@@ -459,6 +576,16 @@ export class UIManager {
   public onQuality(callback: (quality: string) => void): void {
     this.onQualityChange = callback;
   }
+
+  /** Register the Cinematic⇄Clean look toggle; callback returns the newly-active preset. */
+  public onLookToggle(callback: () => 'tropical-clear' | 'inky-cinematic' | 'bioluminescent'): void {
+    this.onToggleLook = callback;
+  }
+
+  /** Register the replay-intro-flythrough button. */
+  public onIntroReplay(callback: () => void): void {
+    this.onReplayIntro = callback;
+  }
   
   /**
    * Update stats display
@@ -509,7 +636,7 @@ export class UIManager {
       btn.addEventListener('click', () => {
         speedIndex = (speedIndex + 1) % speeds.length;
         currentSpeed = speeds[speedIndex];
-        btn.textContent = `⚡ Speed: ${currentSpeed}x`;
+        btn.textContent = `Speed · ${currentSpeed}×`;
         callback(currentSpeed);
       });
     }
@@ -521,7 +648,7 @@ export class UIManager {
   public setPaused(paused: boolean): void {
     const btn = document.getElementById('btn-pause');
     if (btn) {
-      btn.textContent = paused ? '▶️ Resume' : '⏸️ Pause';
+      btn.textContent = paused ? 'Resume' : 'Pause';
     }
   }
   

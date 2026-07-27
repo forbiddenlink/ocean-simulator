@@ -6,7 +6,7 @@ import * as THREE from 'three';
  */
 export class UnderwaterParticles {
   private particleSystem: THREE.Points;
-  private particleCount = 1800; // Atmospheric particle density
+  private particleCount = 1050; // Atmospheric particle density (thinned for a cleaner frame)
   private particleGeometry: THREE.BufferGeometry;
   private particleMaterial: THREE.ShaderMaterial;
   private velocities: Float32Array;
@@ -154,8 +154,8 @@ export class UnderwaterParticles {
           float edgeSoftness = mix(0.15, 0.35, clamp(vScale, 0.0, 1.0));
           float alpha = smoothstep(0.5, edgeSoftness, dist) * vAlpha;
 
-          // Enhanced visibility - clearly visible floating particles
-          alpha *= 0.9;
+          // Softer marine snow — present but not a distracting field of bright dots.
+          alpha *= 0.5;
 
           gl_FragColor = vec4(vColor, alpha);
         }
