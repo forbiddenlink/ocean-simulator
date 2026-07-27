@@ -683,22 +683,34 @@ export class SpecializedCreatureGeometry {
 
     for (let i = 0; i <= segments; i++) {
       for (let j = 0; j <= segments; j++) {
-        const u = i / segments;
+        const u = i / segments; // 0 = center spine, 1 = outer edge
         const v = j / segments;
 
-        // Radial coordinates
         const angle = v * Math.PI * 2;
-        const radius = u * halfSpan * (1.0 - Math.abs(Math.sin(angle * 2)) * 0.3);
+        const cosA = Math.cos(angle);
+        const sinA = Math.sin(angle);
 
-        const x = Math.cos(angle) * radius * 0.6 - length * 0.2; // Offset for head
-        const z = Math.sin(angle) * radius;
-        const y = -u * u * length * 0.08; // Slight concave shape
+        // Manta wing outline (top view): span (z, left-right) much wider than chord
+        // (x, front-back). Sharpen |sin| so the wingtips come to a point instead of a
+        // rounded lobe, and sweep the trailing edge (rear, cosA>0) inward toward the tips
+        // so the wing rakes back like a real manta rather than a scalloped disc.
+        const chord = halfSpan * 0.5;
+        const tip = Math.sign(sinA) * Math.pow(Math.abs(sinA), 0.68); // pointed wingtips
+        let ex = cosA * chord;
+        const ez = tip * halfSpan;
+        if (cosA > 0) ex *= 1.0 - 0.55 * Math.abs(sinA); // concave swept trailing edge
+
+        const x = ex * u - length * 0.12; // head offset
+        const z = ez * u;
+        // Cambered wing: gentle downward droop that increases toward the wingtips, so the
+        // manta looks like it is mid-flap, not a flat plate.
+        const y = -Math.pow(u, 1.6) * length * 0.06 * (1.0 + 0.7 * Math.abs(sinA));
 
         positions.push(x, y, z);
 
-        // Ray coloration: dark top
-        const colorValue = 0.3 + u * 0.2;
-        colors.push(colorValue, colorValue * 0.9, colorValue * 0.8); // Brown tint
+        // Countershaded ray: darker toward the trailing/outer edge.
+        const colorValue = 0.3 + u * 0.18;
+        colors.push(colorValue, colorValue * 0.92, colorValue * 0.82);
       }
     }
 
