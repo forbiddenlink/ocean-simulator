@@ -55,6 +55,7 @@ export class BatchedMeshPool {
   // Shared clock for animated caustic dapples on creatures — one object referenced by
   // every creature shader (fish + large bodies), advanced once per frame in updateTime.
   private causticTime = { value: 0 };
+  private frameCount = 0;
   private tempMatrix: THREE.Matrix4 = new THREE.Matrix4();
   private tempPosition: THREE.Vector3 = new THREE.Vector3();
   private tempQuaternion: THREE.Quaternion = new THREE.Quaternion();
@@ -941,20 +942,14 @@ uniform float uCausticTime;`
   public updateMeshes(world: OceanWorld): void {
     const entities = query(world, [Position, MeshComponent]);
 
-    // Track which entities still exist for cleanup
-    const existingEntities = new Set<number>(entities);
-
-    // DEBUG: Count by type
-    const typeCounts = { fish: 0, shark: 0, dolphin: 0, jellyfish: 0, ray: 0, turtle: 0, crab: 0, starfish: 0, seaUrchin: 0, whale: 0 };
+    // Despawns are rare, so only reconcile mesh cleanup periodically instead of
+    // allocating a Set + scanning both mesh maps every frame (this was ~a third of the
+    // per-frame mesh-sync cost). The hot path is just the transform update below.
+    this.frameCount++;
+    const doCleanup = this.frameCount % 20 === 0;
 
     for (const eid of entities) {
       const creatureType = CreatureType.type[eid] ?? -1;
-
-      // Count types
-      const typeNames = ['fish', 'shark', 'dolphin', 'jellyfish', 'ray', 'turtle', 'crab', 'starfish', 'seaUrchin', 'whale'];
-      if (creatureType >= 0 && creatureType < 10) {
-        typeCounts[typeNames[creatureType] as keyof typeof typeCounts]++;
-      }
 
       if (creatureType === 0) {
         // Fish - use instancing
@@ -968,49 +963,43 @@ uniform float uCausticTime;`
       }
     }
 
-    // Cleanup: Remove meshes for entities that no longer exist
-    // Clean up individual meshes
-    for (const [eid, mesh] of this.individualMeshes) {
-      if (!existingEntities.has(eid)) {
-        this.renderEngine.scene.remove(mesh);
-        if (mesh instanceof THREE.Mesh) {
-          mesh.geometry?.dispose();
-          if (Array.isArray(mesh.material)) {
-            mesh.material.forEach(m => m.dispose());
-          } else {
-            mesh.material?.dispose();
-          }
-        } else if (mesh instanceof THREE.Group) {
-          mesh.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-              child.geometry?.dispose();
-              if (Array.isArray(child.material)) {
-                child.material.forEach(m => m.dispose());
-              } else {
-                child.material?.dispose();
-              }
+    if (doCleanup) {
+      const existingEntities = new Set<number>(entities);
+
+      // Clean up individual meshes for entities that no longer exist
+      for (const [eid, mesh] of this.individualMeshes) {
+        if (!existingEntities.has(eid)) {
+          this.renderEngine.scene.remove(mesh);
+          if (mesh instanceof THREE.Mesh) {
+            mesh.geometry?.dispose();
+            if (Array.isArray(mesh.material)) {
+              mesh.material.forEach(m => m.dispose());
+            } else {
+              mesh.material?.dispose();
             }
-          });
+          } else if (mesh instanceof THREE.Group) {
+            mesh.traverse((child) => {
+              if (child instanceof THREE.Mesh) {
+                child.geometry?.dispose();
+                if (Array.isArray(child.material)) {
+                  child.material.forEach(m => m.dispose());
+                } else {
+                  child.material?.dispose();
+                }
+              }
+            });
+          }
+          this.individualMeshes.delete(eid);
         }
-        this.individualMeshes.delete(eid);
       }
-    }
 
-    // Clean up fish instances (add freed slots to reuse pool)
-    for (const [eid, instance] of this.fishInstances) {
-      if (!existingEntities.has(eid)) {
-        // Add the instance slot to the free pool for reuse
-        this.freeInstanceSlots[instance.bodyType].push(instance.instanceId);
-        this.fishInstances.delete(eid);
+      // Clean up fish instances (add freed slots to reuse pool)
+      for (const [eid, instance] of this.fishInstances) {
+        if (!existingEntities.has(eid)) {
+          this.freeInstanceSlots[instance.bodyType].push(instance.instanceId);
+          this.fishInstances.delete(eid);
+        }
       }
-    }
-
-    // DEBUG: Log occasionally
-    if (DEBUG && Math.random() < 0.01) {
-      const totalFishInstanced = this.fishInstanceCounts.reduce((a, b) => a + b, 0);
-      const individualCount = typeCounts.shark + typeCounts.dolphin + typeCounts.jellyfish + typeCounts.ray + typeCounts.turtle + typeCounts.crab + typeCounts.starfish + typeCounts.seaUrchin + typeCounts.whale;
-      const bodyTypeCounts = BODY_TYPE_NAMES.map((name, i) => `${name}:${this.fishInstanceCounts[i]}`).join(', ');
-      console.log(`🐟 Mesh Pool: ${typeCounts.fish} fish (${bodyTypeCounts}, total:${totalFishInstanced}), ${individualCount} individual`);
     }
 
     // Mark animation attributes for GPU upload (once per frame, for all body types)
