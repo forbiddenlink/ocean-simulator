@@ -30,6 +30,9 @@ describe('ExtraOceanLife', () => {
     expect(countKind('nautilus')).toBe(5);
     expect(countKind('giantclam')).toBe(10);
     expect(countKind('seacucumber')).toBe(12);
+    expect(countKind('cuttlefish')).toBe(5);
+    expect(countKind('combjelly')).toBe(10);
+    expect(countKind('hermitcrab')).toBe(10);
   });
 
   it('gives every anglerfish a lure reference and a pulse phase', () => {

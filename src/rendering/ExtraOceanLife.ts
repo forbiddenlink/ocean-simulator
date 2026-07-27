@@ -24,6 +24,9 @@ export class ExtraOceanLife {
     this.spawnNautiluses(floorDepth, 5);
     this.spawnGiantClams(floorDepth, 10);
     this.spawnSeaCucumbers(floorDepth, 12);
+    this.spawnCuttlefish(floorDepth, 5);
+    this.spawnCombJellies(floorDepth, 10);
+    this.spawnHermitCrabs(floorDepth, 10);
 
     scene.add(this.group);
   }
@@ -219,6 +222,148 @@ export class ExtraOceanLife {
       oct.scale.setScalar(s);
       oct.userData.kind = 'octopus';
       this.group.add(oct);
+    }
+  }
+
+  // === CUTTLEFISH — broad flat mantle with a fin fringe, W-eyes, arm cluster ===
+  private spawnCuttlefish(floorY: number, count: number): void {
+    const cuttleColors = [0x9a8a6a, 0x7a6a8a, 0x8a7a5a, 0x6a7a7a];
+    for (let i = 0; i < count; i++) {
+      const cuttle = new THREE.Group();
+      const color = new THREE.Color(cuttleColors[i % cuttleColors.length]);
+      const mat = this.makeWaveMaterial(color, 0.06, 2.4);
+
+      // Broad flattened mantle.
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.6, 16, 12), mat);
+      body.scale.set(1.4, 0.5, 0.85);
+      cuttle.add(body);
+
+      // Continuous undulating fin fringe skirting the mantle.
+      const fin = new THREE.Mesh(new THREE.TorusGeometry(0.68, 0.09, 8, 32), mat);
+      const fp = fin.geometry.attributes.position;
+      for (let v = 0; v < fp.count; v++) {
+        const ang = Math.atan2(fp.getZ(v), fp.getX(v));
+        fp.setY(v, fp.getY(v) + Math.sin(ang * 10) * 0.05);
+      }
+      fin.geometry.computeVertexNormals();
+      fin.rotation.x = Math.PI / 2;
+      fin.scale.set(1.4, 0.85, 1);
+      cuttle.add(fin);
+
+      // W-shaped eyes.
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x0c0c0c });
+      for (const sgn of [-1, 1]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), eyeMat);
+        eye.position.set(0.55, 0.12, sgn * 0.25);
+        cuttle.add(eye);
+      }
+
+      // Short arm cluster at the front.
+      for (let a = 0; a < 8; a++) {
+        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.015, 0.5, 5), mat);
+        arm.geometry.translate(0, -0.25, 0);
+        arm.position.set(0.85, 0, 0);
+        arm.rotation.z = Math.PI / 2 + 0.3;
+        arm.rotation.x = (a / 8) * Math.PI * 2;
+        cuttle.add(arm);
+      }
+
+      cuttle.position.set((Math.random() - 0.5) * 80, floorY + 3 + Math.random() * 10, (Math.random() - 0.5) * 80);
+      cuttle.rotation.y = Math.random() * Math.PI * 2;
+      cuttle.scale.setScalar(0.7 + Math.random() * 0.5);
+      cuttle.userData.kind = 'cuttlefish';
+      this.group.add(cuttle);
+    }
+  }
+
+  // === COMB JELLY (ctenophore) — translucent oval with 8 glowing cilia rows ===
+  private spawnCombJellies(floorY: number, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const jelly = new THREE.Group();
+
+      // Translucent body.
+      const body = new THREE.Mesh(
+        new THREE.SphereGeometry(0.4, 16, 14),
+        new THREE.MeshPhysicalMaterial({
+          color: 0xbfe6ff,
+          transparent: true,
+          opacity: 0.28,
+          roughness: 0.1,
+          transmission: 0.7,
+          thickness: 0.4,
+          side: THREE.DoubleSide,
+        })
+      );
+      body.scale.set(0.8, 1.3, 0.8);
+      jelly.add(body);
+
+      // 8 glowing comb rows running pole-to-pole (unlit bright strips -> bloom + biolume).
+      const rowMat = new THREE.MeshBasicMaterial({ color: 0x9affe0 });
+      for (let r = 0; r < 8; r++) {
+        const ang = (r / 8) * Math.PI * 2;
+        const row = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.0, 0.06), rowMat);
+        row.position.set(Math.cos(ang) * 0.33, 0, Math.sin(ang) * 0.33);
+        jelly.add(row);
+      }
+
+      jelly.position.set((Math.random() - 0.5) * 80, floorY + 5 + Math.random() * 16, (Math.random() - 0.5) * 80);
+      jelly.rotation.y = Math.random() * Math.PI * 2;
+      jelly.scale.setScalar(0.7 + Math.random() * 0.7);
+      jelly.userData.kind = 'combjelly';
+      this.group.add(jelly);
+    }
+  }
+
+  // === HERMIT CRABS — a spiral shell with crab legs + claws poking out, on the floor ===
+  private spawnHermitCrabs(floorY: number, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const crab = new THREE.Group();
+      const shellA = new THREE.MeshStandardMaterial({ color: 0xcaa877, roughness: 0.7 });
+      const shellB = new THREE.MeshStandardMaterial({ color: 0x8a5a35, roughness: 0.7 });
+      const bodyMat = new THREE.MeshStandardMaterial({ color: 0xb0503a, roughness: 0.6, metalness: 0.1 });
+
+      // Coiled shell (small spiral of chambers).
+      const turns = 8;
+      for (let s = 0; s < turns; s++) {
+        const ang = (s / turns) * Math.PI * 2.2;
+        const rad = 0.42 * Math.pow(0.82, s);
+        const chamber = new THREE.Mesh(new THREE.SphereGeometry(rad, 10, 8), s % 2 === 0 ? shellA : shellB);
+        chamber.position.set(Math.cos(ang) * 0.28, 0.35 + Math.sin(ang) * 0.28, 0);
+        crab.add(chamber);
+      }
+
+      // Head + eyes on stalks poking out.
+      for (const sgn of [-1, 1]) {
+        const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.16, 5), bodyMat);
+        stalk.position.set(0.42, 0.25, sgn * 0.08);
+        crab.add(stalk);
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshBasicMaterial({ color: 0x101010 }));
+        eye.position.set(0.42, 0.34, sgn * 0.08);
+        crab.add(eye);
+      }
+
+      // Legs + two claws.
+      for (let l = 0; l < 4; l++) {
+        for (const sgn of [-1, 1]) {
+          const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.015, 0.4, 5), bodyMat);
+          leg.position.set(0.3 - l * 0.12, 0.05, sgn * 0.2);
+          leg.rotation.x = sgn * 0.9;
+          leg.rotation.z = 0.5;
+          crab.add(leg);
+        }
+      }
+      for (const sgn of [-1, 1]) {
+        const claw = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), bodyMat);
+        claw.position.set(0.5, 0.1, sgn * 0.18);
+        claw.scale.set(1.2, 0.7, 0.7);
+        crab.add(claw);
+      }
+
+      crab.position.set((Math.random() - 0.5) * 85, floorY + 0.2, (Math.random() - 0.5) * 85);
+      crab.rotation.y = Math.random() * Math.PI * 2;
+      crab.scale.setScalar(0.6 + Math.random() * 0.5);
+      crab.userData.kind = 'hermitcrab';
+      this.group.add(crab);
     }
   }
 
