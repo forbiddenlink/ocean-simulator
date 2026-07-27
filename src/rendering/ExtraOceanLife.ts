@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeBufferGeometries } from 'three-stdlib';
 
 /**
  * Extra ocean critters: octopuses, seahorses, moray eels, lobsters, nudibranchs.
@@ -28,7 +29,69 @@ export class ExtraOceanLife {
     this.spawnCombJellies(floorDepth, 10);
     this.spawnHermitCrabs(floorDepth, 10);
 
+    // Collapse each creature's many small parts into one mesh per material. This is a pure
+    // draw-call optimization — identical geometry, far fewer objects — which matters because
+    // the ambient layer is thousands of tiny meshes (e.g. a pufferfish is ~60 spikes).
+    this.optimizeDrawCalls();
+
     scene.add(this.group);
+  }
+
+  /**
+   * Merge each creature Group's meshes by shared material into a single merged mesh per
+   * material. Appearance is unchanged (same triangles); only the object/draw-call count
+   * drops. Guarded per-creature: any merge failure leaves that creature untouched. Meshes
+   * flagged `userData.noMerge` (e.g. the animated anglerfish lure) are kept separate.
+   */
+  private optimizeDrawCalls(): void {
+    for (const creature of this.group.children) {
+      if (!(creature instanceof THREE.Group)) continue;
+      try {
+        const lure = creature.userData.lure as THREE.Object3D | undefined;
+        const byMaterial = new Map<THREE.Material, THREE.BufferGeometry[]>();
+        const kept: THREE.Object3D[] = [];
+
+        for (const child of [...creature.children]) {
+          const mesh = child as THREE.Mesh;
+          const mat = mesh.material as THREE.Material;
+          if (!mesh.isMesh || Array.isArray(mesh.material) || mesh === lure || mesh.userData.noMerge) {
+            kept.push(child);
+            continue;
+          }
+          const geo = mesh.geometry.clone();
+          mesh.updateMatrix();
+          geo.applyMatrix4(mesh.matrix); // parts are flat children of the creature group
+          // Uniform attribute set so same-material parts merge cleanly.
+          for (const name of Object.keys(geo.attributes)) {
+            if (name !== 'position' && name !== 'normal' && name !== 'uv') geo.deleteAttribute(name);
+          }
+          if (!geo.getAttribute('normal')) geo.computeVertexNormals();
+          if (!geo.getAttribute('uv')) {
+            const c = geo.getAttribute('position').count;
+            geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(c * 2), 2));
+          }
+          const list = byMaterial.get(mat) ?? [];
+          list.push(geo.index ? geo.toNonIndexed() : geo);
+          byMaterial.set(mat, list);
+        }
+
+        const mergedMeshes: THREE.Mesh[] = [];
+        for (const [mat, geos] of byMaterial) {
+          const merged = geos.length === 1 ? geos[0] : mergeBufferGeometries(geos, false);
+          if (!merged) {
+            // Merge failed for this material bucket — bail out of optimizing this creature.
+            throw new Error('merge failed');
+          }
+          mergedMeshes.push(new THREE.Mesh(merged, mat));
+        }
+
+        creature.clear();
+        for (const m of mergedMeshes) creature.add(m);
+        for (const k of kept) creature.add(k);
+      } catch {
+        /* leave this creature as-is (unoptimized but correct) */
+      }
+    }
   }
 
   update(deltaTime: number, elapsed: number): void {
