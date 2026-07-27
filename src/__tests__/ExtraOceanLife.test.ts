@@ -27,6 +27,9 @@ describe('ExtraOceanLife', () => {
     expect(countKind('squid')).toBe(6);
     expect(countKind('pufferfish')).toBe(9);
     expect(countKind('seasnake')).toBe(6);
+    expect(countKind('nautilus')).toBe(5);
+    expect(countKind('giantclam')).toBe(10);
+    expect(countKind('seacucumber')).toBe(12);
   });
 
   it('gives every anglerfish a lure reference and a pulse phase', () => {
