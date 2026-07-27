@@ -413,7 +413,7 @@ export class OceanSimulator {
 
     // === JELLYFISH BLOOM — drifting at all depths, dense near surface ===
     const jellyfishSpecies = ['moon', 'box', 'crystal', 'lion'] as const;
-    for (let i = 0; i < 36; i++) {
+    for (let i = 0; i < 24; i++) {
       const x = (Math.random() - 0.5) * 75;
       const y = -2 - Math.random() * 26;
       const z = (Math.random() - 0.5) * 75;
@@ -447,20 +447,22 @@ export class OceanSimulator {
       createWhale(this.world, -45, -14, -55, 'humpback');
     }
 
-    // === FLOOR LIFE — crabs, starfish, urchins densely populating the seabed ===
-    for (let i = 0; i < 70; i++) {
+    // === FLOOR LIFE — crabs, starfish, urchins dotting the seabed. Counts kept modest:
+    // each is a many-part group (an urchin is ~25 meshes) that updates every frame, yet
+    // reads as a small floor dot — so a high count is almost pure cost for no visible gain.
+    for (let i = 0; i < 38; i++) {
       const x = (Math.random() - 0.5) * 85;
       const z = (Math.random() - 0.5) * 85;
       createCrab(this.world, x, 0, z);
     }
 
-    for (let i = 0; i < 45; i++) {
+    for (let i = 0; i < 26; i++) {
       const x = (Math.random() - 0.5) * 85;
       const z = (Math.random() - 0.5) * 85;
       createStarfish(this.world, x, 0, z);
     }
 
-    for (let i = 0; i < 35; i++) {
+    for (let i = 0; i < 16; i++) {
       const x = (Math.random() - 0.5) * 85;
       const z = (Math.random() - 0.5) * 85;
       createSeaUrchin(this.world, x, 0, z);
