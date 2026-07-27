@@ -169,8 +169,44 @@ export class JellyfishGeometry {
       clearcoatRoughness: 0.1,
       ior: 1.4,
       side: THREE.DoubleSide,
+      // Bioluminescent self-glow — without emissive the bell was a flat pale disc in
+      // the dim deep. This makes it a luminous, cinematic jelly that reads as alive.
+      emissive: new THREE.Color(colors.biolum),
+      emissiveIntensity: 0.9,
     });
-    
+
+    // Fresnel edge glow: brighten the rim of the bell (classic backlit-jelly look).
+    material.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+varying vec3 vJellyVP;
+varying vec3 vJellyN;`
+        )
+        .replace(
+          'vec3 totalEmissiveRadiance = emissive;',
+          `vec3 totalEmissiveRadiance = emissive;
+{
+  float rim = pow(1.0 - clamp(dot(normalize(vJellyN), normalize(vJellyVP)), 0.0, 1.0), 2.0);
+  totalEmissiveRadiance += emissive * rim * 2.2;
+}`
+        );
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+varying vec3 vJellyVP;
+varying vec3 vJellyN;`
+        )
+        .replace(
+          '#include <project_vertex>',
+          `#include <project_vertex>
+vJellyVP = -mvPosition.xyz;
+vJellyN = normalize(normalMatrix * normal);`
+        );
+    };
+
     const bell = new THREE.Mesh(geometry, material);
     return bell;
   }

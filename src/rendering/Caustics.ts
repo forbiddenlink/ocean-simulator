@@ -190,10 +190,19 @@ export class CausticsEffect {
           // Sample water surface displacement
           float waterDisplacement = texture2D(waterHeightMap, uv1 * 0.5).r;
 
+          // Domain-warp the sampling space so the voronoi lattice stops aligning to the
+          // world axes — that axis-aligned regularity was the "tiled grid" read on the
+          // seabed. A low-frequency swirl bends the cells into organic caustic filaments.
+          vec2 wp = vWorldPosition.xz;
+          vec2 swirl = vec2(
+            sin(wp.y * 0.11 + time * 0.13) + 0.6 * sin(wp.x * 0.05 - time * 0.07),
+            cos(wp.x * 0.11 - time * 0.10) + 0.6 * cos(wp.y * 0.05 + time * 0.06)
+          );
+
           // Modulate caustics by water surface with more displacement influence
-          vec2 displacedUv1 = uv1 + waterDisplacement * 0.15;
-          vec2 displacedUv2 = uv2 + waterDisplacement * 0.12;
-          vec2 displacedUv3 = uv3 + waterDisplacement * 0.08;
+          vec2 displacedUv1 = uv1 + waterDisplacement * 0.15 + swirl * 0.9;
+          vec2 displacedUv2 = uv2 + waterDisplacement * 0.12 + swirl * 0.75;
+          vec2 displacedUv3 = uv3 + waterDisplacement * 0.08 + swirl * 0.6;
 
           vec3 caustics1 = causticsChromatic(displacedUv1, time);
           vec3 caustics2 = causticsChromatic(displacedUv2, time + 1.5);

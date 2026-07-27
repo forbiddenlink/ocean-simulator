@@ -26,6 +26,15 @@ export class CameraController {
   private _target: THREE.Vector3 = new THREE.Vector3();
   private _worldUp: THREE.Vector3 = new THREE.Vector3(0, 1, 0);
 
+  // Cinematic path playback (intro reveal + hero-video flythrough)
+  private cinematicActive = false;
+  private cinematicElapsed = 0;
+  private cinematicDuration = 0;
+  private cinematicLoop = false;
+  private cinematicPosCurve?: THREE.CatmullRomCurve3;
+  private cinematicLookCurve?: THREE.CatmullRomCurve3;
+  private _look: THREE.Vector3 = new THREE.Vector3();
+
   // Bound event handlers for proper cleanup
   private boundOnKeyDown: (e: KeyboardEvent) => void;
   private boundOnKeyUp: (e: KeyboardEvent) => void;
@@ -43,10 +52,15 @@ export class CameraController {
     this.pitch = Math.asin(-direction.y);
 
     // Create bound handlers
-    this.boundOnKeyDown = (e: KeyboardEvent) => this.keys.add(e.key.toLowerCase());
+    this.boundOnKeyDown = (e: KeyboardEvent) => {
+      // Any movement input hands control back to the user mid-flythrough.
+      if (this.cinematicActive && 'wasdqe'.includes(e.key.toLowerCase())) this.stopCinematic();
+      this.keys.add(e.key.toLowerCase());
+    };
     this.boundOnKeyUp = (e: KeyboardEvent) => this.keys.delete(e.key.toLowerCase());
     this.boundOnMouseDown = (e: MouseEvent) => {
       if (e.button === 0) {
+        if (this.cinematicActive) this.stopCinematic();
         this.mouseDown = true;
         this.lastMouseX = e.clientX;
         this.lastMouseY = e.clientY;
@@ -76,7 +90,68 @@ export class CameraController {
     window.addEventListener('mousemove', this.boundOnMouseMove);
   }
 
+  /**
+   * Play a scripted camera flythrough. Keyframes are {pos, look} world-space triples.
+   * Uses Catmull-Rom curves for buttery motion; input is ignored while playing.
+   */
+  public playCinematic(
+    keyframes: Array<{ pos: [number, number, number]; look: [number, number, number] }>,
+    duration: number,
+    loop = false
+  ): void {
+    if (keyframes.length < 2) return;
+    this.cinematicPosCurve = new THREE.CatmullRomCurve3(
+      keyframes.map((k) => new THREE.Vector3(...k.pos)),
+      loop,
+      'catmullrom',
+      0.5
+    );
+    this.cinematicLookCurve = new THREE.CatmullRomCurve3(
+      keyframes.map((k) => new THREE.Vector3(...k.look)),
+      loop,
+      'catmullrom',
+      0.5
+    );
+    this.cinematicDuration = duration;
+    this.cinematicElapsed = 0;
+    this.cinematicLoop = loop;
+    this.cinematicActive = true;
+  }
+
+  public stopCinematic(): void {
+    this.cinematicActive = false;
+    // Re-derive yaw/pitch from current orientation so manual control resumes cleanly.
+    const dir = new THREE.Vector3();
+    this.camera.getWorldDirection(dir);
+    this.yaw = Math.atan2(dir.x, dir.z);
+    this.pitch = Math.asin(-Math.max(-1, Math.min(1, -dir.y)));
+  }
+
+  public isCinematic(): boolean {
+    return this.cinematicActive;
+  }
+
   public update(deltaTime: number): void {
+    if (this.cinematicActive && this.cinematicPosCurve && this.cinematicLookCurve) {
+      this.cinematicElapsed += deltaTime;
+      let t = this.cinematicElapsed / this.cinematicDuration;
+      if (t >= 1) {
+        if (this.cinematicLoop) {
+          this.cinematicElapsed %= this.cinematicDuration;
+          t = this.cinematicElapsed / this.cinematicDuration;
+        } else {
+          t = 1;
+          this.cinematicActive = false;
+        }
+      }
+      // Gentle ease-in-out across the whole path so start/stop are soft.
+      const eased = t * t * (3 - 2 * t);
+      this.cinematicPosCurve.getPoint(this.cinematicLoop ? t : eased, this.camera.position);
+      this.cinematicLookCurve.getPoint(this.cinematicLoop ? t : eased, this._look);
+      this.camera.lookAt(this._look);
+      return;
+    }
+
     // Update sway time
     this.swayTime += deltaTime * this.swaySpeed;
 

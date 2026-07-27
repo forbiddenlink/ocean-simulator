@@ -1,0 +1,26 @@
+# Ocean Ecosystem Simulator
+
+> A cinematic, real-time 3D underwater ecosystem that runs in the browser. Hundreds of
+> living marine creatures with schooling AI and predator-prey dynamics, rendered with a
+> "Cinematic Deep" art direction: volumetric god rays, Beer-Lambert depth grading, and
+> AgX filmic tonemapping. Built with Three.js and bitECS.
+
+## What it is
+- An interactive WebGL demo / portfolio piece, not a product. Free to view, no account.
+- Explore with WASD + mouse (Q/E for up/down, H toggles the UI).
+
+## Technology
+- Rendering: Three.js (WebGL2), postprocessing library, custom GLSL shaders
+- Simulation: bitECS entity-component-system; FIRA steering + Reynolds boids schooling
+- Build: Vite + TypeScript
+
+## Notable techniques
+- Per-channel Beer-Lambert underwater absorption + exponential depth fog
+- Volumetric god-ray light shafts (billboard columns, animated shimmer)
+- Instanced GPU fish with vertex-shader swim animation, countershading, fresnel rim, iridescence
+- AgX tonemapping, film grain, chromatic aberration, bloom, vignette
+- Cinematic camera flythrough (Catmull-Rom keyframe path)
+
+## Assets
+- Hero flythrough video: /hero.mp4
+- Social/preview image: /og-image.png

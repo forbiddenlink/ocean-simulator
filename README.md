@@ -1,6 +1,30 @@
 # Ocean Ecosystem Simulator
 
-A photorealistic underwater ecosystem simulator built with Three.js and bitECS. Experience a living underwater world with 500+ marine creatures, realistic lighting, and emergent behaviors.
+A **cinematic** real-time underwater ecosystem built with Three.js and bitECS — a moody deep-water world of hundreds of living marine creatures, volumetric god rays, and emergent schooling behaviour, running in the browser.
+
+![Ocean Ecosystem Simulator — Cinematic Deep](public/og-image.png)
+
+> **Hero flythrough:** an 18-second in-engine cinematic dive lives at [`public/hero.mp4`](public/hero.mp4) — surface → through the light shafts and a passing school → over the reef.
+
+## Cinematic Deep — the visual overhaul
+
+The engine was strong but the art direction read flat ("swimming pool"). A ground-up
+**Cinematic Deep** pass rebuilt the look. Highlights of the technique:
+
+- **Per-channel Beer-Lambert depth grading** — red is absorbed fastest, cyan persists, so
+  distance dissolves into deep-water murk. This single change is what reads as *ocean* rather
+  than *pool*. (`PostProcessingPipeline` underwater grading + `WavelengthLighting` fog.)
+- **Volumetric god-ray shafts** — soft additive billboard columns that descend from the
+  surface and shimmer in sync with the caustics. The hero effect. (`VolumetricLightShafts`.)
+- **Believable fish** — fixed an over-amplitude swim wave (bodies were crescenting into
+  boomerangs) and a normals bug that forced flat faceting; added a fresnel rim light,
+  iridescence and countershading. (`SimpleFishGeometry`, `BatchedMeshPool`.)
+- **Cohesive schools** — thinned and tightened the shoals so the frame has negative space
+  instead of confetti. (`OceanSimulator.spawnInitialFish`, FIRA steering.)
+- **Filmic post** — AgX tonemapping (preserves teal better than ACES), subtle film grain,
+  chromatic aberration, vignette. (`PostProcessingPipeline`.)
+- **Art-directed look presets** — a single `Cinematic Deep` / `Clean` switch drives every
+  light, fog, exposure and post parameter. (`OceanSimulator.applyLookPreset`.)
 
 ## Features
 

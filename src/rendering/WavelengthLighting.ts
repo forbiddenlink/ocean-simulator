@@ -29,6 +29,14 @@ export class WavelengthLighting {
         fogDensity: { value: 0.015 }
     };
 
+    // Scene-fog art-direction knobs (driven by the look preset). Denser base fog +
+    // deeper colour = distance falls into murk, which is what reads as "deep ocean"
+    // rather than "clear pool". Tuned by OceanSimulator.applyLookPreset().
+    public sceneFogBaseDensity = 0.03;
+    public sceneFogDepthFactor = 0.00035;
+    public sceneFogShallow = new THREE.Color(0x1d5f74);
+    public sceneFogDeep = new THREE.Color(0x061c2b);
+
     /**
      * Calculate light transmission at a given depth using Beer-Lambert Law
      * I(λ, d) = I₀(λ) · e^(-k(λ)·d)
@@ -139,16 +147,12 @@ export class WavelengthLighting {
     public applyToSceneFog(scene: THREE.Scene, cameraY: number): void {
         const depth = Math.max(0, -cameraY);
 
-        // Dynamic fog density - tuned for cinematic depth without crushing close-up creatures.
-        const baseDensity = 0.012;
-        const depthFactor = depth * 0.00015;
-        const density = baseDensity + depthFactor;
+        // Dynamic fog density - preset-driven so cinematic depth can be dialed in.
+        const density = this.sceneFogBaseDensity + depth * this.sceneFogDepthFactor;
 
         // Fog color shifts from teal (shallow) to deep navy (depth)
-        const shallowFog = new THREE.Color(0x4a90a5);
-        const deepFog = new THREE.Color(0x10405a);
         const fogMix = Math.min(depth / 100, 1.0);
-        const fogColor = shallowFog.clone().lerp(deepFog, fogMix);
+        const fogColor = this.sceneFogShallow.clone().lerp(this.sceneFogDeep, fogMix);
 
         // Apply FogExp2 - exponential fog that looks natural underwater
         if (!scene.fog || !(scene.fog instanceof THREE.FogExp2)) {

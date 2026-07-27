@@ -419,7 +419,9 @@ export class SimpleFishGeometry {
     group.add(snoutMesh);
 
     const mergedGeometry = this.mergeGroup(group);
-    mergedGeometry.computeVertexNormals();
+    // Keep the smooth per-part normals (mergeGroup transforms them via applyMatrix4).
+    // Recomputing on non-indexed merged geometry would force FLAT faceted shading —
+    // the main reason the fish read as crude/low-poly.
     return mergedGeometry;
   }
 
@@ -525,7 +527,9 @@ export class SimpleFishGeometry {
     group.add(snoutMesh);
 
     const mergedGeometry = this.mergeGroup(group);
-    mergedGeometry.computeVertexNormals();
+    // Keep the smooth per-part normals (mergeGroup transforms them via applyMatrix4).
+    // Recomputing on non-indexed merged geometry would force FLAT faceted shading —
+    // the main reason the fish read as crude/low-poly.
     return mergedGeometry;
   }
 
@@ -630,7 +634,9 @@ export class SimpleFishGeometry {
     group.add(snoutMesh);
 
     const mergedGeometry = this.mergeGroup(group);
-    mergedGeometry.computeVertexNormals();
+    // Keep the smooth per-part normals (mergeGroup transforms them via applyMatrix4).
+    // Recomputing on non-indexed merged geometry would force FLAT faceted shading —
+    // the main reason the fish read as crude/low-poly.
     return mergedGeometry;
   }
 

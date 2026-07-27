@@ -9,6 +9,7 @@ import { CausticsEffect } from './Caustics';
 import { BioluminescenceSystem } from './Bioluminescence';
 import { VolumetricFog } from './VolumetricFog';
 import { GodRaysEffect } from './GodRays';
+import { VolumetricLightShafts } from './VolumetricLightShafts';
 import { CoralFormations } from './CoralFormations';
 import { SeaAnemones } from './SeaAnemones';
 import { MarineLife } from './MarineLife';
@@ -32,12 +33,15 @@ export class RenderingEngine {
   private fftOcean?: FFTOcean;
   private useFFTOcean: boolean = true; // ENABLED - FFT for photorealistic waves!
   private sunLight!: THREE.DirectionalLight;
+  private hemiLight!: THREE.HemisphereLight; // Exposed so look presets can art-direct contrast
+  private fillLight!: THREE.DirectionalLight; // Floor-bounce fill, preset-controlled
   private particles?: UnderwaterParticles;
   private bubbles?: BubbleSystem;
   private caustics?: CausticsEffect;
   private bioluminescence?: BioluminescenceSystem;
   private volumetricFog?: VolumetricFog;
   private godRays?: GodRaysEffect;
+  private lightShafts?: VolumetricLightShafts;
   private realisticFloor?: THREE.Group; // Returns a Group from static method
   private anemones?: SeaAnemones;
   private marineLife?: THREE.Group; // Returns a Group from static method
@@ -142,6 +146,9 @@ export class RenderingEngine {
     // Add caustics
     this.caustics = new CausticsEffect(this.scene, this.renderer);
 
+    // Add volumetric god-ray light shafts (hero effect of the Cinematic Deep look)
+    this.lightShafts = new VolumetricLightShafts(this.scene);
+
     // Add bioluminescence
     this.bioluminescence = new BioluminescenceSystem(this.scene);
 
@@ -180,22 +187,23 @@ export class RenderingEngine {
     this.sunLight.shadow.bias = -0.0005;        // Reduce shadow acne
     this.scene.add(this.sunLight);
 
-    // Ambient light — bright blue-white for underwater visibility
-    const ambientLight = new THREE.AmbientLight(0x6699cc, 1.2);
+    // Ambient light — kept low so depth/contrast can read; presets tune intensity.
+    const ambientLight = new THREE.AmbientLight(0x4d84b0, 0.6);
     this.scene.add(ambientLight);
 
-    // Hemisphere light — stronger contrast between surface light and deep shadow
-    const hemiLight = new THREE.HemisphereLight(
-      0x99ccee, // Sky color (bright cyan-white from surface)
-      0x223344, // Ground color (subtle blue from depth)
-      1.4       // Slightly stronger for more dramatic gradient
+    // Hemisphere light — surface-vs-depth gradient. Low baseline for cinematic contrast;
+    // a bright value here is the #1 thing that flattens the scene into a "swimming pool".
+    this.hemiLight = new THREE.HemisphereLight(
+      0x86bcd6, // Sky color (cyan from surface)
+      0x0a2230, // Ground color (deep blue from below)
+      0.5
     );
-    this.scene.add(hemiLight);
+    this.scene.add(this.hemiLight);
 
     // Fill light from below - simulates bioluminescence and floor bounce
-    const fillLight = new THREE.DirectionalLight(0x335566, 0.6);
-    fillLight.position.set(0, -30, 0);
-    this.scene.add(fillLight);
+    this.fillLight = new THREE.DirectionalLight(0x2f5a72, 0.35);
+    this.fillLight.position.set(0, -30, 0);
+    this.scene.add(this.fillLight);
 
     // Camera-attached fill light — subtle blue tint reveals nearby creatures
     const cameraFillLight = new THREE.PointLight(0x5580aa, 0.6);
@@ -349,6 +357,15 @@ export class RenderingEngine {
     // Update god ray color based on time of day
     if (this.hdriEnvironment) {
       this.postProcessing.updateGodRayTimeOfDay(this.hdriEnvironment.getTimeOfDay());
+    }
+
+    // Volumetric light shafts: billboard + shimmer, fade with time of day.
+    if (this.lightShafts) {
+      this.lightShafts.update(deltaTime, this.camera);
+      if (this.hdriEnvironment) {
+        const day = Math.sin(this.hdriEnvironment.getTimeOfDay() * Math.PI);
+        this.lightShafts.setDayFactor(day);
+      }
     }
   }
 
@@ -554,6 +571,16 @@ export class RenderingEngine {
     return this.sunLight;
   }
 
+  /** Hemisphere light — presets tune this to control surface-vs-depth contrast. */
+  public getHemiLight(): THREE.HemisphereLight {
+    return this.hemiLight;
+  }
+
+  /** Below-fill light — presets tune this for floor bounce / bioluminescent lift. */
+  public getFillLight(): THREE.DirectionalLight {
+    return this.fillLight;
+  }
+
   public dispose(): void {
     // Remove event listener using stored bound reference
     window.removeEventListener('resize', this.boundOnWindowResize);
@@ -565,6 +592,7 @@ export class RenderingEngine {
     if (this.caustics && 'dispose' in this.caustics) (this.caustics as { dispose: () => void }).dispose();
     if (this.bioluminescence && 'dispose' in this.bioluminescence) (this.bioluminescence as { dispose: () => void }).dispose();
     if (this.godRays && 'dispose' in this.godRays) (this.godRays as { dispose: () => void }).dispose();
+    if (this.lightShafts) this.lightShafts.dispose();
     if (this.kelpForest && 'dispose' in this.kelpForest) (this.kelpForest as { dispose: () => void }).dispose();
     if (this.foamSystem && 'dispose' in this.foamSystem) (this.foamSystem as { dispose: () => void }).dispose();
     if (this.sprayParticles) this.sprayParticles.dispose();

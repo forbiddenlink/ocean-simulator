@@ -19,7 +19,9 @@ export class UIManager {
   private onTimeOfDayChange?: (time: number) => void;
   private onWeatherChange?: (weather: string) => void;
   private onQualityChange?: (quality: string) => void;
-  
+  private onToggleLook?: () => 'tropical-clear' | 'inky-cinematic';
+  private onReplayIntro?: () => void;
+
   constructor(parentElement: HTMLElement = document.body) {
     this.container = this.createContainer();
     parentElement.appendChild(this.container);
@@ -186,14 +188,14 @@ export class UIManager {
       <h2 style="margin: 0 0 10px 0; font-size: 15px; color: #4dd0e1;">🔬 About</h2>
       <div style="font-size: 11px; line-height: 1.5; color: #b0bec5;">
         <p style="margin: 0 0 8px 0;">
-          <strong style="color: #80deea;">Photorealistic Ocean</strong>
+          <strong style="color: #80deea;">Cinematic Deep Ocean</strong>
         </p>
         <p style="margin: 0 0 6px 0;">
           🌊 FFT Wave Simulation<br/>
-          ✨ PBR Shader<br/>
-          🎨 Multi-Scale Detail<br/>
-          💨 Dynamic Foam & Spray<br/>
-          🌅 HDRI Environment
+          🔦 Volumetric God Rays<br/>
+          🐟 Beer-Lambert Depth Grading<br/>
+          🧠 Real-time Schooling AI<br/>
+          🎞️ AgX Filmic Grade
         </p>
         <p style="margin: 8px 0 0 0; padding-top: 8px; border-top: 1px solid rgba(100, 200, 255, 0.2); color: #4dd0e1; font-size: 10px;">
           Cinema-quality rendering with living ecosystem
@@ -309,11 +311,30 @@ export class UIManager {
         "/>
       </div>
       
+      <!-- Presentation -->
+      <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(100, 200, 255, 0.2);">
+        <label style="display: block; font-size: 11px; color: #80deea; margin-bottom: 6px; font-weight: bold;">
+          Presentation
+        </label>
+        <button id="ocean-look-toggle" class="ocean-button" style="
+          width: 100%; padding: 7px; margin-bottom: 6px;
+          background: linear-gradient(135deg, rgba(77,208,225,0.25), rgba(38,90,120,0.25));
+          border: 1px solid rgba(100,200,255,0.4); border-radius: 6px;
+          color: #e0f7fa; font-size: 11px; font-weight: bold; cursor: pointer;
+        ">🎬 Look: Cinematic Deep</button>
+        <button id="ocean-replay-intro" class="ocean-button" style="
+          width: 100%; padding: 7px;
+          background: rgba(255,255,255,0.08);
+          border: 1px solid rgba(100,200,255,0.3); border-radius: 6px;
+          color: #b3e5fc; font-size: 11px; cursor: pointer;
+        ">↻ Replay intro flythrough</button>
+      </div>
+
       <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(100, 200, 255, 0.2); font-size: 10px; color: #b0bec5;">
         💡 Adjust settings in real-time
       </div>
     `;
-    
+
     return panel;
   }
   
@@ -396,8 +417,24 @@ export class UIManager {
         }
       });
     }
+
+    // Look toggle (Cinematic Deep ⇄ Clean tropical)
+    const lookToggle = document.getElementById('ocean-look-toggle');
+    if (lookToggle) {
+      lookToggle.addEventListener('click', () => {
+        const next = this.onToggleLook?.();
+        lookToggle.textContent =
+          next === 'tropical-clear' ? '🏝️ Look: Clean Tropical' : '🎬 Look: Cinematic Deep';
+      });
+    }
+
+    // Replay intro flythrough
+    const replayIntro = document.getElementById('ocean-replay-intro');
+    if (replayIntro) {
+      replayIntro.addEventListener('click', () => this.onReplayIntro?.());
+    }
   }
-  
+
   public toggleVisibility(): void {
     this.isVisible = !this.isVisible;
     
@@ -458,6 +495,16 @@ export class UIManager {
    */
   public onQuality(callback: (quality: string) => void): void {
     this.onQualityChange = callback;
+  }
+
+  /** Register the Cinematic⇄Clean look toggle; callback returns the newly-active preset. */
+  public onLookToggle(callback: () => 'tropical-clear' | 'inky-cinematic'): void {
+    this.onToggleLook = callback;
+  }
+
+  /** Register the replay-intro-flythrough button. */
+  public onIntroReplay(callback: () => void): void {
+    this.onReplayIntro = callback;
   }
   
   /**

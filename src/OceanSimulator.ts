@@ -47,8 +47,8 @@ export class OceanSimulator {
     alignmentWeight: 1.0,
     cohesionWeight: 1.0,
 
-    // Look preset
-    lookPreset: 'tropical-clear' as 'tropical-clear' | 'inky-cinematic',
+    // Look preset — Cinematic Deep is the signature/default look
+    lookPreset: 'inky-cinematic' as 'tropical-clear' | 'inky-cinematic',
 
     // Cinematic / Post
     bloomIntensity: 0.8,
@@ -81,6 +81,8 @@ export class OceanSimulator {
     // Setup UI controls
     this.uiManager.onPause(() => this.togglePause());
     this.uiManager.onSpeedChange((speed) => this.setTimeScale(speed));
+    this.uiManager.onLookToggle(() => this.toggleLookPreset());
+    this.uiManager.onIntroReplay(() => this.replayIntro());
     
     // Setup ocean controls
     this.setupOceanControls();
@@ -126,64 +128,133 @@ export class OceanSimulator {
     // Apply initial look preset
     this.applyLookPreset(this.debugParams.lookPreset);
 
+    // Cinematic intro reveal — dive from just under the surface down through the light
+    // shafts and into the reef. Any movement/click hands control back instantly.
+    this.startIntro();
+
     if (DEBUG) {
       console.log('🌊 Ocean Simulator initialized');
       console.log(`📊 Entities: ${getAllEntities(this.world).length}`);
     }
   }
 
+  /** Keyframed dive path for the intro / hero flythrough (world space). */
+  private readonly introKeyframes: Array<{
+    pos: [number, number, number];
+    look: [number, number, number];
+  }> = [
+    { pos: [0, -1.5, 42], look: [2, -12, 6] },   // just under the surface, far back
+    { pos: [10, -5, 28], look: [4, -15, -4] },   // descending toward the shafts
+    { pos: [-4, -11, 16], look: [3, -18, -12] }, // gliding down past silhouettes
+    { pos: [3, -10, 7], look: [7, -16, -16] },   // banking into the reef + god rays
+    { pos: [0, -9, 2], look: [0, -12, -22] },    // settle to an explorable forward view
+  ];
+
+  /** Start the intro flythrough (skipped for reduced-motion users, who get the end pose). */
+  private startIntro(): void {
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) {
+      const end = this.introKeyframes[this.introKeyframes.length - 1];
+      this.renderEngine.camera.position.set(...end.pos);
+      this.renderEngine.camera.lookAt(...end.look);
+      return;
+    }
+    this.cameraController.playCinematic(this.introKeyframes, 15, false);
+  }
+
+  /** Replay the intro flythrough on demand (HUD button). */
+  public replayIntro(): void {
+    this.cameraController.playCinematic(this.introKeyframes, 15, false);
+  }
+
+  /** Toggle Cinematic Deep ⇄ Clean tropical look (demo before/after). Returns the new preset. */
+  public toggleLookPreset(): 'tropical-clear' | 'inky-cinematic' {
+    const next =
+      this.debugParams.lookPreset === 'inky-cinematic' ? 'tropical-clear' : 'inky-cinematic';
+    this.debugParams.lookPreset = next;
+    this.applyLookPreset(next);
+    return next;
+  }
+
   private applyLookPreset(preset: 'tropical-clear' | 'inky-cinematic'): void {
-    // Defaults tuned for “stylized art piece” mode (but with a clear preset toggle)
-    const presets: Record<typeof preset, Partial<typeof this.debugParams>> = {
+    // Full art-direction preset: every knob that controls the look lives here so a
+    // preset switch is a single cohesive move (post FX + all lights + scene fog + exposure).
+    type LookPreset = {
+      // Post FX
+      bloomIntensity: number; bloomThreshold: number; absorptionScale: number; turbidity: number;
+      vignetteOffset: number; vignetteDarkness: number; chromaX: number; chromaY: number;
+      exposure: number; scatterStrength: number; depthDesat: number; scatterHex: number;
+      // Lighting
+      ambientIntensity: number; sunIntensity: number; hemiIntensity: number; fillIntensity: number;
+      // Scene fog + background
+      fogBaseDensity: number; fogDepthFactor: number; fogShallowHex: number; fogDeepHex: number;
+      backgroundHex: number;
+    };
+
+    const presets: Record<typeof preset, LookPreset> = {
+      // Bright, clear tropical water — approachable "before" reference.
       'tropical-clear': {
-        bloomIntensity: 0.8,
-        bloomThreshold: 0.45,
-        absorptionScale: 0.05,
-        turbidity: 0.25,
-        vignetteOffset: 0.35,
-        vignetteDarkness: 0.35,
-        chromaX: 0.001,
-        chromaY: 0.0006,
-        ambientIntensity: 1.2,
-        sunIntensity: 3.0,
+        bloomIntensity: 0.7, bloomThreshold: 0.55, absorptionScale: 0.05, turbidity: 0.25,
+        vignetteOffset: 0.4, vignetteDarkness: 0.3, chromaX: 0.001, chromaY: 0.0006,
+        exposure: 1.05, scatterStrength: 0.4, depthDesat: 0.2, scatterHex: 0x1f6f86,
+        ambientIntensity: 1.0, sunIntensity: 3.0, hemiIntensity: 1.0, fillIntensity: 0.5,
+        fogBaseDensity: 0.014, fogDepthFactor: 0.0002, fogShallowHex: 0x3f93a8, fogDeepHex: 0x14536b,
+        backgroundHex: 0x2a8aaa,
       },
+      // CINEMATIC DEEP — signature look: moody blue-green depth, strong contrast,
+      // distance dissolving into navy murk, highlights reserved for light shafts.
       'inky-cinematic': {
-        bloomIntensity: 0.35,
-        bloomThreshold: 0.7,
-        absorptionScale: 0.07,
-        turbidity: 0.55,
-        vignetteOffset: 0.28,
-        vignetteDarkness: 0.45,
-        chromaX: 0.0012,
-        chromaY: 0.0009,
-        ambientIntensity: 0.5,
-        sunIntensity: 1.8,
+        bloomIntensity: 0.85, bloomThreshold: 0.62, absorptionScale: 0.085, turbidity: 0.5,
+        vignetteOffset: 0.26, vignetteDarkness: 0.62, chromaX: 0.0013, chromaY: 0.0009,
+        exposure: 1.18, scatterStrength: 0.72, depthDesat: 0.45, scatterHex: 0x0a2c3c,
+        ambientIntensity: 0.55, sunIntensity: 2.6, hemiIntensity: 0.45, fillIntensity: 0.28,
+        fogBaseDensity: 0.038, fogDepthFactor: 0.0003, fogShallowHex: 0x1a5468, fogDeepHex: 0x0c2c3c,
+        backgroundHex: 0x0a2230,
       },
     };
 
-    const next = presets[preset];
-    Object.assign(this.debugParams, next);
+    const p = presets[preset];
+    const pp = this.renderEngine.postProcessing;
+
+    // Keep GUI-backed params in sync so the debug panel reflects the preset.
+    Object.assign(this.debugParams, {
+      bloomIntensity: p.bloomIntensity, bloomThreshold: p.bloomThreshold,
+      absorptionScale: p.absorptionScale, turbidity: p.turbidity,
+      vignetteOffset: p.vignetteOffset, vignetteDarkness: p.vignetteDarkness,
+      chromaX: p.chromaX, chromaY: p.chromaY,
+      ambientIntensity: p.ambientIntensity, sunIntensity: p.sunIntensity,
+    });
 
     // Post FX
-    this.renderEngine.postProcessing.setBloomIntensity(this.debugParams.bloomIntensity);
-    this.renderEngine.postProcessing.setBloomThreshold(this.debugParams.bloomThreshold, 0.8);
-    this.renderEngine.postProcessing.setAbsorptionScale(this.debugParams.absorptionScale);
-    this.renderEngine.postProcessing.setTurbidity(this.debugParams.turbidity);
-    this.renderEngine.postProcessing.setVignette(this.debugParams.vignetteOffset, this.debugParams.vignetteDarkness);
-    this.renderEngine.postProcessing.setChromaticAberration(this.debugParams.chromaX, this.debugParams.chromaY);
+    pp.setBloomIntensity(p.bloomIntensity);
+    pp.setBloomThreshold(p.bloomThreshold, 0.7);
+    pp.setAbsorptionScale(p.absorptionScale);
+    pp.setTurbidity(p.turbidity);
+    pp.setVignette(p.vignetteOffset, p.vignetteDarkness);
+    pp.setChromaticAberration(p.chromaX, p.chromaY);
+    pp.setExposure(p.exposure);
+    pp.setScatterStrength(p.scatterStrength);
+    pp.setDepthDesat(p.depthDesat);
+    pp.setScatterColor(p.scatterHex);
 
-    // Lighting
+    // Lighting — all four lights, so the preset actually controls contrast.
     const ambientLight = this.renderEngine.scene.children.find(
       (child) => child.type === 'AmbientLight'
     ) as THREE.AmbientLight | undefined;
-    if (ambientLight) ambientLight.intensity = this.debugParams.ambientIntensity;
+    if (ambientLight) ambientLight.intensity = p.ambientIntensity;
+    this.renderEngine.getSunLight().intensity = p.sunIntensity;
+    this.renderEngine.getHemiLight().intensity = p.hemiIntensity;
+    this.renderEngine.getFillLight().intensity = p.fillIntensity;
 
-    const sunLight = this.renderEngine.getSunLight();
-    if (sunLight) sunLight.intensity = this.debugParams.sunIntensity;
+    // Scene fog (applied every frame by WavelengthLighting; set its knobs here).
+    const ls = this.renderEngine.lightSystem;
+    ls.sceneFogBaseDensity = p.fogBaseDensity;
+    ls.sceneFogDepthFactor = p.fogDepthFactor;
+    ls.sceneFogShallow.setHex(p.fogShallowHex);
+    ls.sceneFogDeep.setHex(p.fogDeepHex);
 
     // Background
-    this.renderEngine.scene.background =
-      preset === 'inky-cinematic' ? new THREE.Color(0x08121a) : new THREE.Color(0x2a8aaa);
+    this.renderEngine.scene.background = new THREE.Color(p.backgroundHex);
 
     this.debugGui?.controllersRecursive().forEach((c) => c.updateDisplay());
     if (DEBUG) console.log(`🎬 Applied look preset: ${preset}`);
@@ -288,27 +359,25 @@ export class OceanSimulator {
   private spawnInitialFish(): void {
     if (DEBUG) console.log('🐠 Spawning COMPREHENSIVE marine ecosystem...');
 
-    // === BAIT BALLS — schools of small fish in mid-water ===
-    this.spawnFishSchool(80, -10, 0, -5, 14, 0.55);
-    this.spawnFishSchool(60, -12, 28, -22, 12, 0.55);
-    this.spawnFishSchool(60, -9, -28, 22, 12, 0.55);
-    this.spawnFishSchool(55, -16, 18, 28, 11, 0.55);
-    this.spawnFishSchool(50, -7, -10, -30, 10, 0.55);
-    this.spawnFishSchool(45, -19, -25, -10, 10, 0.55);
+    // === BAIT BALLS — fewer, tighter schools with negative space between them,
+    // so each reads as a cohesive shoal rather than an even scatter of confetti ===
+    this.spawnFishSchool(56, -10, 0, -5, 9, 0.55);
+    this.spawnFishSchool(42, -12, 30, -24, 8, 0.55);
+    this.spawnFishSchool(40, -9, -30, 24, 8, 0.55);
+    this.spawnFishSchool(34, -16, 20, 30, 7, 0.55);
+    this.spawnFishSchool(30, -7, -12, -32, 7, 0.55);
 
     // === MEDIUM SCHOOLS — tuna, mackerel, jacks ===
-    this.spawnFishSchool(40, -13, 8, -8, 11, 1.0);
-    this.spawnFishSchool(35, -15, -14, 16, 10, 1.0);
-    this.spawnFishSchool(30, -10, 2, -22, 9, 1.0);
-    this.spawnFishSchool(28, -17, 22, 4, 9, 1.0);
+    this.spawnFishSchool(28, -13, 9, -9, 7, 1.0);
+    this.spawnFishSchool(24, -15, -16, 18, 6.5, 1.0);
+    this.spawnFishSchool(20, -10, 3, -24, 6, 1.0);
 
     // === LARGER REEF FISH — groupers, parrotfish, snappers ===
-    this.spawnFishSchool(30, -19, 14, 10, 8, 1.4);
-    this.spawnFishSchool(28, -21, -12, -16, 7, 1.4);
-    this.spawnFishSchool(22, -23, 20, -18, 6, 1.5);
+    this.spawnFishSchool(20, -19, 15, 11, 5.5, 1.4);
+    this.spawnFishSchool(16, -21, -13, -17, 5, 1.4);
 
-    // === SOLITARY DRIFTERS scattered widely ===
-    for (let i = 0; i < 25; i++) {
+    // === SOLITARY DRIFTERS — a few, for life between the schools ===
+    for (let i = 0; i < 10; i++) {
       const x = (Math.random() - 0.5) * 70;
       const y = -6 - Math.random() * 20;
       const z = (Math.random() - 0.5) * 70;
@@ -344,7 +413,7 @@ export class OceanSimulator {
 
     // === JELLYFISH BLOOM — drifting at all depths, dense near surface ===
     const jellyfishSpecies = ['moon', 'box', 'crystal', 'lion'] as const;
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 36; i++) {
       const x = (Math.random() - 0.5) * 75;
       const y = -2 - Math.random() * 26;
       const z = (Math.random() - 0.5) * 75;
