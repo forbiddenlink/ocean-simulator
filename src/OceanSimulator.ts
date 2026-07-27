@@ -169,6 +169,11 @@ export class OceanSimulator {
     this.cameraController.playCinematic(this.introKeyframes, 15, false);
   }
 
+  /** Register optional GLTF creature models; large creatures spawned after this use them. */
+  public setCreatureModels(models: Map<string, THREE.BufferGeometry>): void {
+    this.meshPool.setCreatureModels(models);
+  }
+
   /** Cycle the look: Cinematic Deep -> Bioluminescent -> Clean Tropical -> ... Returns the new preset. */
   public toggleLookPreset(): LookPresetName {
     const order: LookPresetName[] = ['inky-cinematic', 'bioluminescent', 'tropical-clear'];

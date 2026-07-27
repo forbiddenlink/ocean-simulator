@@ -36,6 +36,18 @@ interface InstanceData {
 // Body type names for logging
 const BODY_TYPE_NAMES = ['standard', 'slender', 'disc', 'chunky'];
 
+// Maps an individual-creature CreatureType to the species key used by the optional GLTF
+// model registry (see CreatureModelLoader). Only large individual creatures are eligible;
+// instanced fish (type 0) stay procedural. If a model is registered for the key it replaces
+// the procedural body; otherwise the procedural path runs unchanged.
+const MODEL_KEY_BY_TYPE: Record<number, string> = {
+  1: 'shark',
+  2: 'dolphin',
+  4: 'ray',
+  5: 'turtle',
+  9: 'whale',
+};
+
 export class BatchedMeshPool {
   private renderEngine: RenderingEngine;
 
@@ -56,6 +68,13 @@ export class BatchedMeshPool {
   // every creature shader (fish + large bodies), advanced once per frame in updateTime.
   private causticTime = { value: 0 };
   private frameCount = 0;
+  // Optional GLTF creature models keyed by species (empty = fully procedural).
+  private creatureModels = new Map<string, THREE.BufferGeometry>();
+
+  /** Register loaded GLTF creature models; new large creatures use them in place of procedural bodies. */
+  public setCreatureModels(models: Map<string, THREE.BufferGeometry>): void {
+    this.creatureModels = models;
+  }
   private tempMatrix: THREE.Matrix4 = new THREE.Matrix4();
   private tempPosition: THREE.Vector3 = new THREE.Vector3();
   private tempQuaternion: THREE.Quaternion = new THREE.Quaternion();
@@ -487,6 +506,13 @@ diffuseColor.rgb = patterned;
   private createGeometryForCreature(eid: number): THREE.BufferGeometry | THREE.Group {
     const type = CreatureType.type[eid];
     const variant = CreatureType.variant[eid];
+
+    // Prefer a loaded GLTF model for this species if one is registered (else procedural).
+    if (this.creatureModels.size > 0) {
+      const modelKey = MODEL_KEY_BY_TYPE[type];
+      const model = modelKey ? this.creatureModels.get(modelKey) : undefined;
+      if (model) return model.clone();
+    }
 
     switch (type) {
       case 1: // Shark - PHOTOREALISTIC
