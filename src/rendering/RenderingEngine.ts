@@ -153,7 +153,7 @@ export class RenderingEngine {
     this.bioluminescence = new BioluminescenceSystem(this.scene);
 
     // Add HDRI environment
-    this.hdriEnvironment = new HDRIEnvironment(this.scene);
+    this.hdriEnvironment = new HDRIEnvironment(this.scene, this.renderer);
 
     // Apply initial lighting state
     this.lightSystem.applyToSceneFog(this.scene, this.camera.position.y);
@@ -348,6 +348,7 @@ export class RenderingEngine {
 
     // Update underwater color grading based on camera depth
     this.postProcessing.updateCameraDepth(this.camera.position.y);
+    this.postProcessing.updateSunScreen(this.camera);
     // Update camera parameters for spectral absorption depth buffer reading
     this.postProcessing.updateCamera(this.camera);
 

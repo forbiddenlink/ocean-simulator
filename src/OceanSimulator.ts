@@ -712,6 +712,7 @@ export class OceanSimulator {
       choppiness: number;
       amplitude: number;
       pixelRatio: number;
+      dof: boolean;
     }
 
     const presets: Record<string, QualityConfig> = {
@@ -721,6 +722,7 @@ export class OceanSimulator {
         choppiness: 1.5,
         amplitude: 1.5,
         pixelRatio: 1.0,
+        dof: false, // depth of field is the priciest post effect — drop it first
       },
       'medium': {
         message: 'Medium quality (balanced)',
@@ -728,6 +730,7 @@ export class OceanSimulator {
         choppiness: 2.0,
         amplitude: 2.0,
         pixelRatio: Math.min(window.devicePixelRatio, 1.5),
+        dof: true,
       },
       'high': {
         message: 'High quality (better visuals)',
@@ -735,6 +738,7 @@ export class OceanSimulator {
         choppiness: 2.0,
         amplitude: 2.5,
         pixelRatio: Math.min(window.devicePixelRatio, 2.0),
+        dof: true,
       },
       'ultra': {
         message: 'Ultra quality (photorealistic)',
@@ -742,6 +746,7 @@ export class OceanSimulator {
         choppiness: 2.5,
         amplitude: 3.0,
         pixelRatio: window.devicePixelRatio,
+        dof: true,
       }
     };
 
@@ -762,6 +767,9 @@ export class OceanSimulator {
 
       // Adjust renderer pixel ratio
       this.renderEngine.renderer.setPixelRatio(config.pixelRatio);
+
+      // Gate the expensive depth-of-field pass by preset.
+      this.renderEngine.postProcessing.setDofEnabled(config.dof);
     }
   }
 }

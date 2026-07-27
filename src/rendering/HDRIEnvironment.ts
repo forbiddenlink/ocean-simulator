@@ -12,24 +12,27 @@ import * as THREE from 'three';
  */
 export class HDRIEnvironment {
   private scene: THREE.Scene;
+  private renderer?: THREE.WebGLRenderer;
   private skyMaterial: THREE.ShaderMaterial;
   private skyMesh: THREE.Mesh;
-  private envMap: THREE.CubeTexture | null = null;
+  private envMap: THREE.Texture | null = null;
+  private envRT?: THREE.WebGLRenderTarget;
   private sunPosition: THREE.Vector3;
   private timeOfDay: number = 0.5; // 0 = midnight, 0.5 = noon, 1.0 = midnight
   private animating: boolean = true; // Enable day/night cycle animation
   private cycleSpeed: number = 0.02; // Full day/night cycle in ~50 seconds
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer) {
     this.scene = scene;
+    this.renderer = renderer;
     this.sunPosition = new THREE.Vector3(0.5, 1.0, 0.3).normalize();
-    
+
     // Create procedural sky
     this.skyMaterial = this.createSkyMaterial();
     this.skyMesh = this.createSkyMesh();
-    
+
     scene.add(this.skyMesh);
-    
+
     // Generate environment map
     this.generateEnvironmentMap();
   }
@@ -168,23 +171,57 @@ export class HDRIEnvironment {
    * Generate procedural environment map for reflections
    */
   private generateEnvironmentMap(): void {
-    const resolution = 512;
-    const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(resolution);
-    
-    // Create temporary scene with just the sky
-    const tempScene = new THREE.Scene();
-    const tempSky = new THREE.Mesh(
-      new THREE.SphereGeometry(500, 32, 32),
-      this.skyMaterial.clone()
-    );
-    tempScene.add(tempSky);
-    
-    // We would use a WebGLCubeRenderTarget here in production
-    // For now, use the sky material directly
-    this.envMap = cubeRenderTarget.texture;
-    
-    // Apply to scene
+    if (!this.renderer) return; // no IBL without a renderer to prefilter with
+
+    // Build a purpose-made UNDERWATER environment (not the bright sky, which is hidden
+    // below the surface): a vertical gradient — luminous teal toward the surface/light,
+    // deep navy toward the abyss. Prefiltered through PMREM so every PBR material gets
+    // physically-plausible image-based lighting instead of the previous empty/black map.
+    const envScene = new THREE.Scene();
+    const gradGeo = new THREE.SphereGeometry(50, 32, 16);
+    const gradMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      uniforms: {
+        topColor: { value: new THREE.Color(0.30, 0.58, 0.68) },
+        midColor: { value: new THREE.Color(0.08, 0.26, 0.34) },
+        bottomColor: { value: new THREE.Color(0.02, 0.06, 0.11) },
+      },
+      vertexShader: /* glsl */ `
+        varying vec3 vDir;
+        void main() {
+          vDir = normalize(position);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        varying vec3 vDir;
+        uniform vec3 topColor;
+        uniform vec3 midColor;
+        uniform vec3 bottomColor;
+        void main() {
+          float t = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);
+          vec3 c = t > 0.5
+            ? mix(midColor, topColor, (t - 0.5) * 2.0)
+            : mix(bottomColor, midColor, t * 2.0);
+          gl_FragColor = vec4(c, 1.0);
+        }
+      `,
+    });
+    envScene.add(new THREE.Mesh(gradGeo, gradMat));
+
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    pmrem.compileEquirectangularShader();
+    const rt = pmrem.fromScene(envScene, 0.04);
+
+    this.envRT?.dispose();
+    this.envRT = rt;
+    this.envMap = rt.texture;
     this.scene.environment = this.envMap;
+
+    pmrem.dispose();
+    gradGeo.dispose();
+    gradMat.dispose();
   }
 
   /**
@@ -263,7 +300,7 @@ export class HDRIEnvironment {
   /**
    * Get environment map for reflections
    */
-  public getEnvironmentMap(): THREE.CubeTexture | null {
+  public getEnvironmentMap(): THREE.Texture | null {
     return this.envMap;
   }
 
@@ -322,5 +359,6 @@ export class HDRIEnvironment {
     if (this.envMap) {
       this.envMap.dispose();
     }
+    this.envRT?.dispose();
   }
 }
