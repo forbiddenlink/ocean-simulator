@@ -18,6 +18,9 @@ export class ExtraOceanLife {
     this.spawnLobsters(floorDepth, 10);
     this.spawnNudibranchs(floorDepth, 18);
     this.spawnAnglerfish(floorDepth, 6);
+    this.spawnSquids(floorDepth, 6);
+    this.spawnPufferfish(floorDepth, 9);
+    this.spawnSeaSnakes(floorDepth, 6);
 
     scene.add(this.group);
   }
@@ -213,6 +216,143 @@ export class ExtraOceanLife {
       oct.scale.setScalar(s);
       oct.userData.kind = 'octopus';
       this.group.add(oct);
+    }
+  }
+
+  // === SQUID — elongated mantle, rear fins, arm cluster, drifting mid-water ===
+  private spawnSquids(floorY: number, count: number): void {
+    const squidColors = [0xc8687a, 0xb0584a, 0x9a5aa0, 0xd07a6a];
+    for (let i = 0; i < count; i++) {
+      const squid = new THREE.Group();
+      const color = new THREE.Color(squidColors[i % squidColors.length]);
+      const mat = this.makeWaveMaterial(color, 0.1, 3.0);
+
+      // Mantle — a tapered tube pointed at the rear (-x), open toward the arms (+x).
+      const mantleGeo = new THREE.CylinderGeometry(0.42, 0.06, 2.0, 14, 1);
+      mantleGeo.rotateZ(Math.PI / 2); // lie along x
+      const mantle = new THREE.Mesh(mantleGeo, mat);
+      mantle.position.x = -0.4;
+      squid.add(mantle);
+
+      // Two triangular rear fins.
+      for (const sgn of [-1, 1]) {
+        const fin = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.7, 4), mat);
+        fin.position.set(-1.25, 0, sgn * 0.25);
+        fin.rotation.z = Math.PI / 2;
+        fin.scale.set(0.5, 1, 1);
+        squid.add(fin);
+      }
+
+      // Big eyes near the mantle opening.
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xf0e090 });
+      for (const sgn of [-1, 1]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), eyeMat);
+        eye.position.set(0.5, 0.05, sgn * 0.3);
+        squid.add(eye);
+      }
+
+      // 8 arms + 2 longer tentacles trailing from the front (+x).
+      for (let a = 0; a < 10; a++) {
+        const long = a >= 8;
+        const len = long ? 1.8 : 1.0;
+        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.02, len, 6), mat);
+        arm.geometry.translate(0, -len / 2, 0);
+        const ang = (a / 8) * Math.PI * 2;
+        arm.position.set(0.75, 0, 0);
+        arm.rotation.z = Math.PI / 2 + 0.2;
+        arm.rotation.x = ang;
+        arm.position.y += Math.cos(ang) * 0.18;
+        arm.position.z += Math.sin(ang) * 0.18;
+        squid.add(arm);
+      }
+
+      squid.position.set((Math.random() - 0.5) * 80, floorY + 4 + Math.random() * 14, (Math.random() - 0.5) * 80);
+      squid.rotation.y = Math.random() * Math.PI * 2;
+      squid.scale.setScalar(0.7 + Math.random() * 0.5);
+      squid.userData.kind = 'squid';
+      this.group.add(squid);
+    }
+  }
+
+  // === PUFFERFISH — spiky sphere, stubby fins, wide-set eyes ===
+  private spawnPufferfish(floorY: number, count: number): void {
+    const pufferColors = [0xd9b25a, 0xc98a4a, 0xe0c070, 0xb9a05a];
+    for (let i = 0; i < count; i++) {
+      const puffer = new THREE.Group();
+      const color = new THREE.Color(pufferColors[i % pufferColors.length]);
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.05 });
+
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 14), mat);
+      puffer.add(body);
+
+      // Spikes distributed over the sphere (fibonacci-ish).
+      const spikeMat = new THREE.MeshStandardMaterial({ color: color.clone().multiplyScalar(0.8), roughness: 0.7 });
+      const spikeCount = 60;
+      for (let s = 0; s < spikeCount; s++) {
+        const phi = Math.acos(1 - (2 * (s + 0.5)) / spikeCount);
+        const theta = Math.PI * (1 + Math.sqrt(5)) * s;
+        const dir = new THREE.Vector3(Math.sin(phi) * Math.cos(theta), Math.cos(phi), Math.sin(phi) * Math.sin(theta));
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.22, 5), spikeMat);
+        spike.position.copy(dir.clone().multiplyScalar(0.52));
+        spike.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+        puffer.add(spike);
+      }
+
+      // Eyes + tiny tail.
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x101010 });
+      for (const sgn of [-1, 1]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), eyeMat);
+        eye.position.set(0.42, 0.18, sgn * 0.22);
+        puffer.add(eye);
+      }
+      const tail = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.35, 6), mat);
+      tail.position.set(-0.6, 0, 0);
+      tail.rotation.z = Math.PI / 2;
+      puffer.add(tail);
+
+      puffer.position.set((Math.random() - 0.5) * 80, floorY + 2 + Math.random() * 12, (Math.random() - 0.5) * 80);
+      puffer.rotation.y = Math.random() * Math.PI * 2;
+      puffer.scale.setScalar(0.7 + Math.random() * 0.6);
+      puffer.userData.kind = 'pufferfish';
+      this.group.add(puffer);
+    }
+  }
+
+  // === SEA SNAKES — sinuous banded body, undulating along the seabed ===
+  private spawnSeaSnakes(floorY: number, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const snake = new THREE.Group();
+      const baseHue = 0.12 + Math.random() * 0.5;
+      const bandA = new THREE.Color().setHSL(baseHue, 0.5, 0.5);
+      const bandB = new THREE.Color(0x1a1a22);
+      const matA = new THREE.MeshStandardMaterial({ color: bandA, roughness: 0.5, metalness: 0.1 });
+      const matB = new THREE.MeshStandardMaterial({ color: bandB, roughness: 0.5, metalness: 0.1 });
+
+      const segCount = 16;
+      for (let s = 0; s < segCount; s++) {
+        const t = s / (segCount - 1);
+        const r = 0.16 * (1 - 0.5 * Math.abs(t - 0.5) * 2) + 0.03; // fatter middle
+        const seg = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), s % 2 === 0 ? matA : matB);
+        seg.position.set(t * 4.5 - 2.25, Math.sin(t * Math.PI * 3) * 0.4, Math.cos(t * Math.PI * 3) * 0.2);
+        snake.add(seg);
+      }
+      // Head slightly larger with eyes.
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 10), matA);
+      head.position.set(2.4, Math.sin(Math.PI * 3) * 0.4, 0);
+      head.scale.set(1.3, 0.9, 0.9);
+      snake.add(head);
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xf6d060 });
+      for (const sgn of [-1, 1]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), eyeMat);
+        eye.position.set(2.5, 0.05, sgn * 0.12);
+        snake.add(eye);
+      }
+
+      snake.position.set((Math.random() - 0.5) * 80, floorY + 0.8 + Math.random() * 6, (Math.random() - 0.5) * 80);
+      snake.rotation.y = Math.random() * Math.PI * 2;
+      snake.scale.setScalar(0.7 + Math.random() * 0.5);
+      snake.userData.kind = 'seasnake';
+      this.group.add(snake);
     }
   }
 
