@@ -21,6 +21,8 @@ import GUI from 'lil-gui';
 // Debug flag - set to true for development debugging
 const DEBUG = false;
 
+type LookPresetName = 'tropical-clear' | 'inky-cinematic' | 'bioluminescent';
+
 /**
  * Main application class
  */
@@ -48,7 +50,7 @@ export class OceanSimulator {
     cohesionWeight: 1.0,
 
     // Look preset — Cinematic Deep is the signature/default look
-    lookPreset: 'inky-cinematic' as 'tropical-clear' | 'inky-cinematic',
+    lookPreset: 'inky-cinematic' as LookPresetName,
 
     // Cinematic / Post
     bloomIntensity: 0.8,
@@ -167,18 +169,21 @@ export class OceanSimulator {
     this.cameraController.playCinematic(this.introKeyframes, 15, false);
   }
 
-  /** Toggle Cinematic Deep ⇄ Clean tropical look (demo before/after). Returns the new preset. */
-  public toggleLookPreset(): 'tropical-clear' | 'inky-cinematic' {
-    const next =
-      this.debugParams.lookPreset === 'inky-cinematic' ? 'tropical-clear' : 'inky-cinematic';
+  /** Cycle the look: Cinematic Deep -> Bioluminescent -> Clean Tropical -> ... Returns the new preset. */
+  public toggleLookPreset(): LookPresetName {
+    const order: LookPresetName[] = ['inky-cinematic', 'bioluminescent', 'tropical-clear'];
+    const idx = order.indexOf(this.debugParams.lookPreset);
+    const next = order[(idx + 1) % order.length];
     this.debugParams.lookPreset = next;
     this.applyLookPreset(next);
     return next;
   }
 
-  private applyLookPreset(preset: 'tropical-clear' | 'inky-cinematic'): void {
+  private applyLookPreset(preset: LookPresetName): void {
     // Full art-direction preset: every knob that controls the look lives here so a
-    // preset switch is a single cohesive move (post FX + all lights + scene fog + exposure).
+    // preset switch is a single cohesive move (post FX + all lights + scene fog + exposure
+    // + time of day). timeOfDay is also frozen per preset, which stops the scene silently
+    // drifting through the ~50s day/night cycle and makes each look reproducible.
     type LookPreset = {
       // Post FX
       bloomIntensity: number; bloomThreshold: number; absorptionScale: number; turbidity: number;
@@ -189,6 +194,8 @@ export class OceanSimulator {
       // Scene fog + background
       fogBaseDensity: number; fogDepthFactor: number; fogShallowHex: number; fogDeepHex: number;
       backgroundHex: number;
+      // Time of day (0 = midnight, 0.5 = noon) — frozen so the look holds.
+      timeOfDay: number;
     };
 
     const presets: Record<typeof preset, LookPreset> = {
@@ -199,7 +206,7 @@ export class OceanSimulator {
         exposure: 1.05, scatterStrength: 0.4, depthDesat: 0.2, scatterHex: 0x1f6f86,
         ambientIntensity: 1.0, sunIntensity: 3.0, hemiIntensity: 1.0, fillIntensity: 0.5,
         fogBaseDensity: 0.014, fogDepthFactor: 0.0002, fogShallowHex: 0x3f93a8, fogDeepHex: 0x14536b,
-        backgroundHex: 0x2a8aaa,
+        backgroundHex: 0x2a8aaa, timeOfDay: 0.5,
       },
       // CINEMATIC DEEP — signature look: moody blue-green depth, strong contrast,
       // distance dissolving into navy murk, highlights reserved for light shafts.
@@ -209,7 +216,19 @@ export class OceanSimulator {
         exposure: 1.18, scatterStrength: 0.72, depthDesat: 0.45, scatterHex: 0x0a2c3c,
         ambientIntensity: 0.55, sunIntensity: 2.6, hemiIntensity: 0.45, fillIntensity: 0.28,
         fogBaseDensity: 0.038, fogDepthFactor: 0.0003, fogShallowHex: 0x1a5468, fogDeepHex: 0x0c2c3c,
-        backgroundHex: 0x0a2230,
+        backgroundHex: 0x0a2230, timeOfDay: 0.5,
+      },
+      // BIOLUMINESCENT — midnight dive: the water goes near-black and the only light is
+      // living. Freezing time at midnight drops the sun and drives the bioluminescence +
+      // jelly self-glow to full via the day/night loop; the preset kills ambient/hemi so
+      // those glows are the whole scene, and lifts bloom so they bleed like real biolume.
+      'bioluminescent': {
+        bloomIntensity: 1.35, bloomThreshold: 0.34, absorptionScale: 0.1, turbidity: 0.45,
+        vignetteOffset: 0.2, vignetteDarkness: 0.78, chromaX: 0.0016, chromaY: 0.0011,
+        exposure: 1.1, scatterStrength: 0.85, depthDesat: 0.5, scatterHex: 0x03121c,
+        ambientIntensity: 0.07, sunIntensity: 0.1, hemiIntensity: 0.05, fillIntensity: 0.55,
+        fogBaseDensity: 0.05, fogDepthFactor: 0.0004, fogShallowHex: 0x04141e, fogDeepHex: 0x01060c,
+        backgroundHex: 0x01050a, timeOfDay: 0.02,
       },
     };
 
@@ -256,6 +275,15 @@ export class OceanSimulator {
     // Background
     this.renderEngine.scene.background = new THREE.Color(p.backgroundHex);
 
+    // Freeze time of day for this look (also stops the auto day/night drift). Midnight
+    // in the bioluminescent preset makes the day/night loop dim the sun and drive the
+    // bioluminescence/jelly glow to full — the whole point of the mode.
+    const hdri = this.renderEngine.getHDRIEnvironment();
+    if (hdri) {
+      hdri.setAnimating(false);
+      hdri.setTimeOfDay(p.timeOfDay);
+    }
+
     this.debugGui?.controllersRecursive().forEach((c) => c.updateDisplay());
     if (DEBUG) console.log(`🎬 Applied look preset: ${preset}`);
   }
@@ -283,7 +311,7 @@ export class OceanSimulator {
     // Cinematic folder (art direction)
     const cineFolder = this.debugGui.addFolder('Cinematic');
     cineFolder
-      .add(this.debugParams, 'lookPreset', ['tropical-clear', 'inky-cinematic'])
+      .add(this.debugParams, 'lookPreset', ['tropical-clear', 'inky-cinematic', 'bioluminescent'])
       .name('Look Preset')
       .onChange((preset: 'tropical-clear' | 'inky-cinematic') => {
         this.applyLookPreset(preset);

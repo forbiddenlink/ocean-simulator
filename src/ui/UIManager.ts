@@ -19,7 +19,7 @@ export class UIManager {
   private onTimeOfDayChange?: (time: number) => void;
   private onWeatherChange?: (weather: string) => void;
   private onQualityChange?: (quality: string) => void;
-  private onToggleLook?: () => 'tropical-clear' | 'inky-cinematic';
+  private onToggleLook?: () => 'tropical-clear' | 'inky-cinematic' | 'bioluminescent';
   private onReplayIntro?: () => void;
 
   constructor(parentElement: HTMLElement = document.body) {
@@ -499,8 +499,12 @@ export class UIManager {
     if (lookToggle) {
       lookToggle.addEventListener('click', () => {
         const next = this.onToggleLook?.();
-        lookToggle.textContent =
-          next === 'tropical-clear' ? 'Look · Clean Tropical' : 'Look · Cinematic Deep';
+        const labels: Record<string, string> = {
+          'inky-cinematic': 'Look · Cinematic Deep',
+          'bioluminescent': 'Look · Bioluminescent',
+          'tropical-clear': 'Look · Clean Tropical',
+        };
+        if (next) lookToggle.textContent = labels[next];
       });
     }
 
@@ -574,7 +578,7 @@ export class UIManager {
   }
 
   /** Register the Cinematic⇄Clean look toggle; callback returns the newly-active preset. */
-  public onLookToggle(callback: () => 'tropical-clear' | 'inky-cinematic'): void {
+  public onLookToggle(callback: () => 'tropical-clear' | 'inky-cinematic' | 'bioluminescent'): void {
     this.onToggleLook = callback;
   }
 
