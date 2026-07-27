@@ -17,7 +17,7 @@
     "biome:format": "biome format . --write"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.4",
+    "@biomejs/biome": "^2.5.5",
     "@vitest/ui": "^4.1.10",
     "terser": "^5.49.0",
     "three-stdlib": "^2.36.1",
@@ -29,8 +29,8 @@
     "@types/three": "^0.185.1",
     "bitecs": "^0.4.0",
     "lil-gui": "^0.21.0",
-    "posthog-js": "^1.399.2",
-    "postprocessing": "^6.39.2",
+    "posthog-js": "^1.404.1",
+    "postprocessing": "^6.39.3",
     "three": "^0.185.1"
   },
   "pnpm": {
