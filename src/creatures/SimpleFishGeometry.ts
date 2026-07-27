@@ -224,10 +224,27 @@ export class SimpleFishGeometry {
 
     const group = new THREE.Group();
 
-    // === BODY: Elongated ellipsoid with higher segment count for smoothness ===
+    // === BODY: fusiform ellipsoid, tapered into a real caudal peduncle so the tail
+    // grows out of a narrowing body instead of being bolted onto a fat capsule (the #1
+    // "generic lozenge" tell). The taper narrows the rear ~40% of the body in height+width. ===
     const bodyGeom = new THREE.SphereGeometry(1, 32, 20);
+    {
+      const pos = bodyGeom.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i); // -1 (head/snout) .. +1 (tail/rear) before scaling
+        // taperT: 0 at mid-body, 1 at the tail tip — squeeze the caudal peduncle.
+        const taperT = Math.max(0, x);
+        const squeeze = 1 - 0.62 * taperT * taperT;
+        // Slight ventral belly fullness toward the head for a fish silhouette.
+        const belly = 1 + 0.12 * Math.max(0, -x) * (pos.getY(i) < 0 ? 1 : 0.4);
+        pos.setY(i, pos.getY(i) * squeeze * belly);
+        pos.setZ(i, pos.getZ(i) * squeeze);
+      }
+      bodyGeom.computeVertexNormals();
+    }
     const bodyMesh = new THREE.Mesh(bodyGeom);
-    bodyMesh.scale.set(length * 0.45, bodyHeight * 0.5, bodyHeight * 0.35);
+    // Slimmer + longer than before (was 0.45 x 0.5 x 0.35 — too tall/pudgy, ~2.2:1).
+    bodyMesh.scale.set(length * 0.52, bodyHeight * 0.42, bodyHeight * 0.3);
     bodyMesh.position.x = 0;
     group.add(bodyMesh);
 
@@ -239,7 +256,7 @@ export class SimpleFishGeometry {
       0.35
     );
     const tailMesh = new THREE.Mesh(tailGeom);
-    tailMesh.position.set(length * 0.35, 0, -bodyHeight * 0.06);
+    tailMesh.position.set(length * 0.46, 0, -bodyHeight * 0.06);
     tailMesh.name = 'tail';
     group.add(tailMesh);
 
@@ -308,13 +325,15 @@ export class SimpleFishGeometry {
     const snoutGeom = new THREE.ConeGeometry(bodyHeight * 0.15, length * 0.2, 16);
     const snoutMesh = new THREE.Mesh(snoutGeom);
     snoutMesh.rotation.z = Math.PI / 2;
-    snoutMesh.position.set(-length * 0.5, 0, 0);
+    snoutMesh.position.set(-length * 0.52, 0, 0);
     snoutMesh.name = 'snout';
     group.add(snoutMesh);
 
-    // Merge all geometries
+    // Merge all geometries. Do NOT recompute normals on the merged non-indexed soup —
+    // that flat-facets the whole fish (the STANDARD body used to, unlike the other 3
+    // types, which is why ~a quarter of every school looked crude). mergeGroup already
+    // transforms each part's smooth normals via applyMatrix4.
     const mergedGeometry = this.mergeGroup(group);
-    mergedGeometry.computeVertexNormals();
 
     return mergedGeometry;
   }
