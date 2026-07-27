@@ -21,6 +21,9 @@ export class ExtraOceanLife {
     this.spawnSquids(floorDepth, 6);
     this.spawnPufferfish(floorDepth, 9);
     this.spawnSeaSnakes(floorDepth, 6);
+    this.spawnNautiluses(floorDepth, 5);
+    this.spawnGiantClams(floorDepth, 10);
+    this.spawnSeaCucumbers(floorDepth, 12);
 
     scene.add(this.group);
   }
@@ -216,6 +219,139 @@ export class ExtraOceanLife {
       oct.scale.setScalar(s);
       oct.userData.kind = 'octopus';
       this.group.add(oct);
+    }
+  }
+
+  // === NAUTILUS — coiled spiral shell with striped chambers + tentacle cluster ===
+  private spawnNautiluses(floorY: number, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const naut = new THREE.Group();
+      const shellA = new THREE.MeshStandardMaterial({ color: 0xf3ead2, roughness: 0.55, metalness: 0.05 });
+      const shellB = new THREE.MeshStandardMaterial({ color: 0xb5502f, roughness: 0.55, metalness: 0.05 });
+
+      // Logarithmic spiral of shrinking spheres forming the coiled shell.
+      const turns = 18;
+      for (let s = 0; s < turns; s++) {
+        const t = s / (turns - 1);
+        const ang = t * Math.PI * 2.4;
+        const rad = 0.9 * Math.pow(0.86, s); // tighten inward
+        const chamber = new THREE.Mesh(new THREE.SphereGeometry(rad * 0.42, 12, 10), s % 2 === 0 ? shellA : shellB);
+        chamber.position.set(Math.cos(ang) * (0.9 - rad * 0.3), Math.sin(ang) * (0.9 - rad * 0.3), 0);
+        chamber.scale.z = 0.6; // flatten the shell disc
+        naut.add(chamber);
+      }
+
+      // Tentacle cluster + hood at the shell opening.
+      const flesh = new THREE.MeshStandardMaterial({ color: 0xd9a07a, roughness: 0.6 });
+      const hood = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 10), flesh);
+      hood.position.set(0.95, -0.2, 0);
+      hood.scale.set(0.9, 0.8, 0.6);
+      naut.add(hood);
+      for (let a = 0; a < 12; a++) {
+        const tent = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.01, 0.5, 5), flesh);
+        tent.geometry.translate(0, -0.25, 0);
+        tent.position.set(1.15, -0.2, 0);
+        tent.rotation.z = 0.9 + (a / 12) * 0.8;
+        tent.rotation.x = (a / 12) * Math.PI * 2;
+        naut.add(tent);
+      }
+
+      naut.position.set((Math.random() - 0.5) * 80, floorY + 2 + Math.random() * 10, (Math.random() - 0.5) * 80);
+      naut.rotation.y = Math.random() * Math.PI * 2;
+      naut.scale.setScalar(0.6 + Math.random() * 0.4);
+      naut.userData.kind = 'nautilus';
+      this.group.add(naut);
+    }
+  }
+
+  // === GIANT CLAM — two ridged shells with a colorful wavy mantle lip, on the seabed ===
+  private spawnGiantClams(floorY: number, count: number): void {
+    const mantleColors = [0x2a9d8f, 0x4361a8, 0x8a4fa0, 0x2a8fb0, 0x3aa06a];
+    for (let i = 0; i < count; i++) {
+      const clam = new THREE.Group();
+      const shellMat = new THREE.MeshStandardMaterial({ color: 0xdad2c0, roughness: 0.8, metalness: 0.05 });
+      const mantleMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(mantleColors[i % mantleColors.length]),
+        roughness: 0.4,
+        metalness: 0.1,
+        emissive: new THREE.Color(mantleColors[i % mantleColors.length]).multiplyScalar(0.15),
+      });
+
+      // Two fluted half-shells (open like a clam), built from a ridged half-sphere.
+      for (const sgn of [1, -1]) {
+        const shell = new THREE.Mesh(new THREE.SphereGeometry(0.7, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), shellMat);
+        // Radial flutes by nudging vertices.
+        const p = shell.geometry.attributes.position;
+        for (let v = 0; v < p.count; v++) {
+          const ang = Math.atan2(p.getZ(v), p.getX(v));
+          const flute = 1 + 0.08 * Math.sin(ang * 9);
+          p.setX(v, p.getX(v) * flute);
+          p.setZ(v, p.getZ(v) * flute);
+        }
+        shell.geometry.computeVertexNormals();
+        shell.position.y = 0.3;
+        shell.rotation.z = sgn * 0.5; // gape open
+        shell.scale.y = sgn; // mirror lower shell
+        clam.add(shell);
+      }
+
+      // Wavy mantle lip visible in the gape.
+      const lip = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.12, 8, 24), mantleMat);
+      const lp = lip.geometry.attributes.position;
+      for (let v = 0; v < lp.count; v++) {
+        lp.setY(v, lp.getY(v) + Math.sin(Math.atan2(lp.getZ(v), lp.getX(v)) * 8) * 0.06);
+      }
+      lip.geometry.computeVertexNormals();
+      lip.rotation.x = Math.PI / 2;
+      lip.position.y = 0.32;
+      clam.add(lip);
+
+      clam.position.set((Math.random() - 0.5) * 85, floorY + 0.2, (Math.random() - 0.5) * 85);
+      clam.rotation.y = Math.random() * Math.PI * 2;
+      clam.scale.setScalar(0.6 + Math.random() * 0.8);
+      clam.userData.kind = 'giantclam';
+      this.group.add(clam);
+    }
+  }
+
+  // === SEA CUCUMBERS — knobbly tube bodies resting on the seabed ===
+  private spawnSeaCucumbers(floorY: number, count: number): void {
+    const cukeColors = [0x7a3b2e, 0x5a4a2a, 0x8a5a3a, 0x4a3a4a, 0x9a6a4a];
+    for (let i = 0; i < count; i++) {
+      const cuke = new THREE.Group();
+      const mat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(cukeColors[i % cukeColors.length]),
+        roughness: 0.85,
+        metalness: 0.0,
+      });
+
+      // Bumpy tube: a stretched, noisy sphere.
+      const geo = new THREE.SphereGeometry(0.35, 16, 12);
+      const p = geo.attributes.position;
+      for (let v = 0; v < p.count; v++) {
+        const x = p.getX(v);
+        const bump = 1 + 0.12 * Math.sin(x * 20) * Math.sin(p.getY(v) * 14);
+        p.setY(v, p.getY(v) * bump);
+        p.setZ(v, p.getZ(v) * bump);
+      }
+      geo.computeVertexNormals();
+      const body = new THREE.Mesh(geo, mat);
+      body.scale.set(2.4, 0.8, 0.8); // elongate along x
+      cuke.add(body);
+
+      // A few tube-feet / papillae bumps on top.
+      const footMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(cukeColors[i % cukeColors.length]).multiplyScalar(1.3), roughness: 0.8 });
+      for (let f = 0; f < 8; f++) {
+        const foot = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.14, 5), footMat);
+        foot.position.set((f / 7 - 0.5) * 1.5, 0.28, (Math.random() - 0.5) * 0.3);
+        cuke.add(foot);
+      }
+
+      cuke.position.set((Math.random() - 0.5) * 85, floorY + 0.25, (Math.random() - 0.5) * 85);
+      cuke.rotation.y = Math.random() * Math.PI * 2;
+      cuke.scale.setScalar(0.6 + Math.random() * 0.6);
+      cuke.userData.kind = 'seacucumber';
+      this.group.add(cuke);
     }
   }
 
