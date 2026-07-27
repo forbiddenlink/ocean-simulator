@@ -52,6 +52,9 @@ export class BatchedMeshPool {
   // Shared resources - geometries and materials per body type
   private fishGeometries: THREE.BufferGeometry[] = [];
   private fishMaterials: THREE.Material[] = [];
+  // Shared clock for animated caustic dapples on creatures — one object referenced by
+  // every creature shader (fish + large bodies), advanced once per frame in updateTime.
+  private causticTime = { value: 0 };
   private tempMatrix: THREE.Matrix4 = new THREE.Matrix4();
   private tempPosition: THREE.Vector3 = new THREE.Vector3();
   private tempQuaternion: THREE.Quaternion = new THREE.Quaternion();
@@ -141,7 +144,9 @@ export class BatchedMeshPool {
     });
 
     // Inject GPU swimming animation + procedural scale pattern
+    const causticTime = this.causticTime;
     material.onBeforeCompile = (shader) => {
+      shader.uniforms.uCausticTime = causticTime;
       // === VERTEX SHADER: Swimming animation + pass varyings to fragment ===
       shader.vertexShader = shader.vertexShader.replace(
         '#include <common>',
@@ -204,12 +209,14 @@ attribute float finType;
         `#include <uv_pars_vertex>
 varying vec3 vLocalPosition;
 varying float vAnimPhase;
+varying vec3 vFishWPos;
 `
       );
       shader.vertexShader = shader.vertexShader.replace(
         '#include <project_vertex>',
         `vLocalPosition = position;
 vAnimPhase = animPhase;
+vFishWPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
 #include <project_vertex>
 `
       );
@@ -219,6 +226,8 @@ vAnimPhase = animPhase;
         `#include <uv_pars_fragment>
 varying vec3 vLocalPosition;
 varying float vAnimPhase;
+varying vec3 vFishWPos;
+uniform float uCausticTime;
 `
       );
 
@@ -232,6 +241,15 @@ varying float vAnimPhase;
   vec3 rimN = normalize(vNormal);
   float rim = pow(1.0 - clamp(dot(rimN, rimV), 0.0, 1.0), 2.6);
   totalEmissiveRadiance += vec3(0.20, 0.52, 0.78) * rim * 0.65;
+
+  // Caustic dapples on the fish's upper body (same seabed light, on the school).
+  float fishUp = smoothstep(-0.1, 0.25, vLocalPosition.y);
+  vec2 fcuv = vFishWPos.xz * 0.18;
+  float fct = uCausticTime;
+  float fcaus = sin(fcuv.x * 3.0 + sin(fcuv.y * 1.7 + fct) * 1.5 + fct)
+              * sin(fcuv.y * 3.0 + cos(fcuv.x * 1.9 - fct * 0.8) * 1.5 + fct * 1.1);
+  fcaus = smoothstep(0.15, 0.9, fcaus * 0.5 + 0.5);
+  totalEmissiveRadiance += vec3(0.45, 0.6, 0.5) * fcaus * fishUp * 0.45;
 }
 `
       );
@@ -704,26 +722,36 @@ diffuseColor.rgb = patterned;
     mat.userData.__bodyEnhanced = true;
 
     const prev = mat.onBeforeCompile;
+    const causticTime = this.causticTime;
     mat.onBeforeCompile = (shader, renderer) => {
       if (prev) prev(shader, renderer);
+      shader.uniforms.uCausticTime = causticTime;
 
-      // Vertex: carry a world-space normal for countershading.
+      // Vertex: carry a world-space normal (countershading) + world position (caustics).
       shader.vertexShader = shader.vertexShader.replace(
         '#include <common>',
         `#include <common>
-varying vec3 vBodyWNormal;`
+varying vec3 vBodyWNormal;
+varying vec3 vBodyWPos;`
       );
       shader.vertexShader = shader.vertexShader.replace(
         '#include <beginnormal_vertex>',
         `#include <beginnormal_vertex>
 vBodyWNormal = normalize(mat3(modelMatrix) * objectNormal);`
       );
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+vBodyWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+      );
 
-      // Fragment: declare varying.
+      // Fragment: declare varyings + shared caustic clock.
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <common>',
         `#include <common>
-varying vec3 vBodyWNormal;`
+varying vec3 vBodyWNormal;
+varying vec3 vBodyWPos;
+uniform float uCausticTime;`
       );
 
       // Countershading on the base diffuse color.
@@ -750,6 +778,16 @@ varying vec3 vBodyWNormal;`
   vec3 rimN = normalize(vNormal);
   float rim = pow(1.0 - clamp(dot(rimN, rimV), 0.0, 1.0), 2.8);
   totalEmissiveRadiance += vec3(0.18, 0.48, 0.72) * rim * 0.55;
+
+  // Caustic dapples: animated refracted-sunlight patches on upward-facing surfaces,
+  // tying the creature into the same light that pools on the seabed.
+  float upFace = clamp(vBodyWNormal.y, 0.0, 1.0);
+  vec2 cuv = vBodyWPos.xz * 0.18;
+  float ct = uCausticTime;
+  float caus = sin(cuv.x * 3.0 + sin(cuv.y * 1.7 + ct) * 1.5 + ct)
+             * sin(cuv.y * 3.0 + cos(cuv.x * 1.9 - ct * 0.8) * 1.5 + ct * 1.1);
+  caus = smoothstep(0.15, 0.9, caus * 0.5 + 0.5);
+  totalEmissiveRadiance += vec3(0.45, 0.6, 0.5) * caus * upFace * 0.5;
 }`
       );
     };
@@ -986,6 +1024,8 @@ varying vec3 vBodyWNormal;`
    * Update shader time uniform (disabled for simple material)
    */
   public updateTime(time: number): void {
+    // Advance the shared caustic clock (drives dapples on every creature shader).
+    this.causticTime.value = time;
     // Update time uniforms for all fish materials
     for (const material of this.fishMaterials) {
       const shaderMat = material as THREE.ShaderMaterial;
