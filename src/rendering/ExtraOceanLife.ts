@@ -115,10 +115,34 @@ export class ExtraOceanLife {
           lure.scale.setScalar(pulse);
           (lure.material as THREE.MeshBasicMaterial).color.setRGB(0.4 * pulse, 1.0 * pulse, 0.85 * pulse);
         }
+      } else {
+        // Gentle idle drift for the free-swimming ambient species so they are alive rather
+        // than frozen. Floor-dwellers (clams, cucumbers, crabs) are intentionally excluded.
+        const amp = ExtraOceanLife.DRIFT_AMP[child.userData.kind as string];
+        if (amp) {
+          if (child.userData.baseY === undefined) {
+            child.userData.baseY = child.position.y;
+            child.userData.baseYaw = child.rotation.y;
+            child.userData.phase = child.position.x * 0.3 + child.position.z * 0.2;
+          }
+          const t = elapsed + (child.userData.phase as number);
+          child.position.y = (child.userData.baseY as number) + Math.sin(t * 0.4) * 0.35 * amp;
+          child.rotation.y = (child.userData.baseYaw as number) + Math.sin(t * 0.18) * 0.35;
+          child.rotation.z = Math.sin(t * 0.5) * 0.05 * amp;
+        }
       }
     }
     void deltaTime;
   }
+
+  /** Idle-drift amplitude per free-swimming species (floor-dwellers omitted = static). */
+  private static readonly DRIFT_AMP: Record<string, number> = {
+    squid: 1.0,
+    cuttlefish: 0.9,
+    nautilus: 0.7,
+    combjelly: 1.2,
+    octopus: 0.4,
+  };
 
   // === ANGLERFISH — deep-sea predator with a bioluminescent lure. The lure is an
   // unlit bright mesh so it blooms and, in the bioluminescent night look, becomes one

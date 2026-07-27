@@ -6,32 +6,66 @@ A **cinematic** real-time underwater ecosystem built with Three.js and bitECS �
 
 > **Hero flythrough:** an 18-second in-engine cinematic dive lives at [`public/hero.mp4`](public/hero.mp4) — surface → through the light shafts and a passing school → over the reef.
 
-## Cinematic Deep — the visual overhaul
+## Cinematic Deep — a rendering case study
 
-The engine was strong but the art direction read flat ("swimming pool"). A ground-up
-**Cinematic Deep** pass rebuilt the look. Highlights of the technique:
+The engine was technically strong but the art direction read flat — a bright "swimming
+pool," not an ocean. A ground-up **Cinematic Deep** pass rebuilt the look toward an
+Abzù-style stylized-gorgeous target. The techniques, roughly in order of impact:
 
+**Atmosphere & depth**
 - **Per-channel Beer-Lambert depth grading** — red is absorbed fastest, cyan persists, so
-  distance dissolves into deep-water murk. This single change is what reads as *ocean* rather
-  than *pool*. (`PostProcessingPipeline` underwater grading + `WavelengthLighting` fog.)
-- **Volumetric god-ray shafts** — soft additive billboard columns that descend from the
-  surface and shimmer in sync with the caustics. The hero effect. (`VolumetricLightShafts`.)
-- **Believable fish** — fixed an over-amplitude swim wave (bodies were crescenting into
-  boomerangs) and a normals bug that forced flat faceting; added a fresnel rim light,
-  iridescence and countershading. (`SimpleFishGeometry`, `BatchedMeshPool`.)
-- **Cohesive schools** — thinned and tightened the shoals so the frame has negative space
-  instead of confetti. (`OceanSimulator.spawnInitialFish`, FIRA steering.)
-- **Filmic post** — AgX tonemapping (preserves teal better than ACES), subtle film grain,
-  chromatic aberration, vignette. (`PostProcessingPipeline`.)
-- **Art-directed look presets** — a single `Cinematic Deep` / `Clean` switch drives every
-  light, fog, exposure and post parameter. (`OceanSimulator.applyLookPreset`.)
+  distance dissolves into deep-water murk. The single biggest "ocean not pool" cue.
+  (`PostProcessingPipeline` underwater grading + `WavelengthLighting` fog.)
+- **Image-based lighting** — fixed a real bug where the environment map was an empty (black)
+  cube, flattening every PBR material; replaced with a PMREM underwater gradient so creatures
+  pick up plausible ambient reflection. (`HDRIEnvironment`.)
+- **Depth of field** — a gentle world-focus DoF keeps mid-field crisp while the far murk
+  softens to bokeh, the depth separation that reads as *cinematic*. (`PostProcessingPipeline`,
+  quality-gated.)
+- **Sun in-scattering** — a warm glow blooms around the sun's projected screen position,
+  growing with distance-scatter: light diffusing through the water column.
+
+**Light**
+- **Volumetric god-ray shafts** — additive columns descending from the surface with a
+  warm-near-surface / cool-deep within-beam gradient and animated shimmer. (`VolumetricLightShafts`.)
+- **Organic caustics** — domain-warped voronoi light pooling on the seabed (killed a tiled-grid
+  artifact) plus animated caustic dapples on the upward-facing surfaces of every creature, so
+  the whole ecosystem shares one light. (`Caustics`, `BatchedMeshPool`.)
+
+**Creatures**
+- Shared **countershading** (dark dorsal → pale belly via the world normal) + **fresnel rim**
+  so bodies read as lit animals, not grey capsules; fixed a flat-shading bug on a quarter of
+  the fish and tapered their bodies into a real caudal peduncle; rebuilt the ray as a proper
+  manta wing; extruded flat cardboard fins into 3D. (`SimpleFishGeometry`,
+  `SpecializedCreatureGeometry`, `BatchedMeshPool`.)
+
+**Post & art direction**
+- **AgX tonemapping** (preserves teal better than ACES), film grain, chromatic aberration,
+  bloom-on-highlights, vignette.
+- **Three art-directed look presets** — a single button cycles **Cinematic Deep → Bioluminescent
+  (a midnight dive where jellies, an anglerfish lure and plankton become the only light) →
+  Clean Tropical**. Each preset drives every light, fog, exposure, post parameter and freezes
+  time-of-day for reproducibility. (`OceanSimulator.applyLookPreset`.)
+- **Presentation** — an auto intro flythrough (cancel-on-input, `prefers-reduced-motion` aware)
+  and a loading/title card.
+
+### Engineering notes
+- **Optional GLTF creature pipeline** — drop CC0 `.glb` packs into `public/models/` to replace
+  procedural bodies with real models (same material + AI). Inert by default. (`CreatureModelLoader`.)
+- **Draw-call optimization** — ambient creatures are merged by material at spawn, cutting the
+  layer from ~2,200 tiny meshes to ~380 with identical geometry. (`ExtraOceanLife.optimizeDrawCalls`.)
+- **Cleanup** — removed ~1,600 lines of dead code and unused dependencies (an ~8 MB physics
+  engine that was never imported, plus a dead file-based shader pipeline).
 
 ## Features
 
 ### Marine Life
-- **500+ Creatures**: Fish schools, sharks, dolphins, jellyfish, rays, turtles, whales
-- **Bottom Dwellers**: Crabs, starfish, sea urchins
-- **Environment**: Kelp forests, coral formations, sea anemones
+- **Living ecosystem**: fish schools, sharks, dolphins, jellyfish, manta rays, sea turtles, whales
+- **Bottom dwellers**: crabs, starfish, sea urchins
+- **Ambient variety**: octopus, squid, cuttlefish, nautilus, seahorses, moray eels, sea snakes,
+  lobsters, hermit crabs, nudibranchs, pufferfish, giant clams, sea cucumbers, comb jellies, and
+  a bioluminescent anglerfish
+- **Environment**: kelp forests, coral formations, sea anemones
 
 ### Rendering
 - **FFT Ocean Surface**: Realistic wave simulation with foam and spray
@@ -52,17 +86,20 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`
+Open `http://localhost:3000`
 
 ## Controls
 
 | Action | Control |
 |--------|---------|
 | Move | WASD |
-| Up/Down | Q/E |
-| Look | Mouse |
-| Toggle UI | H |
-| Pause | Button in UI |
+| Ascend / dive | Q / E |
+| Look | Mouse (drag) |
+| Hide interface | H |
+| Pause · speed · look mode · replay intro | Buttons in the HUD |
+
+The **Look** button cycles the three art-directed presets (Cinematic Deep · Bioluminescent ·
+Clean Tropical). Any movement or click cancels the intro flythrough and hands you control.
 
 ## Tech Stack
 
