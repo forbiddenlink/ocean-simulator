@@ -1,40 +1,42 @@
 # Creature models (optional GLTF pipeline)
 
-The simulator renders every creature from **procedural geometry** by default. This folder is
-the drop-in point for real modeled creatures, which beat procedural bodies for realism.
+Procedural creatures are the default and currently match the cinematic underwater look
+better than most free low-poly packs. This folder is the drop-in point when you have
+**mid/high-poly** models you want to swap in for hero species.
+
+## When to use models
+
+| Source | Verdict for this project |
+|--------|--------------------------|
+| Quaternius / poly.pizza “Animated Fish” | Stylized cartoon — usually clashes with AgX + Beer-Lambert water |
+| Photogrammetry / sculpted CC0 (real proportions) | Good — use these |
+| Keep procedural | Best default until you have the above |
 
 ## Activating
 
-1. Get CC0 low-poly sea-life models as `.glb`. Good sources:
-   - **Quaternius — "Ultimate Sea"** (public domain): https://quaternius.com
-   - **Poly Pizza** (filter to CC0): https://poly.pizza
-2. Drop the files here, named per species, e.g. `shark.glb`, `dolphin.glb`, `ray.glb`,
-   `turtle.glb`, `whale.glb`.
-3. Register them in `src/creatures/CreatureModelLoader.ts` → `CREATURE_MODEL_PATHS`:
-   ```ts
-   export const CREATURE_MODEL_PATHS: Record<string, string> = {
-     shark: '/models/shark.glb',
-     dolphin: '/models/dolphin.glb',
-     ray: '/models/ray.glb',
-     turtle: '/models/turtle.glb',
-     whale: '/models/whale.glb',
-   };
-   ```
-
-That's it. Registered species use the model; anything unregistered (and the instanced fish)
-stays procedural. Loaded models flow through the same countershading / rim-light / caustic
-material treatment as the rest of the scene, and are driven by the existing movement AI.
+1. Drop `.glb` files here named per species:
+   - `shark.glb` · `dolphin.glb` · `ray.glb` · `turtle.glb` · `whale.glb`
+2. In `src/creatures/CreatureModelLoader.ts`, uncomment the matching entries in
+   `CREATURE_MODEL_PATHS`.
+3. Restart the dev server. Console will warn on any failed load; that species
+   stays procedural.
 
 ## Conventions
 
-- Models should face **-X** (nose toward -X), matching the procedural bodies, so the
-  velocity-based orientation points them the right way.
-- Each model is auto-centered and scaled to a unit bounding box; the per-creature `Scale`
-  component then sizes it — so absolute model scale does not matter.
-- Loading is best-effort and per-file guarded: a missing or broken `.glb` is logged and that
-  creature simply falls back to procedural. It can never break the app or block startup.
+- Models should ideally face **-X** (nose toward −X). The loader auto-rotates
+  common +Z-forward packs when Z is the long axis.
+- Each model is centered and scaled to a unit box; the ECS `Scale` component
+  sizes individuals.
+- Vertex colors and material base colors are preserved into the bake so
+  patterned models keep their paint under the shared underwater shader patches.
+
+## Good sources (CC0 / check license per file)
+
+- [Poly Pizza](https://poly.pizza) — filter CC0; prefer higher triangle counts
+- [Sketchfab](https://sketchfab.com) — filter Downloadable + CC0
+- [Quaternius](https://quaternius.com) — great for stylized games, weak fit here
 
 ## Species keys
 
-`shark` · `dolphin` · `ray` · `turtle` · `whale` (see `MODEL_KEY_BY_TYPE` in
-`src/rendering/BatchedMeshPool.ts`). Fish, jellyfish, and floor critters remain procedural.
+`shark` · `dolphin` · `ray` · `turtle` · `whale`  
+(Fish schools, jellyfish, and floor critters stay procedural.)

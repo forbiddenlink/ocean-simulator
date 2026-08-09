@@ -208,9 +208,9 @@ export const firaSystem = (world: OceanWorld) => {
         const ldy = Position.y[leaderId] - py;
         const ldz = Position.z[leaderId] - pz;
         const leaderDist = Math.sqrt(ldx * ldx + ldy * ldy + ldz * ldz);
-        if (leaderDist > 2.0 && leaderDist < 30.0) {
-          // Strength increases with distance from leader (pull back into formation)
-          const leaderPull = Math.min(1.5, (leaderDist - 2.0) * 0.15);
+        if (leaderDist > 1.5 && leaderDist < 32.0) {
+          // Stronger glue so bait balls hold shape between attacks
+          const leaderPull = Math.min(3.0, (leaderDist - 1.5) * 0.35);
           totalFx += (ldx / leaderDist) * leaderPull;
           totalFy += (ldy / leaderDist) * leaderPull;
           totalFz += (ldz / leaderDist) * leaderPull;

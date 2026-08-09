@@ -79,12 +79,12 @@ export function createFish(
 
   // Behavior - FIRA algorithm (tuned for tight schooling)
   addComponent(world, eid, FIRA);
-  FIRA.separationWeight[eid] = 1.8;    // Reduced separation for tighter packing
-  FIRA.alignmentWeight[eid] = 4.5;     // Strong alignment for coordinated movement
-  FIRA.cohesionWeight[eid] = 2.5;      // Strong cohesion pulls fish together
-  FIRA.wanderWeight[eid] = 0.15;       // Less individual wandering
-  FIRA.perceptionRadius[eid] = 12.0;   // Tighter perception for local awareness
-  FIRA.separationRadius[eid] = 2.0;    // Closer comfortable distance
+  FIRA.separationWeight[eid] = 1.8;    // Pack tight; panic spikes this to tear schools open
+  FIRA.alignmentWeight[eid] = 5.0;     // Strong alignment for coordinated shoaling
+  FIRA.cohesionWeight[eid] = 3.2;      // Strong cohesion pulls fish into bait balls
+  FIRA.wanderWeight[eid] = 0.12;       // Less individual wandering
+  FIRA.perceptionRadius[eid] = 14.0;   // Broader local awareness
+  FIRA.separationRadius[eid] = 1.25;   // Closer comfortable distance = denser schools
   const bodyLength = Size.length[eid];
   FIRA.maxSpeed[eid] = bodyLength * 3.0 + Math.random() * bodyLength; // 3-4 BL/s max burst
   FIRA.maxForce[eid] = 5.0;            // Strong turning force

@@ -13,6 +13,7 @@ export class OceanSpectrum {
   private gravity: number;
   private waveAmplitude: number;
   private suppressionFactor: number;
+  private smallWaveCutoff: number;
 
   // Spectrum data
   private h0: Float32Array;  // Initial height field
@@ -24,7 +25,8 @@ export class OceanSpectrum {
     size: number = 1000,
     windSpeed: number = 20,
     windDirection: THREE.Vector2 = new THREE.Vector2(1, 0),
-    waveAmplitude: number = 2.0
+    waveAmplitude: number = 2.0,
+    smallWaveCutoff: number = 0.001
   ) {
     this.resolution = resolution;
     this.size = size;
@@ -33,6 +35,7 @@ export class OceanSpectrum {
     this.gravity = 9.81;
     this.waveAmplitude = waveAmplitude;
     this.suppressionFactor = 0.07; // Suppress waves against wind
+    this.smallWaveCutoff = smallWaveCutoff;
 
     // Allocate arrays
     const dataSize = resolution * resolution * 2; // Complex numbers (real, imag)
@@ -138,7 +141,7 @@ export class OceanSpectrum {
     const phillips = (A * exp_term / k4) * k_dot_w_2 * damping;
 
     // Suppress very small waves (optional, prevents aliasing)
-    const l = 0.001; // Small wavelength cutoff
+    const l = this.smallWaveCutoff;
     const l2 = l * l;
     const suppress_small = Math.exp(-k2 * l2);
 

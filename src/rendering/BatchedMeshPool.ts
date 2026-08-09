@@ -13,6 +13,7 @@ import { TurtleGeometry } from '../creatures/TurtleGeometry';
 import { BottomDwellerGeometry } from '../creatures/BottomDwellers';
 import { WhaleGeometry } from '../creatures/WhaleGeometry';
 import { applyBiomechanicalAnimationToMesh } from '../systems/BiomechanicalAnimationSystem';
+import { TargetMemory } from '../systems/HuntingSystem';
 
 // Debug flag - set to true for development debugging
 const DEBUG = false;
@@ -144,23 +145,24 @@ export class BatchedMeshPool {
   private createFishMaterial(): THREE.MeshPhysicalMaterial {
     const material = new THREE.MeshPhysicalMaterial({
       color: 0xffffff,
-      metalness: 0.25,
-      roughness: 0.28,
+      metalness: 0.32,
+      roughness: 0.22,
       flatShading: false,
       side: THREE.DoubleSide,
-      emissive: new THREE.Color(0x334455),
-      emissiveIntensity: 0.18,
-      iridescence: 0.85,         // Strong fish-scale iridescence
+      vertexColors: true, // Eyes, gills, countershade baked into SimpleFishGeometry
+      emissive: new THREE.Color(0x1a3044),
+      emissiveIntensity: 0.12,
+      iridescence: 1.0,
       iridescenceIOR: 1.45,
-      iridescenceThicknessRange: [100, 520],
-      clearcoat: 0.6,            // Wet sheen
-      clearcoatRoughness: 0.08,
-      sheen: 0.4,
-      sheenRoughness: 0.3,
+      iridescenceThicknessRange: [80, 580],
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.03,
+      sheen: 0.65,
+      sheenRoughness: 0.18,
       sheenColor: new THREE.Color(0x88bbff),
-      transmission: 0.0, // opaque fish — transmission caused dark grazing-angle artifacts
+      transmission: 0.0,
       thickness: 0.0,
-      specularIntensity: 0.9,
+      specularIntensity: 1.2,
     });
 
     // Inject GPU swimming animation + procedural scale pattern
@@ -174,6 +176,7 @@ export class BatchedMeshPool {
 attribute float animPhase;
 attribute float animSpeed;
 attribute float finType;
+varying float vFinType;
 `
       );
 
@@ -181,6 +184,7 @@ attribute float finType;
         '#include <begin_vertex>',
         `#include <begin_vertex>
 {
+  vFinType = finType;
   // === Body undulation (carangiform wave) — amplitude grows toward tail ===
   // Amplitude kept low: real fish flex gently. High amplitude here crescents the
   // whole body into a boomerang, which is the #1 "fish look wrong" tell.
@@ -206,7 +210,7 @@ attribute float finType;
     float finSway = sin(animPhase * 0.8 + position.y * 2.0) * (0.025 + animSpeed * 0.04);
     transformed.z += finSway;
   }
-  else if (finType > 2.5) {
+  else if (finType > 2.5 && finType < 3.5) {
     // Pectoral fin — alternating flap (the side variable creates phase offset between left/right)
     float side = sign(position.z);
     float flapPhase = animPhase * 2.0 + side * 1.57;
@@ -247,7 +251,61 @@ vFishWPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
 varying vec3 vLocalPosition;
 varying float vAnimPhase;
 varying vec3 vFishWPos;
+varying float vFinType;
 uniform float uCausticTime;
+`
+      );
+
+      // Procedural scale height → real normal bump (color-only lattices still look plastic).
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+{
+  if (vFinType < 3.5) {
+    vec2 scN = vLocalPosition.xz * vec2(38.0, 54.0);
+    scN.x += step(0.5, fract(scN.y * 0.5)) * 0.5;
+    vec2 sfN = abs(fract(scN) - 0.5);
+    float scaleH = 1.0 - smoothstep(0.12, 0.42, max(sfN.x * 1.2, sfN.y));
+    // Soft secondary micro-ridges between scales
+    scaleH += 0.25 * (1.0 - smoothstep(0.28, 0.45, max(sfN.x, sfN.y)));
+    if (vFinType > 0.5) {
+      // Fin rays: longitudinal height ridges
+      float ray = abs(sin(vLocalPosition.y * 48.0 + vLocalPosition.x * 6.0));
+      scaleH = mix(scaleH * 0.35, ray, 0.7);
+    }
+    float hx = dFdx(scaleH);
+    float hy = dFdy(scaleH);
+    vec3 nRef = normalize(normal);
+    vec3 dp1 = dFdx(vViewPosition);
+    vec3 dp2 = dFdy(vViewPosition);
+    vec3 r1 = cross(dp2, nRef);
+    vec3 r2 = cross(nRef, dp1);
+    float det = dot(dp1, r1);
+    float invDet = (abs(det) > 1e-8) ? (1.0 / det) : 0.0;
+    vec3 surfGrad = (r1 * hx + r2 * hy) * invDet;
+    float bumpAmt = (vFinType > 0.5 && vFinType < 3.5) ? 0.55 : 0.85;
+    normal = normalize(nRef - surfGrad * bumpAmt);
+  }
+}
+`
+      );
+
+      // Roughness variation so scales catch clearcoat differently than soft belly skin
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+{
+  if (vFinType < 3.5) {
+    vec2 scR = vLocalPosition.xz * vec2(38.0, 54.0);
+    scR.x += step(0.5, fract(scR.y * 0.5)) * 0.5;
+    vec2 sfR = abs(fract(scR) - 0.5);
+    float cellR = 1.0 - smoothstep(0.15, 0.4, max(sfR.x * 1.15, sfR.y));
+    float bellyR = smoothstep(-0.18, 0.18, -vLocalPosition.y);
+    roughnessFactor *= mix(1.35, 0.72, cellR);
+    roughnessFactor *= mix(1.15, 0.88, bellyR); // belly smoother / wetter
+    if (vFinType > 0.5 && vFinType < 3.5) roughnessFactor *= 1.2;
+  }
+}
 `
       );
 
@@ -260,16 +318,19 @@ uniform float uCausticTime;
   vec3 rimV = normalize(vViewPosition);
   vec3 rimN = normalize(vNormal);
   float rim = pow(1.0 - clamp(dot(rimN, rimV), 0.0, 1.0), 2.6);
-  totalEmissiveRadiance += vec3(0.20, 0.52, 0.78) * rim * 0.65;
+  totalEmissiveRadiance += vec3(0.16, 0.42, 0.62) * rim * 0.48;
 
   // Caustic dapples on the fish's upper body (same seabed light, on the school).
   float fishUp = smoothstep(-0.1, 0.25, vLocalPosition.y);
-  vec2 fcuv = vFishWPos.xz * 0.18;
+  vec2 fcuv = vFishWPos.xz * 0.16;
   float fct = uCausticTime;
-  float fcaus = sin(fcuv.x * 3.0 + sin(fcuv.y * 1.7 + fct) * 1.5 + fct)
-              * sin(fcuv.y * 3.0 + cos(fcuv.x * 1.9 - fct * 0.8) * 1.5 + fct * 1.1);
-  fcaus = smoothstep(0.15, 0.9, fcaus * 0.5 + 0.5);
-  totalEmissiveRadiance += vec3(0.45, 0.6, 0.5) * fcaus * fishUp * 0.45;
+  // Multi-lobe filament pattern — closer to Voronoi caustics on the floor
+  float fcaus = sin(fcuv.x * 3.2 + sin(fcuv.y * 1.7 + fct) * 1.6 + fct)
+              * sin(fcuv.y * 3.2 + cos(fcuv.x * 1.9 - fct * 0.8) * 1.6 + fct * 1.1);
+  float fcaus2 = sin(fcuv.x * 5.8 - fct * 1.3) * sin(fcuv.y * 5.4 + fct * 0.9);
+  fcaus = max(fcaus * 0.65 + 0.35, fcaus2 * 0.45);
+  fcaus = smoothstep(0.18, 0.9, fcaus * 0.5 + 0.5);
+  totalEmissiveRadiance += vec3(0.42, 0.58, 0.48) * fcaus * fishUp * 0.42;
 }
 `
       );
@@ -279,6 +340,21 @@ uniform float uCausticTime;
         'vec4 diffuseColor = vec4( diffuse, opacity );',
         `vec4 diffuseColor = vec4( diffuse, opacity );
 
+// Eyes / pupils / iris / gills keep baked vertex colors — skip body patterning
+if (vFinType > 3.5) {
+  // Punch contrast so eyes survive instance-color multiply at schooling distance
+  float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+  if (lum < 0.28) {
+    diffuseColor.rgb = vec3(0.03, 0.035, 0.04); // pupil
+  } else if (lum > 0.7) {
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 0.98, 0.94), 0.75); // sclera
+  } else if (lum > 0.4) {
+    // Amber iris — keep warm hue, boost saturation
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.85, 0.52, 0.12), 0.55);
+  } else {
+    diffuseColor.rgb *= 0.45; // gill
+  }
+} else {
 // === Per-fish procedural pattern ===
 float fishSeed = vAnimPhase;
 float patternType = floor(mod(fishSeed * 13.37, 7.0)); // 0..6 — 7 distinct patterns
@@ -309,24 +385,23 @@ float headTail = clamp((vLocalPosition.x + 0.45) / 0.9, 0.0, 1.0);
 // Countershade — lighter belly
 float belly = smoothstep(-0.18, 0.18, -vLocalPosition.y);
 
-vec3 patternDark = diffuseColor.rgb * 0.45;
-vec3 patternLight = diffuseColor.rgb * 1.35;
-vec3 patternAccent = vec3(1.0) - diffuseColor.rgb;
-patternAccent = mix(diffuseColor.rgb, patternAccent, 0.45);
+vec3 patternDark = diffuseColor.rgb * 0.42;
+vec3 patternLight = diffuseColor.rgb * 1.32;
+vec3 patternAccent = mix(diffuseColor.rgb, vec3(1.0) - diffuseColor.rgb, 0.42);
 vec3 patterned = diffuseColor.rgb;
 
 if (patternType < 1.0) {
   // Striped (clownfish / clown loach)
-  patterned = mix(diffuseColor.rgb, patternDark, bodyStripes * 0.7);
+  patterned = mix(diffuseColor.rgb, patternDark, bodyStripes * 0.72);
 } else if (patternType < 2.0) {
   // Vertical bands (angelfish / sergeant major)
-  patterned = mix(diffuseColor.rgb, patternDark, verticalBands * 0.65);
+  patterned = mix(diffuseColor.rgb, patternDark, verticalBands * 0.68);
 } else if (patternType < 3.0) {
   // Spotted (leopard wrasse)
   patterned = mix(diffuseColor.rgb, patternAccent, spots * 0.55);
 } else if (patternType < 4.0) {
   // Leopard blotches (grouper)
-  patterned = mix(diffuseColor.rgb, patternDark, blotches * 0.6);
+  patterned = mix(diffuseColor.rgb, patternDark, blotches * 0.65);
 } else if (patternType < 5.0) {
   // Head-to-tail gradient (mahi / parrotfish)
   patterned = mix(patternDark, patternLight, headTail);
@@ -336,10 +411,38 @@ if (patternType < 1.0) {
 }
 // else: solid color (anthias)
 
+// Soft underwater desat so schools feel lit by cyan water, not candy neon
+patterned = mix(patterned, vec3(dot(patterned, vec3(0.299, 0.587, 0.114))), 0.06);
+patterned *= vec3(0.88, 0.97, 1.05);
+
 // Apply soft countershade on every fish
-patterned = mix(patterned * 0.92, patterned * 1.12, belly);
+patterned = mix(patterned * 0.82, patterned * 1.18, belly);
+
+// Scale lattice + lateral line — denser + higher contrast so bump + clearcoat read at distance
+{
+  vec2 sc = vLocalPosition.xz * vec2(38.0, 54.0);
+  sc.x += step(0.5, fract(sc.y * 0.5)) * 0.5;
+  vec2 sf = abs(fract(sc) - 0.5);
+  float cell = 1.0 - smoothstep(0.12, 0.38, max(sf.x * 1.2, sf.y));
+  patterned *= mix(0.72, 1.22, cell);
+  float ridge = smoothstep(0.28, 0.4, max(sf.x, sf.y));
+  patterned += vec3(0.1, 0.15, 0.18) * ridge * 0.7;
+  // Mid-body lateral line with pore dashes
+  float lat = 1.0 - smoothstep(0.01, 0.04, abs(vLocalPosition.y));
+  float pores = step(0.55, fract(vLocalPosition.x * 28.0));
+  patterned *= mix(1.0, 0.52, lat * mix(0.55, 0.95, pores));
+}
+
+// Fin membrane: ray striping + cooler tint
+if (vFinType > 0.5 && vFinType < 3.5) {
+  float rays = abs(sin(vLocalPosition.y * 52.0 + vLocalPosition.x * 8.0));
+  rays = smoothstep(0.15, 0.85, rays);
+  patterned = mix(patterned * vec3(0.55, 0.7, 0.82), patterned * vec3(0.85, 0.95, 1.05), rays);
+  patterned = mix(patterned, patterned * vec3(0.72, 0.88, 1.05), 0.35);
+}
 
 diffuseColor.rgb = patterned;
+}
 `
       );
     };
@@ -395,7 +498,7 @@ diffuseColor.rgb = patterned;
   /**
    * Update a fish instance's transform
    */
-  private updateFishInstance(eid: number, _world: OceanWorld): void {
+  private updateFishInstance(eid: number, world: OceanWorld): void {
     const instance = this.fishInstances.get(eid);
     if (!instance) return;
 
@@ -471,10 +574,10 @@ diffuseColor.rgb = patterned;
 
       // Distant fish (>30m): update every 3rd frame; very distant (>60m): every 6th
       const frameSkip = distSq > 3600 ? 6 : (distSq > 900 ? 3 : 1);
-      const shouldUpdate = frameSkip === 1 || (instanceId % frameSkip === (Math.floor(_world.time.elapsed * 60) % frameSkip));
+      const shouldUpdate = frameSkip === 1 || (instanceId % frameSkip === (Math.floor(world.time.elapsed * 60) % frameSkip));
 
       if (shouldUpdate) {
-        const dt = _world.time.delta * frameSkip; // Compensate for skipped frames
+        const dt = world.time.delta * frameSkip; // Compensate for skipped frames
         const maxSpeed = 3.0;
         const raw = Math.min(1.0, speed / maxSpeed);
 
@@ -483,14 +586,32 @@ diffuseColor.rgb = patterned;
         const normalizedSpeed = Math.min(1.0, 0.15 + raw * 0.85);
 
         const currentPhase = (animPhaseAttr.array as Float32Array)[instanceId] || 0;
+        const huntMode = TargetMemory.huntingMode[eid];
+        const panicBoost = huntMode === 3 ? 1.55 : 1.0;
         (animPhaseAttr.array as Float32Array)[instanceId] =
-          currentPhase + (1.1 + normalizedSpeed * 3.2) * dt * Math.PI * 2;
-        (animSpeedAttr.array as Float32Array)[instanceId] = normalizedSpeed;
+          currentPhase + (1.1 + normalizedSpeed * 3.2) * dt * Math.PI * 2 * panicBoost;
+        (animSpeedAttr.array as Float32Array)[instanceId] = Math.min(1.4, normalizedSpeed * panicBoost);
       }
     }
 
-    // Update color if changed (reuse tempColor to avoid allocation)
+    // Color: base ECS color + panic shimmer + night biolume tint
+    const huntMode = TargetMemory.huntingMode[eid];
+    const night = world.timeOfDay < 0.18 || world.timeOfDay > 0.82
+      ? 1.0 - Math.sin(world.timeOfDay * Math.PI)
+      : 0.0;
     this.tempColor.setRGB(Color.r[eid], Color.g[eid], Color.b[eid]);
+    if (huntMode === 3) {
+      // Fleeing fish flash cool-cyan so the bait-ball split reads
+      this.tempColor.r = Math.min(1, this.tempColor.r * 0.45 + 0.5);
+      this.tempColor.g = Math.min(1, this.tempColor.g * 0.4 + 0.85);
+      this.tempColor.b = Math.min(1, this.tempColor.b * 0.35 + 1.0);
+    } else if (night > 0.25) {
+      // Soft bio glow on schools after dark
+      const g = night * 0.35;
+      this.tempColor.r = Math.min(1, this.tempColor.r * (1 - g * 0.4) + 0.15 * g);
+      this.tempColor.g = Math.min(1, this.tempColor.g * (1 - g * 0.2) + 0.55 * g);
+      this.tempColor.b = Math.min(1, this.tempColor.b * (1 - g * 0.1) + 0.85 * g);
+    }
     if (!instance.color.equals(this.tempColor)) {
       instance.color.copy(this.tempColor);
       mesh.setColorAt(instanceId, this.tempColor);
@@ -519,18 +640,18 @@ diffuseColor.rgb = patterned;
         const sharkSpeciesMap = ['great_white', 'hammerhead', 'reef', 'generic'] as const;
         const sharkSpecies = sharkSpeciesMap[variant] || 'generic';
         return SpecializedCreatureGeometry.createShark({
-          length: 2.0, // Reduced from 3.0 - more manageable size
+          length: 2.0,
           species: sharkSpecies,
-          quality: 'high'
+          quality: 'ultra'
         });
 
       case 2: // Dolphin - PHOTOREALISTIC
         const dolphinSpeciesMap = ['bottlenose', 'orca', 'generic'] as const;
         const dolphinSpecies = dolphinSpeciesMap[variant] || 'bottlenose';
         return SpecializedCreatureGeometry.createDolphin({
-          length: 1.5, // Reduced from 2.5
+          length: 1.5,
           species: dolphinSpecies,
-          quality: 'high'
+          quality: 'ultra'
         });
 
       case 3: // Jellyfish - Keep existing
@@ -541,16 +662,16 @@ diffuseColor.rgb = patterned;
         const raySpeciesMap = ['manta', 'eagle', 'stingray', 'generic'] as const;
         const raySpecies = raySpeciesMap[variant] || 'generic';
         return SpecializedCreatureGeometry.createRay({
-          length: 0.8, // Reduced from 2.0
-          wingspan: 1.8, // Reduced proportionally
+          length: 0.8,
+          wingspan: 1.8,
           species: raySpecies,
-          quality: 'high'
+          quality: 'ultra'
         });
 
       case 5: // Turtle - PHOTOREALISTIC
         const turtleSpeciesMap = ['green', 'hawksbill', 'loggerhead'] as const;
         const turtleSpecies = turtleSpeciesMap[variant] || 'green';
-        return TurtleGeometry.create(1.0, turtleSpecies);
+        return TurtleGeometry.create(1.15, turtleSpecies);
 
       case 6: // Crab - Bottom dweller
         return BottomDwellerGeometry.createCrab(0.2);
@@ -586,37 +707,42 @@ diffuseColor.rgb = patterned;
     const type = CreatureType.type[eid];
 
     switch (type) {
-      case 1: // Shark - realistic slate gray with wet skin
+      case 1: // Shark - realistic slate gray with wet dermal skin
         return new THREE.MeshPhysicalMaterial({
-          color: 0x7a8a9a,
-          roughness: 0.3,         // Smooth wet skin
-          metalness: 0.15,
-          emissive: new THREE.Color(0x2a3a4a),
-          emissiveIntensity: 0.2,
-          clearcoat: 0.4,         // Strong wet sheen
-          clearcoatRoughness: 0.15,
-          sheen: 0.25,
-          sheenRoughness: 0.4,
-          sheenColor: new THREE.Color(0x778899),
-          iridescence: 0.1,       // Very subtle sheen on wet skin
-          iridescenceIOR: 1.33,   // Water IOR for realism
+          color: 0x6a7a8a,
+          roughness: 0.28,
+          metalness: 0.14,
+          vertexColors: true,
+          emissive: new THREE.Color(0x1a2a3a),
+          emissiveIntensity: 0.14,
+          clearcoat: 0.72,
+          clearcoatRoughness: 0.08,
+          sheen: 0.4,
+          sheenRoughness: 0.3,
+          sheenColor: new THREE.Color(0x8899aa),
+          iridescence: 0.22,
+          iridescenceIOR: 1.33,
+          iridescenceThicknessRange: [60, 220],
+          specularIntensity: 1.0,
         });
 
       case 2: // Dolphin - smooth wet skin with subtle iridescence
         return new THREE.MeshPhysicalMaterial({
-          color: 0x8aa0b8,
-          roughness: 0.2,         // Very smooth dolphin skin
+          color: 0x7a92aa,
+          roughness: 0.12,
           metalness: 0.2,
-          emissive: new THREE.Color(0x3a4a5a),
-          emissiveIntensity: 0.2,
-          clearcoat: 0.6,         // Strong wet sheen
-          clearcoatRoughness: 0.08,
-          iridescence: 0.35,      // Subtle rainbow sheen
+          vertexColors: true,
+          emissive: new THREE.Color(0x2a3a4a),
+          emissiveIntensity: 0.14,
+          clearcoat: 0.88,
+          clearcoatRoughness: 0.04,
+          iridescence: 0.55,
           iridescenceIOR: 1.35,
-          iridescenceThicknessRange: [100, 300],
-          sheen: 0.2,
-          sheenRoughness: 0.3,
-          sheenColor: new THREE.Color(0x8899aa),
+          iridescenceThicknessRange: [80, 280],
+          sheen: 0.35,
+          sheenRoughness: 0.22,
+          sheenColor: new THREE.Color(0x99aabb),
+          specularIntensity: 1.05,
         });
 
       case 3: // Jellyfish - translucent with bright bioluminescent glow
@@ -627,7 +753,8 @@ diffuseColor.rgb = patterned;
           transparent: true,
           opacity: 0.45,          // Very see-through
           emissive: new THREE.Color(0x6699cc),
-          emissiveIntensity: 1.5, // Strong bioluminescent glow
+          emissiveIntensity: 2.4, // Strong bioluminescent glow for night look
+
           side: THREE.DoubleSide,
           depthWrite: false,      // Proper transparency sorting
           iridescence: 0.5,       // Jellyfish body iridescence
@@ -638,49 +765,56 @@ diffuseColor.rgb = patterned;
 
       case 4: // Ray - smooth skin with counter-shading
         return new THREE.MeshPhysicalMaterial({
-          color: 0x8aaaaa,
-          roughness: 0.3,
-          metalness: 0.1,
-          emissive: new THREE.Color(0x4a6666),
-          emissiveIntensity: 0.4,
-          clearcoat: 0.35,
-          clearcoatRoughness: 0.2,
-          sheen: 0.15,
-          sheenRoughness: 0.5,
+          color: 0x7a9a9a,
+          roughness: 0.22,
+          metalness: 0.12,
+          vertexColors: true,
+          emissive: new THREE.Color(0x3a5555),
+          emissiveIntensity: 0.28,
+          clearcoat: 0.55,
+          clearcoatRoughness: 0.12,
+          sheen: 0.3,
+          sheenRoughness: 0.35,
           sheenColor: new THREE.Color(0x668888),
+          iridescence: 0.18,
+          iridescenceIOR: 1.33,
         });
 
       case 5: // Turtle - realistic shell with organic patterns
         return new THREE.MeshPhysicalMaterial({
           color: 0x6a8a5a,
-          roughness: 0.5,
-          metalness: 0.08,
-          emissive: new THREE.Color(0x2a3a20),
-          emissiveIntensity: 0.2,
-          clearcoat: 0.35,        // Wet shell sheen
-          clearcoatRoughness: 0.3,
-          sheen: 0.2,
-          sheenRoughness: 0.5,
-          sheenColor: new THREE.Color(0x557744),
-          specularIntensity: 0.6, // Shell has visible specular
-        });
-
-      case 6: // Crab - reddish-brown (Phase 4: brighter)
-        return new THREE.MeshPhysicalMaterial({
-          color: 0xdd8866, // Brighter base
-          roughness: 0.6,
-          metalness: 0.15,
-          emissive: new THREE.Color(0x664433),
-          emissiveIntensity: 0.45, // Increased from 0.3
-        });
-
-      case 7: // Starfish - orange-red (Phase 4: brighter)
-        return new THREE.MeshPhysicalMaterial({
-          color: 0xff9977, // Brighter base
-          roughness: 0.5,
+          roughness: 0.38,
           metalness: 0.1,
+          emissive: new THREE.Color(0x2a3a20),
+          emissiveIntensity: 0.16,
+          clearcoat: 0.7,
+          clearcoatRoughness: 0.16,
+          sheen: 0.3,
+          sheenRoughness: 0.4,
+          sheenColor: new THREE.Color(0x557744),
+          specularIntensity: 0.85,
+        });
+
+      case 6: // Crab - reddish-brown
+        return new THREE.MeshPhysicalMaterial({
+          color: 0xdd8866,
+          roughness: 0.55,
+          metalness: 0.12,
+          clearcoat: 0.25,
+          clearcoatRoughness: 0.4,
+          emissive: new THREE.Color(0x664433),
+          emissiveIntensity: 0.4,
+        });
+
+      case 7: // Starfish - orange-red
+        return new THREE.MeshPhysicalMaterial({
+          color: 0xff9977,
+          roughness: 0.48,
+          metalness: 0.08,
+          clearcoat: 0.2,
+          clearcoatRoughness: 0.45,
           emissive: new THREE.Color(0x775533),
-          emissiveIntensity: 0.5, // Increased from 0.35
+          emissiveIntensity: 0.45,
         });
 
       case 8: // Sea Urchin - dark purple (Phase 4: brighter)
@@ -694,17 +828,17 @@ diffuseColor.rgb = patterned;
 
       case 9: // Whale - realistic massive creature with wet skin
         return new THREE.MeshPhysicalMaterial({
-          color: 0x6a7a8a,
-          roughness: 0.35,        // Smooth whale skin
-          metalness: 0.1,
-          emissive: new THREE.Color(0x2a3a4a),
-          emissiveIntensity: 0.3,
-          clearcoat: 0.4,         // Wet glistening skin
-          clearcoatRoughness: 0.2,
-          sheen: 0.25,
-          sheenRoughness: 0.35,
+          color: 0x5a6a7a,
+          roughness: 0.28,
+          metalness: 0.12,
+          emissive: new THREE.Color(0x1a2a3a),
+          emissiveIntensity: 0.22,
+          clearcoat: 0.55,
+          clearcoatRoughness: 0.14,
+          sheen: 0.32,
+          sheenRoughness: 0.3,
           sheenColor: new THREE.Color(0x667788),
-          iridescence: 0.08,      // Barely visible wet-skin sheen
+          iridescence: 0.12,
           iridescenceIOR: 1.33,
         });
 
@@ -789,11 +923,63 @@ uniform float uCausticTime;`
   // t = 1 on the back (normal up), 0 on the belly (normal down).
   float t = clamp(vBodyWNormal.y * 0.5 + 0.5, 0.0, 1.0);
   // Dorsal darkens, ventral brightens toward a pale belly — the core "animal" read.
-  diffuseColor.rgb *= mix(1.5, 0.5, t);
+  diffuseColor.rgb *= mix(1.55, 0.48, t);
   // Push the belly slightly cool-pale (real countershading is near-white underneath).
-  vec3 paleBelly = mix(diffuseColor.rgb, vec3(0.72, 0.80, 0.88), 0.35);
+  vec3 paleBelly = mix(diffuseColor.rgb, vec3(0.78, 0.86, 0.92), 0.42);
   diffuseColor.rgb = mix(paleBelly, diffuseColor.rgb, t);
+
+  // Dermal micro-detail (shark denticles / cetacean grain) — catches clearcoat
+  vec2 sc = vBodyWPos.xz * 28.0 + vBodyWPos.y * 14.0;
+  sc.x += step(0.5, fract(sc.y * 0.5)) * 0.5;
+  vec2 sf = abs(fract(sc) - 0.5);
+  float dent = 1.0 - smoothstep(0.14, 0.38, max(sf.x, sf.y));
+  diffuseColor.rgb *= mix(0.82, 1.12, dent * (0.4 + 0.6 * t));
+  // Subtle longitudinal flow lines (muscle / skin stretch)
+  float flow = abs(sin(vBodyWPos.x * 9.0 + vBodyWPos.y * 2.0));
+  diffuseColor.rgb *= mix(0.94, 1.04, flow * (0.3 + 0.5 * t));
 }`
+      );
+
+      // Denticle bump + roughness variation — plastic → textured skin
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+{
+  vec2 scN = vBodyWPos.xz * 28.0 + vBodyWPos.y * 14.0;
+  scN.x += step(0.5, fract(scN.y * 0.5)) * 0.5;
+  vec2 sfN = abs(fract(scN) - 0.5);
+  float dentH = 1.0 - smoothstep(0.12, 0.4, max(sfN.x, sfN.y));
+  float flowH = abs(sin(vBodyWPos.x * 9.0 + vBodyWPos.y * 2.0)) * 0.35;
+  float h = dentH + flowH;
+  float hx = dFdx(h);
+  float hy = dFdy(h);
+  vec3 nRef = normalize(normal);
+  vec3 dp1 = dFdx(vViewPosition);
+  vec3 dp2 = dFdy(vViewPosition);
+  vec3 r1 = cross(dp2, nRef);
+  vec3 r2 = cross(nRef, dp1);
+  float det = dot(dp1, r1);
+  float invDet = (abs(det) > 1e-8) ? (1.0 / det) : 0.0;
+  vec3 surfGrad = (r1 * hx + r2 * hy) * invDet;
+  float dorsal = clamp(vBodyWNormal.y * 0.5 + 0.5, 0.0, 1.0);
+  normal = normalize(nRef - surfGrad * mix(0.35, 1.05, dorsal));
+}
+`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+{
+  vec2 scR = vBodyWPos.xz * 28.0 + vBodyWPos.y * 14.0;
+  scR.x += step(0.5, fract(scR.y * 0.5)) * 0.5;
+  vec2 sfR = abs(fract(scR) - 0.5);
+  float dentR = 1.0 - smoothstep(0.14, 0.38, max(sfR.x, sfR.y));
+  float belly = 1.0 - clamp(vBodyWNormal.y * 0.5 + 0.5, 0.0, 1.0);
+  roughnessFactor *= mix(1.28, 0.78, dentR);
+  roughnessFactor *= mix(1.0, 0.82, belly); // smoother wet belly
+}
+`
       );
 
       // Fresnel rim into emissive so it survives the dim ambient.
@@ -809,12 +995,14 @@ uniform float uCausticTime;`
   // Caustic dapples: animated refracted-sunlight patches on upward-facing surfaces,
   // tying the creature into the same light that pools on the seabed.
   float upFace = clamp(vBodyWNormal.y, 0.0, 1.0);
-  vec2 cuv = vBodyWPos.xz * 0.18;
+  vec2 cuv = vBodyWPos.xz * 0.16;
   float ct = uCausticTime;
-  float caus = sin(cuv.x * 3.0 + sin(cuv.y * 1.7 + ct) * 1.5 + ct)
-             * sin(cuv.y * 3.0 + cos(cuv.x * 1.9 - ct * 0.8) * 1.5 + ct * 1.1);
-  caus = smoothstep(0.15, 0.9, caus * 0.5 + 0.5);
-  totalEmissiveRadiance += vec3(0.45, 0.6, 0.5) * caus * upFace * 0.5;
+  float caus = sin(cuv.x * 3.2 + sin(cuv.y * 1.7 + ct) * 1.6 + ct)
+             * sin(cuv.y * 3.2 + cos(cuv.x * 1.9 - ct * 0.8) * 1.6 + ct * 1.1);
+  float caus2 = sin(cuv.x * 5.8 - ct * 1.3) * sin(cuv.y * 5.4 + ct * 0.9);
+  caus = max(caus * 0.65 + 0.35, caus2 * 0.45);
+  caus = smoothstep(0.12, 0.88, caus * 0.5 + 0.5);
+  totalEmissiveRadiance += vec3(0.5, 0.68, 0.52) * caus * upFace * 0.62;
 }`
       );
     };

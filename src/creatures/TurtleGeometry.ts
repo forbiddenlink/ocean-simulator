@@ -132,8 +132,8 @@ export class TurtleGeometry {
     const uvs: number[] = [];
     const colors_attr: number[] = [];
 
-    const segmentsTheta = 24; // Around the shell
-    const segmentsPhi = 12;   // From top to edge
+    const segmentsTheta = 40; // Around the shell
+    const segmentsPhi = 22;   // From top to edge
 
     const shellWidth = length * proportions.shellWidth;
     const shellHeight = length * proportions.shellHeight;
@@ -141,7 +141,7 @@ export class TurtleGeometry {
     const shellColor = new THREE.Color(colors.shell);
     const patternColor = new THREE.Color(colors.shellPattern);
 
-    // Generate dome vertices
+    // Generate dome vertices with geometric scute ridges (not color-only)
     for (let i = 0; i <= segmentsPhi; i++) {
       const phi = (i / segmentsPhi) * (Math.PI / 2); // 0 to PI/2 (top half)
 
@@ -149,25 +149,40 @@ export class TurtleGeometry {
         const theta = (j / segmentsTheta) * Math.PI * 2;
 
         // Ellipsoid shape: stretched along X (length), compressed on Y (height)
-        const x = Math.sin(phi) * Math.cos(theta) * (length / 2);
-        const z = Math.sin(phi) * Math.sin(theta) * (shellWidth / 2);
-        const y = Math.cos(phi) * shellHeight;
+        let x = Math.sin(phi) * Math.cos(theta) * (length / 2);
+        let z = Math.sin(phi) * Math.sin(theta) * (shellWidth / 2);
+        let y = Math.cos(phi) * shellHeight;
+
+        // Raised scute plates + central keel — reads as shell armor in silhouette
+        const scuteU = Math.cos(theta * 5.0) * Math.cos(phi * 4.0);
+        const scuteV = Math.cos(theta * 3.0) * Math.sin(phi * 5.0);
+        const plate = Math.max(0, scuteU) * 0.55 + Math.max(0, scuteV) * 0.35;
+        const seam = Math.pow(Math.abs(Math.sin(theta * 5.0)), 8.0) * Math.pow(Math.sin(phi * 3.5), 2.0);
+        const keel = Math.exp(-Math.pow(Math.sin(theta), 2.0) * 8.0) * Math.sin(phi) * 0.045;
+        const displace = plate * 0.035 * length - seam * 0.018 * length + keel * length;
+        const nLen = Math.hypot(
+          Math.sin(phi) * Math.cos(theta) / (length / 2),
+          Math.cos(phi) / shellHeight,
+          Math.sin(phi) * Math.sin(theta) / (shellWidth / 2)
+        ) || 1;
+        const nx0 = (Math.sin(phi) * Math.cos(theta) / (length / 2)) / nLen;
+        const ny0 = (Math.cos(phi) / shellHeight) / nLen;
+        const nz0 = (Math.sin(phi) * Math.sin(theta) / (shellWidth / 2)) / nLen;
+        x += nx0 * displace;
+        y += ny0 * displace;
+        z += nz0 * displace;
 
         vertices.push(x, y, z);
 
-        // Normal for ellipsoid
-        const nx = Math.sin(phi) * Math.cos(theta) / (length / 2);
-        const ny = Math.cos(phi) / shellHeight;
-        const nz = Math.sin(phi) * Math.sin(theta) / (shellWidth / 2);
-        const normalLength = Math.sqrt(nx * nx + ny * ny + nz * nz);
-        normals.push(nx / normalLength, ny / normalLength, nz / normalLength);
-
+        normals.push(nx0, ny0, nz0);
         uvs.push(j / segmentsTheta, i / segmentsPhi);
 
-        // Create scute pattern effect using procedural coloring
-        const scutePattern = Math.sin(theta * 5) * Math.sin(phi * 4);
+        const scutePattern = Math.sin(theta * 6) * Math.sin(phi * 5);
+        const ridge = Math.abs(Math.sin(theta * 3)) * Math.abs(Math.sin(phi * 2.5));
         const colorBlend = (scutePattern + 1) / 2;
-        const finalColor = new THREE.Color().lerpColors(shellColor, patternColor, colorBlend * 0.3);
+        const finalColor = new THREE.Color().lerpColors(shellColor, patternColor, colorBlend * 0.55 + ridge * 0.25);
+        // Darken seams so plates read even without strong lighting
+        finalColor.multiplyScalar(1.0 - seam * 0.35);
         colors_attr.push(finalColor.r, finalColor.g, finalColor.b);
       }
     }
@@ -192,10 +207,15 @@ export class TurtleGeometry {
     geometry.setIndex(indices);
     geometry.computeVertexNormals();
 
-    const material = new THREE.MeshStandardMaterial({
+    const material = new THREE.MeshPhysicalMaterial({
       vertexColors: true,
-      roughness: 0.7,
-      metalness: 0.0,
+      roughness: 0.38,
+      metalness: 0.08,
+      clearcoat: 0.78,
+      clearcoatRoughness: 0.18,
+      sheen: 0.28,
+      sheenRoughness: 0.45,
+      sheenColor: new THREE.Color(0x556644),
       side: THREE.DoubleSide,
     });
 
@@ -226,10 +246,12 @@ export class TurtleGeometry {
     geometry.rotateX(-Math.PI / 2); // Lay flat
     geometry.translate(0, 0.01, 0); // Slightly above origin to avoid z-fighting
 
-    const material = new THREE.MeshStandardMaterial({
+    const material = new THREE.MeshPhysicalMaterial({
       color: colors.plastron,
-      roughness: 0.6,
-      metalness: 0.0,
+      roughness: 0.45,
+      metalness: 0.05,
+      clearcoat: 0.35,
+      clearcoatRoughness: 0.3,
       side: THREE.DoubleSide,
     });
 
@@ -323,10 +345,12 @@ export class TurtleGeometry {
 
     geometry.translate(xOffset, length * 0.05, side === 'left' ? zOffset : -zOffset);
 
-    const material = new THREE.MeshStandardMaterial({
+    const material = new THREE.MeshPhysicalMaterial({
       color: colors.skin,
-      roughness: 0.6,
-      metalness: 0.0,
+      roughness: 0.42,
+      metalness: 0.06,
+      clearcoat: 0.45,
+      clearcoatRoughness: 0.25,
       side: THREE.DoubleSide,
     });
 
@@ -349,10 +373,12 @@ export class TurtleGeometry {
     neckGeometry.rotateZ(Math.PI / 2);
     neckGeometry.translate(length * 0.4 + neckLength / 2, headSize * 0.3, 0);
 
-    const skinMaterial = new THREE.MeshStandardMaterial({
+    const skinMaterial = new THREE.MeshPhysicalMaterial({
       color: colors.skin,
-      roughness: 0.6,
-      metalness: 0.0,
+      roughness: 0.4,
+      metalness: 0.06,
+      clearcoat: 0.4,
+      clearcoatRoughness: 0.28,
     });
 
     const neck = new THREE.Mesh(neckGeometry, skinMaterial);
@@ -376,34 +402,40 @@ export class TurtleGeometry {
     beakGeometry.rotateZ(-Math.PI / 2);
     beakGeometry.translate(length * 0.4 + neckLength + headSize * 1.6 + beakLength / 2, headSize * 0.3, 0);
 
-    const beakMaterial = new THREE.MeshStandardMaterial({
+    const beakMaterial = new THREE.MeshPhysicalMaterial({
       color: 0x4a4a3a, // Darker beak color
-      roughness: 0.8,
-      metalness: 0.0,
+      roughness: 0.7,
+      metalness: 0.05,
+      clearcoat: 0.2,
     });
 
     const beak = new THREE.Mesh(beakGeometry, beakMaterial);
     group.add(beak);
 
-    // Eyes
-    const eyeGeometry = new THREE.SphereGeometry(headSize * 0.15, 8, 8);
-    const eyeMaterial = new THREE.MeshStandardMaterial({
-      color: 0x1a1a1a,
-      roughness: 0.3,
-      metalness: 0.1,
-    });
-
+    // Eyes — cream sclera + dark pupil so they read underwater
     const eyeX = length * 0.4 + neckLength + headSize * 0.9;
     const eyeY = headSize * 0.5;
     const eyeZ = headSize * 0.35;
+    const scleraMat = new THREE.MeshPhysicalMaterial({
+      color: 0xf0ead8,
+      roughness: 0.25,
+      metalness: 0.05,
+      clearcoat: 0.6,
+      clearcoatRoughness: 0.1,
+    });
+    const pupilMat = new THREE.MeshPhysicalMaterial({
+      color: 0x0a0a0c,
+      roughness: 0.2,
+      metalness: 0.15,
+    });
 
-    const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-    leftEye.position.set(eyeX, eyeY, eyeZ);
-
-    const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-    rightEye.position.set(eyeX, eyeY, -eyeZ);
-
-    group.add(leftEye, rightEye);
+    for (const side of [1, -1] as const) {
+      const sclera = new THREE.Mesh(new THREE.SphereGeometry(headSize * 0.18, 10, 8), scleraMat);
+      sclera.position.set(eyeX, eyeY, eyeZ * side);
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(headSize * 0.09, 8, 6), pupilMat);
+      pupil.position.set(eyeX + headSize * 0.06, eyeY, side * (eyeZ + headSize * 0.12));
+      group.add(sclera, pupil);
+    }
 
     return group;
   }
@@ -421,10 +453,12 @@ export class TurtleGeometry {
     geometry.rotateZ(Math.PI / 2); // Point backwards
     geometry.translate(-length * 0.5 - tailLength / 2, length * 0.03, 0);
 
-    const material = new THREE.MeshStandardMaterial({
+    const material = new THREE.MeshPhysicalMaterial({
       color: colors.skin,
-      roughness: 0.6,
-      metalness: 0.0,
+      roughness: 0.42,
+      metalness: 0.06,
+      clearcoat: 0.35,
+      clearcoatRoughness: 0.3,
     });
 
     return new THREE.Mesh(geometry, material);

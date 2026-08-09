@@ -69,35 +69,39 @@ describe('HuntingSystem', () => {
       // Cleanup
       TargetMemory.huntingMode[eid] = 0;
     });
+    it('should have panicTimer for school-split hold', () => {
+      expect(TargetMemory.panicTimer).toBeInstanceOf(Float32Array);
+      expect(TargetMemory.panicTimer.length).toBe(10000);
+    });
   });
 
   describe('hunt configuration', () => {
     it('should have reasonable pursuit speed multiplier', () => {
       // Verify predators are faster but not overwhelmingly so
-      const pursuitMultiplier = 1.2;
+      const pursuitMultiplier = 1.75;
       expect(pursuitMultiplier).toBeGreaterThan(1.0);
-      expect(pursuitMultiplier).toBeLessThan(2.0);
+      expect(pursuitMultiplier).toBeLessThan(2.5);
     });
 
     it('should have reasonable flee speed multiplier', () => {
       // Verify prey can escape
-      const fleeMultiplier = 2.2;
+      const fleeMultiplier = 2.6;
       expect(fleeMultiplier).toBeGreaterThan(1.5);
-      expect(fleeMultiplier).toBeLessThan(3.0);
+      expect(fleeMultiplier).toBeLessThan(3.5);
     });
 
     it('should have reasonable fear radius', () => {
       // Prey should detect predators at a reasonable distance
-      const fearRadius = 18.0;
+      const fearRadius = 22.0;
       expect(fearRadius).toBeGreaterThan(10.0);
       expect(fearRadius).toBeLessThan(30.0);
     });
 
     it('should have reasonable target forget time', () => {
       // Predators shouldn't pursue indefinitely
-      const forgetTime = 5.0;
+      const forgetTime = 8.0;
       expect(forgetTime).toBeGreaterThan(2.0);
-      expect(forgetTime).toBeLessThan(10.0);
+      expect(forgetTime).toBeLessThan(12.0);
     });
   });
 });

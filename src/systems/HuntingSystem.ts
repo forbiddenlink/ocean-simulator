@@ -4,6 +4,7 @@ import { Position, Velocity, Acceleration } from '../components/Transform';
 import { Health, Energy, CreatureType } from '../components/Biology';
 import { Vision, FIRA, SchoolLeader } from '../components/Behavior';
 import type { OceanWorld } from '../core/World';
+import { HuntVisualEvents } from './HuntVisualEvents';
 
 // Target memory component for tracking prey
 export const TargetMemory = {
@@ -12,26 +13,31 @@ export const TargetMemory = {
   lastSeenY: new Float32Array(10000),
   lastSeenZ: new Float32Array(10000),
   timeSinceSeen: new Float32Array(10000),
-  huntingMode: new Uint8Array(10000) // 0=idle, 1=pursuing, 2=attacking, 3=fleeing
+  huntingMode: new Uint8Array(10000), // 0=idle, 1=pursuing, 2=attacking, 3=fleeing
+  panicTimer: new Float32Array(10000), // seconds of school-split remaining after threat
 };
 
-// Hunting configuration - tuned for sustainable visual demo ecosystem
+// Hunting configuration — tuned for readable drama while staying sustainable
 const HUNT_CONFIG = {
-  // Predator settings - reduced aggression for visual demo
-  PURSUIT_SPEED_MULTIPLIER: 1.2, // Reduced - prey can escape easier
-  ATTACK_RANGE: 0.8, // Reduced from 1.2 - predators must get very close
-  ENERGY_COST_PER_SECOND: 0.3, // Low cost
-  ENERGY_GAIN_FROM_KILL: 150.0, // Worth hunting when successful
-  DAMAGE_PER_SECOND: 5.0, // Reduced from 15 - fish survive longer in combat
+  PURSUIT_SPEED_MULTIPLIER: 1.75,
+  ATTACK_RANGE: 1.35,
+  ENERGY_COST_PER_SECOND: 0.35,
+  ENERGY_GAIN_FROM_KILL: 150.0,
+  DAMAGE_PER_SECOND: 9.0,
 
-  // Prey settings - enhanced escape
-  FLEE_SPEED_MULTIPLIER: 2.2, // Increased - prey escape more often
-  FEAR_RADIUS: 18.0, // Increased - prey flee earlier
-  PANIC_DURATION: 5.0,
+  FLEE_SPEED_MULTIPLIER: 2.6,
+  FEAR_RADIUS: 22.0,
+  PANIC_DURATION: 4.5,
+  SCHOOL_PANIC_RADIUS: 11.0,
 
-  // Memory - less persistent hunting
-  TARGET_FORGET_TIME: 5.0, // Reduced - predators give up faster
-  VISION_CHECK_INTERVAL: 1.0 // Less frequent vision checks
+  TARGET_FORGET_TIME: 8.0,
+  VISION_CHECK_INTERVAL: 0.7,
+};
+
+/** Default FIRA weights restored after panic (must match EntityFactory.createFish). */
+const FIRA_DEFAULTS = {
+  separation: 1.8,
+  cohesion: 3.2,
 };
 
 /**
@@ -157,18 +163,36 @@ export function createHuntingSystem(_world: OceanWorld) {
         if (distToTarget < HUNT_CONFIG.ATTACK_RANGE) {
           TargetMemory.huntingMode[predatorEid] = 2; // attacking
           
-          // Deal damage to prey (very reduced for visual demo)
+          // Deal damage to prey
           const damage = HUNT_CONFIG.DAMAGE_PER_SECOND * deltaTime;
           Health.current[currentTarget] -= damage;
+
+          // Occasional bite spark so attacks read visually
+          if (Math.random() < deltaTime * 3.5) {
+            HuntVisualEvents.push({
+              kind: 'attack',
+              x: preyPos.x,
+              y: preyPos.y,
+              z: preyPos.z,
+              intensity: 1.2,
+            });
+          }
           
-          // If prey dies, gain energy
+          // If prey dies, gain energy + kill flash
           if (Health.current[currentTarget] <= 0) {
             Energy.current[predatorEid] = Math.min(
               Energy.max[predatorEid],
               Energy.current[predatorEid] + HUNT_CONFIG.ENERGY_GAIN_FROM_KILL
             );
+
+            HuntVisualEvents.push({
+              kind: 'kill',
+              x: preyPos.x,
+              y: preyPos.y,
+              z: preyPos.z,
+              intensity: 2.2,
+            });
             
-            // Clear target
             TargetMemory.targetEid[predatorEid] = 0;
             TargetMemory.huntingMode[predatorEid] = 0; // idle
           }
@@ -238,38 +262,76 @@ export function createHuntingSystem(_world: OceanWorld) {
         }
       }
 
-      // Flee from nearest threat
+      // Flee from nearest threat + school-wide bait-ball split
       if (hasThreat) {
+        const wasCalm = TargetMemory.huntingMode[preyEid] !== 3;
         TargetMemory.huntingMode[preyEid] = 3; // fleeing
+        TargetMemory.panicTimer[preyEid] = HUNT_CONFIG.PANIC_DURATION;
         
         // Calculate flee direction (away from threat)
         const fleeDir = tempVec3b.copy(preyPos).sub(nearestThreat).normalize();
         
-        // Apply strong flee force
         const fleeForce = HUNT_CONFIG.FLEE_SPEED_MULTIPLIER;
         Acceleration.x[preyEid] += fleeDir.x * fleeForce;
         Acceleration.y[preyEid] += fleeDir.y * fleeForce;
         Acceleration.z[preyEid] += fleeDir.z * fleeForce;
 
         // === BAIT BALL SPLIT ===
-        // Temporarily boost separation weight for this prey and nearby school members.
-        // This causes the school to split around the predator and reform behind it.
+        // Contagion: nearby schoolmates also panic so the shoal tears open around the predator
         const schoolId = SchoolLeader.schoolId[preyEid];
+        FIRA.separationWeight[preyEid] = 8.0;
+        FIRA.cohesionWeight[preyEid] = 0.3;
+
         if (schoolId > 0) {
-          // Set boosted values directly (don't multiply current — prevents runaway)
-          FIRA.separationWeight[preyEid] = 6.0; // 3.3x the default 1.8
-          FIRA.cohesionWeight[preyEid] = 0.5;   // Low cohesion during panic
-        }
-      } else {
-        // Safe - return to normal behavior
-        if (TargetMemory.huntingMode[preyEid] === 3) {
-          TargetMemory.huntingMode[preyEid] = 0; // idle
-          // Restore normal FIRA weights gradually
-          // (Reset to defaults; the gradual part comes from running multiple frames)
-          if (SchoolLeader.schoolId[preyEid] > 0) {
-            FIRA.separationWeight[preyEid] = 1.8;
-            FIRA.cohesionWeight[preyEid] = 2.5;
+          for (let j = 0; j < nearbyEntities.length; j++) {
+            const mateEid = nearbyEntities[j];
+            if (mateEid === preyEid) continue;
+            if (SchoolLeader.schoolId[mateEid] !== schoolId) continue;
+            if (CreatureType.isPredator[mateEid] === 1) continue;
+            if (Health.current[mateEid] <= 0) continue;
+
+            const mx = Position.x[mateEid] - preyPos.x;
+            const my = Position.y[mateEid] - preyPos.y;
+            const mz = Position.z[mateEid] - preyPos.z;
+            const mateDist = Math.sqrt(mx * mx + my * my + mz * mz);
+            if (mateDist > HUNT_CONFIG.SCHOOL_PANIC_RADIUS) continue;
+
+            TargetMemory.huntingMode[mateEid] = 3;
+            TargetMemory.panicTimer[mateEid] = HUNT_CONFIG.PANIC_DURATION;
+            FIRA.separationWeight[mateEid] = 8.0;
+            FIRA.cohesionWeight[mateEid] = 0.3;
           }
+        }
+
+        // First frame of panic → soft cyan flash so the split reads in-frame
+        if (wasCalm && Math.random() < 0.35) {
+          HuntVisualEvents.push({
+            kind: 'panic',
+            x: preyPos.x,
+            y: preyPos.y,
+            z: preyPos.z,
+            intensity: 0.9,
+          });
+        }
+      } else if (TargetMemory.panicTimer[preyEid] > 0) {
+        // Hold school-split for a beat after the threat leaves (readable drama)
+        TargetMemory.panicTimer[preyEid] -= deltaTime;
+        TargetMemory.huntingMode[preyEid] = 3;
+        FIRA.separationWeight[preyEid] = 6.5;
+        FIRA.cohesionWeight[preyEid] = 0.45;
+        if (TargetMemory.panicTimer[preyEid] <= 0) {
+          TargetMemory.panicTimer[preyEid] = 0;
+          TargetMemory.huntingMode[preyEid] = 0;
+          if (SchoolLeader.schoolId[preyEid] > 0) {
+            FIRA.separationWeight[preyEid] = FIRA_DEFAULTS.separation;
+            FIRA.cohesionWeight[preyEid] = FIRA_DEFAULTS.cohesion;
+          }
+        }
+      } else if (TargetMemory.huntingMode[preyEid] === 3) {
+        TargetMemory.huntingMode[preyEid] = 0;
+        if (SchoolLeader.schoolId[preyEid] > 0) {
+          FIRA.separationWeight[preyEid] = FIRA_DEFAULTS.separation;
+          FIRA.cohesionWeight[preyEid] = FIRA_DEFAULTS.cohesion;
         }
       }
     }

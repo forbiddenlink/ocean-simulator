@@ -22,17 +22,17 @@ describe('ExtraOceanLife', () => {
 
   it('spawns each species with the expected count', () => {
     expect(countKind('octopus')).toBe(6);
-    expect(countKind('seahorse')).toBe(14);
+    expect(countKind('seahorse')).toBe(16);
     expect(countKind('angler')).toBe(6);
     expect(countKind('squid')).toBe(6);
     expect(countKind('pufferfish')).toBe(9);
     expect(countKind('seasnake')).toBe(6);
     expect(countKind('nautilus')).toBe(5);
-    expect(countKind('giantclam')).toBe(10);
-    expect(countKind('seacucumber')).toBe(12);
+    expect(countKind('giantclam')).toBe(14);
+    expect(countKind('seacucumber')).toBe(14);
     expect(countKind('cuttlefish')).toBe(5);
     expect(countKind('combjelly')).toBe(10);
-    expect(countKind('hermitcrab')).toBe(10);
+    expect(countKind('hermitcrab')).toBe(12);
   });
 
   it('gives every anglerfish a lure reference and a pulse phase', () => {

@@ -7,8 +7,6 @@ import { RealisticOceanFloor } from './RealisticOceanFloor';
 import { UnderwaterParticles, BubbleSystem, CreatureBubbleTrails } from './UnderwaterParticles';
 import { CausticsEffect } from './Caustics';
 import { BioluminescenceSystem } from './Bioluminescence';
-import { VolumetricFog } from './VolumetricFog';
-import { GodRaysEffect } from './GodRays';
 import { VolumetricLightShafts } from './VolumetricLightShafts';
 import { CoralFormations } from './CoralFormations';
 import { SeaAnemones } from './SeaAnemones';
@@ -18,6 +16,7 @@ import { FoamSystem } from './FoamSystem';
 import { SprayParticles } from './SprayParticles';
 import { HDRIEnvironment } from './HDRIEnvironment';
 import { ExtraOceanLife } from './ExtraOceanLife';
+import { HuntVisualEvents } from '../systems/HuntVisualEvents';
 
 // Debug flag - set to true for development debugging
 const DEBUG = false;
@@ -39,19 +38,23 @@ export class RenderingEngine {
   private bubbles?: BubbleSystem;
   private caustics?: CausticsEffect;
   private bioluminescence?: BioluminescenceSystem;
-  private volumetricFog?: VolumetricFog;
-  private godRays?: GodRaysEffect;
   private lightShafts?: VolumetricLightShafts;
   private realisticFloor?: THREE.Group; // Returns a Group from static method
+  private sandFloorMaterial?: THREE.ShaderMaterial;
   private anemones?: SeaAnemones;
   private marineLife?: THREE.Group; // Returns a Group from static method
   private kelpForest?: KelpForest;
+  private coralReef?: THREE.Group;
   private foamSystem?: FoamSystem;
   private sprayParticles?: SprayParticles;
   private hdriEnvironment?: HDRIEnvironment;
   private creatureBubbles?: CreatureBubbleTrails;
   private extraOceanLife?: ExtraOceanLife;
   private elapsedTime: number = 0;
+  private _viewDir = new THREE.Vector3();
+  private _dofFocus = 16;
+  private _sprayScratch = new THREE.Vector3();
+  private _flashPos = new THREE.Vector3();
 
   // Store bound event handler to properly remove listener
   private boundOnWindowResize: () => void;
@@ -102,30 +105,34 @@ export class RenderingEngine {
 
     // Add realistic ocean floor
     this.realisticFloor = RealisticOceanFloor.createDetailedFloor(this.scene, -30);
+    const sand = this.realisticFloor.getObjectByName('sandFloor') as THREE.Mesh | undefined;
+    if (sand?.material && (sand.material as THREE.ShaderMaterial).isShaderMaterial) {
+      this.sandFloorMaterial = sand.material as THREE.ShaderMaterial;
+    }
 
-    // Add seagrass and kelp
-    this.kelpForest = new KelpForest(this.scene, -30, 60);
+    // Coral first so kelp/anemones can nestle against reef patches
+    this.coralReef = CoralFormations.createCoralReef(this.scene, -30, 100);
 
-    // Add coral formations
-    CoralFormations.createCoralReef(this.scene, -30, 80);
+    // Kelp forests (GPU sway) near origin + reef edges
+    this.kelpForest = new KelpForest(this.scene, -30, 75);
 
-    // Add sea anemones
-    this.anemones = new SeaAnemones(this.scene, -30, 40);
+    // Anemones clustered on reefs
+    this.anemones = new SeaAnemones(this.scene, -30, 55);
 
-    // Add marine life decorations
-    this.marineLife = MarineLife.createMarineCreatures(this.scene, -30, 120);
+    // Floor décor
+    this.marineLife = MarineLife.createMarineCreatures(this.scene, -30, 140);
 
-    // Add extra critters: octopuses, seahorses, eels, lobsters, nudibranchs
+    // Ambient mid-water / floor critters
     this.extraOceanLife = new ExtraOceanLife(this.scene, -30);
 
     // Add Water Surface - choose between FFT ocean (photorealistic) or basic water
     if (this.useFFTOcean) {
       this.fftOcean = new FFTOcean(
-        256, // FFT resolution — perf-friendly while keeping nice detail
-        1200,
-        28,
-        new THREE.Vector2(1, 0.3),
-        2.5
+        256, // Large cascade resolution (detail cascade is 128)
+        1000, // Slightly tighter patch = higher spatial frequency in the swell band
+        30,
+        new THREE.Vector2(1, 0.35),
+        2.8
       );
       this.fftOcean.mesh.position.y = 0; // Sea level
       this.scene.add(this.fftOcean.mesh);
@@ -154,6 +161,9 @@ export class RenderingEngine {
 
     // Add HDRI environment
     this.hdriEnvironment = new HDRIEnvironment(this.scene, this.renderer);
+
+    // Wave-linked caustics + foam once FFT height exists
+    this.bindWaveHeightConsumers();
 
     // Apply initial lighting state
     this.lightSystem.applyToSceneFog(this.scene, this.camera.position.y);
@@ -253,14 +263,12 @@ export class RenderingEngine {
     
     // Update advanced visual effects (if enabled)
     if (this.caustics) {
-      this.caustics.update(deltaTime);
+      this.caustics.update(deltaTime, this.camera);
     }
-    // Update god rays (improved version to avoid vine-like patterns)
-    if (this.godRays) {
-      this.godRays.update(deltaTime);
-    }
-    if (this.volumetricFog) {
-      this.volumetricFog.update(deltaTime, this.camera);
+
+    // Keep seabed sand lit by the same sun (time advanced once via RealisticOceanFloor.update below)
+    if (this.sandFloorMaterial && this.sunLight) {
+      this.sandFloorMaterial.uniforms.lightDirection.value.copy(this.sunLight.position).normalize();
     }
     
     // Update foam and spray
@@ -268,6 +276,20 @@ export class RenderingEngine {
       this.foamSystem.update(deltaTime);
     }
     if (this.sprayParticles) {
+      // Spawn mist from real FFT crests near the camera so breakers feel physical
+      if (this.fftOcean && Math.random() < Math.min(1, deltaTime * 18)) {
+        const cam = this.camera.position;
+        for (let n = 0; n < 3; n++) {
+          const x = cam.x + (Math.random() - 0.5) * 70;
+          const z = cam.z + (Math.random() - 0.5) * 70;
+          const h = this.fftOcean.sampleHeight(x, z);
+          if (h > 0.85) {
+            this._sprayScratch.set(x, Math.max(0.05, h * 0.35), z);
+            const burst = 4 + Math.floor(Math.min(10, h * 4));
+            this.sprayParticles.spawnAt(this._sprayScratch, burst);
+          }
+        }
+      }
       this.sprayParticles.update(deltaTime);
     }
     
@@ -286,9 +308,18 @@ export class RenderingEngine {
       MarineLife.animateCreatures(this.marineLife, deltaTime);
     }
     
-    // Update bioluminescence
+    // Update bioluminescence + hunt/kill flashes from the simulation
     if (this.bioluminescence) {
       this.bioluminescence.update(deltaTime, this.camera.position);
+      const flashes = HuntVisualEvents.drain();
+      for (const ev of flashes) {
+        this._flashPos.set(ev.x, ev.y, ev.z);
+        this.bioluminescence.addFlash(
+          this._flashPos,
+          HuntVisualEvents.colorFor(ev.kind),
+          ev.intensity
+        );
+      }
     }
     
     // Update HDRI environment and day/night cycle
@@ -302,6 +333,13 @@ export class RenderingEngine {
       const sunDir = this.hdriEnvironment.getSunDirection();
       if (this.fftOcean) {
         this.fftOcean.updateSunDirection(sunDir);
+      }
+      if (this.caustics) {
+        this.caustics.setSunDirection(sunDir);
+      }
+      if (this.particles) {
+        const day = Math.max(0, Math.sin(timeOfDay * Math.PI));
+        this.particles.setLighting(sunDir, day);
       }
 
       // Sync god rays sun mesh position with actual sun direction
@@ -327,7 +365,7 @@ export class RenderingEngine {
       // Bioluminescence: brighter at night
       if (this.bioluminescence) {
         const nightFactor = 1.0 - sunAngle; // 0 at noon, 1 at midnight
-        const bioIntensity = 0.5 + nightFactor * 2.0; // 0.5 at noon, 2.5 at midnight
+        const bioIntensity = 0.25 + nightFactor * 3.6; // ~0.25 noon → ~3.85 midnight
         this.bioluminescence.setIntensity(bioIntensity);
       }
     }
@@ -339,8 +377,30 @@ export class RenderingEngine {
       ) as THREE.Mesh | undefined;
       
       if (sandFloor) {
-        RealisticOceanFloor.update(sandFloor, deltaTime);
+        const sunDir = this.hdriEnvironment?.getSunDirection();
+        RealisticOceanFloor.update(sandFloor, deltaTime, sunDir);
       }
+    }
+
+    // Cinematic DOF: ease focus toward what the camera is looking at
+    {
+      const dir = this._viewDir;
+      this.camera.getWorldDirection(dir);
+      // Looking at the floor → nearer focus; looking toward surface / distance → deeper
+      let focus = 15;
+      if (dir.y < -0.25) {
+        const floorDist = Math.max(4, this.camera.position.y + 30);
+        focus = THREE.MathUtils.clamp(floorDist * 0.55, 8, 22);
+      } else if (dir.y > 0.35) {
+        focus = 24;
+      } else {
+        focus = 14 + Math.abs(this.camera.position.y) * 0.15;
+      }
+      this._dofFocus += (focus - this._dofFocus) * Math.min(1, deltaTime * 2.5);
+      this.postProcessing.setDofFocus(this._dofFocus);
+      // Soften bokeh in the deep murk, sharpen on close subjects
+      const bokeh = THREE.MathUtils.clamp(1.6 + this._dofFocus * 0.035, 1.6, 2.8);
+      this.postProcessing.setDofBokeh(bokeh);
     }
 
     // Apply wavelength-dependent lighting based on depth
@@ -371,6 +431,17 @@ export class RenderingEngine {
   }
 
   /**
+   * Wire FFT height into caustics + foam so both track real wave motion.
+   */
+  private bindWaveHeightConsumers(): void {
+    if (!this.fftOcean) return;
+    const heightTex = this.fftOcean.getHeightTexture();
+    const oceanSize = this.fftOcean.getOceanSize();
+    this.caustics?.setWaterHeightMap(heightTex, oceanSize);
+    this.foamSystem?.setWaterHeightMap(heightTex, oceanSize);
+  }
+
+  /**
    * Set ocean parameters
    */
   public setOceanParam(param: string, value: number | string | boolean): void {
@@ -378,9 +449,11 @@ export class RenderingEngine {
       switch (param) {
         case 'resolution':
           this.fftOcean.setResolution(value as number);
+          this.bindWaveHeightConsumers();
           break;
         case 'size':
           this.fftOcean.setSize(value as number);
+          this.bindWaveHeightConsumers();
           break;
         case 'windSpeed':
           this.fftOcean.setWindSpeed(value as number);
@@ -399,15 +472,19 @@ export class RenderingEngine {
           break;
         case 'causticsIntensity':
           if (this.caustics) this.caustics.setIntensity(value as number);
+          if (this.sandFloorMaterial?.uniforms.causticIntensity) {
+            this.sandFloorMaterial.uniforms.causticIntensity.value = value as number;
+          }
           break;
         case 'causticsScale':
           if (this.caustics) this.caustics.setScale(value as number);
           break;
         case 'fogDensity':
-          if (this.volumetricFog) this.volumetricFog.setFogParameters(value as number, this.volumetricFog.getLightIntensity());
+          this.lightSystem.sceneFogBaseDensity = value as number;
+          this.lightSystem.applyToSceneFog(this.scene, this.camera.position.y);
           break;
         case 'lightIntensity':
-          if (this.volumetricFog) this.volumetricFog.setFogParameters(this.volumetricFog.getFogDensity(), value as number);
+          this.sunLight.intensity = value as number;
           break;
         case 'enableFFT':
           this.toggleFFTOcean(value as boolean);
@@ -447,12 +524,13 @@ export class RenderingEngine {
         this.highFidelityWater = undefined;
       }
       
-      this.fftOcean = new FFTOcean(256, 1000, 25, new THREE.Vector2(1, 0.3), 2.0);
+      this.fftOcean = new FFTOcean(256, 1000, 30, new THREE.Vector2(1, 0.35), 2.8);
       this.fftOcean.mesh.position.y = 0;
       this.scene.add(this.fftOcean.mesh);
       
       this.foamSystem = new FoamSystem(this.scene, 1000);
       this.sprayParticles = new SprayParticles(this.scene, 2000);
+      this.bindWaveHeightConsumers();
       
       this.useFFTOcean = true;
     } else if (!enable && this.useFFTOcean) {
@@ -592,9 +670,10 @@ export class RenderingEngine {
     if (this.bubbles) this.bubbles.dispose();
     if (this.caustics && 'dispose' in this.caustics) (this.caustics as { dispose: () => void }).dispose();
     if (this.bioluminescence && 'dispose' in this.bioluminescence) (this.bioluminescence as { dispose: () => void }).dispose();
-    if (this.godRays && 'dispose' in this.godRays) (this.godRays as { dispose: () => void }).dispose();
     if (this.lightShafts) this.lightShafts.dispose();
     if (this.kelpForest && 'dispose' in this.kelpForest) (this.kelpForest as { dispose: () => void }).dispose();
+    if (this.anemones) this.anemones.dispose();
+    if (this.extraOceanLife) this.extraOceanLife.dispose();
     if (this.foamSystem && 'dispose' in this.foamSystem) (this.foamSystem as { dispose: () => void }).dispose();
     if (this.sprayParticles) this.sprayParticles.dispose();
     if (this.hdriEnvironment && 'dispose' in this.hdriEnvironment) (this.hdriEnvironment as { dispose: () => void }).dispose();
@@ -616,6 +695,7 @@ export class RenderingEngine {
 
     if (this.realisticFloor) disposeGroup(this.realisticFloor);
     if (this.marineLife) disposeGroup(this.marineLife);
+    if (this.coralReef) disposeGroup(this.coralReef);
 
     // Clear scene and dispose post-processing/renderer
     this.scene.clear();

@@ -194,6 +194,7 @@ export class OceanSimulator {
       bloomIntensity: number; bloomThreshold: number; absorptionScale: number; turbidity: number;
       vignetteOffset: number; vignetteDarkness: number; chromaX: number; chromaY: number;
       exposure: number; scatterStrength: number; depthDesat: number; scatterHex: number;
+      inscatterStrength: number; inscatterHex: number;
       // Lighting
       ambientIntensity: number; sunIntensity: number; hemiIntensity: number; fillIntensity: number;
       // Scene fog + background
@@ -206,21 +207,23 @@ export class OceanSimulator {
     const presets: Record<typeof preset, LookPreset> = {
       // Bright, clear tropical water — approachable "before" reference.
       'tropical-clear': {
-        bloomIntensity: 0.7, bloomThreshold: 0.55, absorptionScale: 0.05, turbidity: 0.25,
-        vignetteOffset: 0.4, vignetteDarkness: 0.3, chromaX: 0.001, chromaY: 0.0006,
-        exposure: 1.05, scatterStrength: 0.4, depthDesat: 0.2, scatterHex: 0x1f6f86,
-        ambientIntensity: 1.0, sunIntensity: 3.0, hemiIntensity: 1.0, fillIntensity: 0.5,
-        fogBaseDensity: 0.014, fogDepthFactor: 0.0002, fogShallowHex: 0x3f93a8, fogDeepHex: 0x14536b,
+        bloomIntensity: 0.75, bloomThreshold: 0.52, absorptionScale: 0.045, turbidity: 0.22,
+        vignetteOffset: 0.4, vignetteDarkness: 0.28, chromaX: 0.001, chromaY: 0.0006,
+        exposure: 1.08, scatterStrength: 0.38, depthDesat: 0.18, scatterHex: 0x1f6f86,
+        inscatterStrength: 0.85, inscatterHex: 0xa8d4e8,
+        ambientIntensity: 1.0, sunIntensity: 3.1, hemiIntensity: 1.0, fillIntensity: 0.5,
+        fogBaseDensity: 0.012, fogDepthFactor: 0.0002, fogShallowHex: 0x3f93a8, fogDeepHex: 0x14536b,
         backgroundHex: 0x2a8aaa, timeOfDay: 0.5,
       },
       // CINEMATIC DEEP — signature look: moody blue-green depth, strong contrast,
       // distance dissolving into navy murk, highlights reserved for light shafts.
       'inky-cinematic': {
-        bloomIntensity: 0.85, bloomThreshold: 0.62, absorptionScale: 0.085, turbidity: 0.5,
-        vignetteOffset: 0.26, vignetteDarkness: 0.62, chromaX: 0.0013, chromaY: 0.0009,
-        exposure: 1.18, scatterStrength: 0.72, depthDesat: 0.45, scatterHex: 0x0a2c3c,
-        ambientIntensity: 0.55, sunIntensity: 2.6, hemiIntensity: 0.45, fillIntensity: 0.28,
-        fogBaseDensity: 0.038, fogDepthFactor: 0.0003, fogShallowHex: 0x1a5468, fogDeepHex: 0x0c2c3c,
+        bloomIntensity: 1.0, bloomThreshold: 0.55, absorptionScale: 0.08, turbidity: 0.46,
+        vignetteOffset: 0.22, vignetteDarkness: 0.66, chromaX: 0.0015, chromaY: 0.001,
+        exposure: 1.26, scatterStrength: 0.68, depthDesat: 0.4, scatterHex: 0x0a2c3c,
+        inscatterStrength: 1.05, inscatterHex: 0x8ec4d4,
+        ambientIntensity: 0.48, sunIntensity: 2.95, hemiIntensity: 0.4, fillIntensity: 0.26,
+        fogBaseDensity: 0.034, fogDepthFactor: 0.00026, fogShallowHex: 0x1a5468, fogDeepHex: 0x0c2c3c,
         backgroundHex: 0x0a2230, timeOfDay: 0.5,
       },
       // BIOLUMINESCENT — midnight dive: the water goes near-black and the only light is
@@ -228,11 +231,12 @@ export class OceanSimulator {
       // jelly self-glow to full via the day/night loop; the preset kills ambient/hemi so
       // those glows are the whole scene, and lifts bloom so they bleed like real biolume.
       'bioluminescent': {
-        bloomIntensity: 1.35, bloomThreshold: 0.34, absorptionScale: 0.1, turbidity: 0.45,
-        vignetteOffset: 0.2, vignetteDarkness: 0.78, chromaX: 0.0016, chromaY: 0.0011,
-        exposure: 1.1, scatterStrength: 0.85, depthDesat: 0.5, scatterHex: 0x03121c,
-        ambientIntensity: 0.07, sunIntensity: 0.1, hemiIntensity: 0.05, fillIntensity: 0.55,
-        fogBaseDensity: 0.05, fogDepthFactor: 0.0004, fogShallowHex: 0x04141e, fogDeepHex: 0x01060c,
+        bloomIntensity: 1.85, bloomThreshold: 0.2, absorptionScale: 0.1, turbidity: 0.4,
+        vignetteOffset: 0.16, vignetteDarkness: 0.82, chromaX: 0.0018, chromaY: 0.0012,
+        exposure: 1.18, scatterStrength: 0.8, depthDesat: 0.45, scatterHex: 0x03121c,
+        inscatterStrength: 0.12, inscatterHex: 0x1a3a48,
+        ambientIntensity: 0.05, sunIntensity: 0.08, hemiIntensity: 0.04, fillIntensity: 0.82,
+        fogBaseDensity: 0.052, fogDepthFactor: 0.00042, fogShallowHex: 0x04141e, fogDeepHex: 0x01060c,
         backgroundHex: 0x01050a, timeOfDay: 0.02,
       },
     };
@@ -260,6 +264,8 @@ export class OceanSimulator {
     pp.setScatterStrength(p.scatterStrength);
     pp.setDepthDesat(p.depthDesat);
     pp.setScatterColor(p.scatterHex);
+    pp.setInscatterStrength(p.inscatterStrength);
+    pp.setInscatterColor(p.inscatterHex);
 
     // Lighting — all four lights, so the preset actually controls contrast.
     const ambientLight = this.renderEngine.scene.children.find(
@@ -392,22 +398,21 @@ export class OceanSimulator {
   private spawnInitialFish(): void {
     if (DEBUG) console.log('🐠 Spawning COMPREHENSIVE marine ecosystem...');
 
-    // === BAIT BALLS — fewer, tighter schools with negative space between them,
-    // so each reads as a cohesive shoal rather than an even scatter of confetti ===
-    this.spawnFishSchool(56, -10, 0, -5, 9, 0.55);
-    this.spawnFishSchool(42, -12, 30, -24, 8, 0.55);
-    this.spawnFishSchool(40, -9, -30, 24, 8, 0.55);
-    this.spawnFishSchool(34, -16, 20, 30, 7, 0.55);
-    this.spawnFishSchool(30, -7, -12, -32, 7, 0.55);
+    // === BAIT BALLS — denser, tighter schools with negative space between them ===
+    this.spawnFishSchool(78, -10, 0, -5, 6.5, 0.55);
+    this.spawnFishSchool(64, -12, 30, -24, 6.0, 0.55);
+    this.spawnFishSchool(60, -9, -30, 24, 6.0, 0.55);
+    this.spawnFishSchool(52, -16, 20, 30, 5.5, 0.55);
+    this.spawnFishSchool(48, -7, -12, -32, 5.5, 0.55);
 
     // === MEDIUM SCHOOLS — tuna, mackerel, jacks ===
-    this.spawnFishSchool(28, -13, 9, -9, 7, 1.0);
-    this.spawnFishSchool(24, -15, -16, 18, 6.5, 1.0);
-    this.spawnFishSchool(20, -10, 3, -24, 6, 1.0);
+    this.spawnFishSchool(36, -13, 9, -9, 6.0, 1.0);
+    this.spawnFishSchool(30, -15, -16, 18, 5.5, 1.0);
+    this.spawnFishSchool(26, -10, 3, -24, 5.0, 1.0);
 
     // === LARGER REEF FISH — groupers, parrotfish, snappers ===
-    this.spawnFishSchool(20, -19, 15, 11, 5.5, 1.4);
-    this.spawnFishSchool(16, -21, -13, -17, 5, 1.4);
+    this.spawnFishSchool(24, -19, 15, 11, 5.0, 1.4);
+    this.spawnFishSchool(18, -21, -13, -17, 4.5, 1.4);
 
     // === SOLITARY DRIFTERS — a few, for life between the schools ===
     for (let i = 0; i < 10; i++) {
@@ -417,9 +422,9 @@ export class OceanSimulator {
       createFish(this.world, x, y, z, 1 + Math.floor(Math.random() * 4));
     }
 
-    // === SHARKS — diverse apex predators ===
+    // === SHARKS — diverse apex predators (enough to create frequent hunt moments) ===
     const sharkSpecies = ['great-white', 'hammerhead', 'tiger', 'reef', 'reef', 'reef', 'reef'] as const;
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 15; i++) {
       const x = (Math.random() - 0.5) * 70;
       const y = -10 - Math.random() * 18;
       const z = (Math.random() - 0.5) * 70;
@@ -444,9 +449,9 @@ export class OceanSimulator {
       }
     }
 
-    // === JELLYFISH BLOOM — drifting at all depths, dense near surface ===
+    // === JELLYFISH BLOOM — denser for bioluminescent night drama ===
     const jellyfishSpecies = ['moon', 'box', 'crystal', 'lion'] as const;
-    for (let i = 0; i < 24; i++) {
+    for (let i = 0; i < 36; i++) {
       const x = (Math.random() - 0.5) * 75;
       const y = -2 - Math.random() * 26;
       const z = (Math.random() - 0.5) * 75;

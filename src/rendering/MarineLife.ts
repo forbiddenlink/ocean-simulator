@@ -1,7 +1,9 @@
 import * as THREE from 'three';
+import { sampleSandHeight } from './RealisticOceanFloor';
+import { CoralFormations } from './CoralFormations';
 
 /**
- * Additional marine life - starfish, sea urchins, crabs
+ * Additional marine life - starfish, sea urchins, crabs (decorative floor props)
  */
 export class MarineLife {
   /**
@@ -9,32 +11,45 @@ export class MarineLife {
    */
   public static createMarineCreatures(scene: THREE.Scene, floorY: number, count: number = 50): THREE.Group {
     const group = new THREE.Group();
-    
+    group.name = 'marineLifeDecor';
+
+    const patches = CoralFormations.lastReefPatches.length
+      ? CoralFormations.lastReefPatches
+      : [{ x: 0, z: 0, radius: 35 }];
+
     for (let i = 0; i < count; i++) {
-      const x = (Math.random() - 0.5) * 80;
-      const z = (Math.random() - 0.5) * 80;
+      const patch = patches[i % patches.length];
+      // Mix: near reefs + open sand
+      const nearReef = Math.random() < 0.65;
+      let x: number;
+      let z: number;
+      if (nearReef) {
+        const a = Math.random() * Math.PI * 2;
+        const d = Math.random() * (patch.radius + 8);
+        x = patch.x + Math.cos(a) * d;
+        z = patch.z + Math.sin(a) * d;
+      } else {
+        x = (Math.random() - 0.5) * 160;
+        z = (Math.random() - 0.5) * 160;
+      }
+      const y = floorY + sampleSandHeight(x, z) + 0.02;
       const rotation = Math.random() * Math.PI * 2;
-      
+
       const rand = Math.random();
       let creature: THREE.Group | THREE.Mesh;
-      
+
       if (rand < 0.4) {
-        // Starfish
-        creature = this.createStarfish(x, floorY, z, rotation);
+        creature = this.createStarfish(x, y, z, rotation);
       } else if (rand < 0.7) {
-        // Sea urchin
-        creature = this.createSeaUrchin(x, floorY, z);
+        creature = this.createSeaUrchin(x, y, z);
       } else {
-        // Crab
-        creature = this.createCrab(x, floorY, z, rotation);
+        creature = this.createCrab(x, y, z, rotation);
       }
-      
+
       group.add(creature);
     }
-    
+
     scene.add(group);
-    // console.log(`🦀 Added ${count} marine creatures`);
-    
     return group;
   }
   
@@ -48,10 +63,15 @@ export class MarineLife {
     
     // Central body
     const bodyGeometry = new THREE.CylinderGeometry(size * 0.4, size * 0.4, 0.05, 8);
-    const bodyMaterial = new THREE.MeshStandardMaterial({
-      color: this.getStarfishColor(),
-      roughness: 0.9,
-      metalness: 0.0,
+    const starColor = this.getStarfishColor();
+    const bodyMaterial = new THREE.MeshPhysicalMaterial({
+      color: starColor,
+      roughness: 0.75,
+      metalness: 0.05,
+      clearcoat: 0.2,
+      clearcoatRoughness: 0.5,
+      emissive: new THREE.Color(starColor).multiplyScalar(0.15),
+      emissiveIntensity: 0.2,
     });
     const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
     body.rotation.x = Math.PI / 2;
@@ -98,10 +118,13 @@ export class MarineLife {
     
     // Body (sphere)
     const bodyGeometry = new THREE.SphereGeometry(size, 8, 6);
-    const bodyMaterial = new THREE.MeshStandardMaterial({
+    const bodyMaterial = new THREE.MeshPhysicalMaterial({
       color: this.getUrchinColor(),
-      roughness: 0.8,
-      metalness: 0.1,
+      roughness: 0.7,
+      metalness: 0.08,
+      clearcoat: 0.15,
+      emissive: new THREE.Color(this.getUrchinColor()).multiplyScalar(0.12),
+      emissiveIntensity: 0.18,
     });
     const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
     group.add(body);
@@ -109,10 +132,11 @@ export class MarineLife {
     // Spines
     const spineCount = 20 + Math.floor(Math.random() * 15);
     const spineGeometry = new THREE.ConeGeometry(0.01, size * 0.8, 4);
-    const spineMaterial = new THREE.MeshStandardMaterial({
+    const spineMaterial = new THREE.MeshPhysicalMaterial({
       color: bodyMaterial.color.clone().multiplyScalar(0.7),
-      roughness: 0.9,
+      roughness: 0.8,
       metalness: 0.0,
+      clearcoat: 0.1,
     });
     
     for (let i = 0; i < spineCount; i++) {
@@ -150,10 +174,14 @@ export class MarineLife {
     }
     bodyGeometry.computeVertexNormals();
     
-    const bodyMaterial = new THREE.MeshStandardMaterial({
+    const bodyMaterial = new THREE.MeshPhysicalMaterial({
       color: this.getCrabColor(),
-      roughness: 0.7,
-      metalness: 0.2,
+      roughness: 0.55,
+      metalness: 0.15,
+      clearcoat: 0.3,
+      clearcoatRoughness: 0.35,
+      emissive: new THREE.Color(this.getCrabColor()).multiplyScalar(0.1),
+      emissiveIntensity: 0.2,
     });
     const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
     body.position.y = size * 0.5;

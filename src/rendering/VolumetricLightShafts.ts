@@ -29,12 +29,12 @@ export class VolumetricLightShafts {
     } = {}
   ) {
     const {
-      count = 9,
+      count = 12,
       surfaceY = 0,
-      depth = 70,
-      spread = 34,
+      depth = 72,
+      spread = 38,
       center = new THREE.Vector3(6, 0, 4), // biased toward the sun mesh at (10,80,5)
-      color = new THREE.Color(0.55, 0.82, 1.0),
+      color = new THREE.Color(0.58, 0.84, 1.0),
     } = opts;
 
     this.group = new THREE.Group();
@@ -49,7 +49,7 @@ export class VolumetricLightShafts {
       uniforms: {
         uTime: { value: 0 },
         uColor: { value: color },
-        uIntensity: { value: 1.15 },
+        uIntensity: { value: 1.55 },
         uSurfaceY: { value: surfaceY },
         uDepth: { value: depth },
       },
@@ -85,16 +85,19 @@ export class VolumetricLightShafts {
         void main() {
           // Horizontal gaussian: bright core, soft feathered edges.
           float edge = abs(vUv.x - 0.5) * 2.0;
-          float horiz = exp(-edge * edge * 3.6);
+          float horiz = exp(-edge * edge * 3.2);
 
           // Vertical fade: peaks in the mid-upper water column and dissolves BEFORE the
           // surface (so no glowing slab appears above the waterline) and into the deep.
           float vert = smoothstep(0.04, 0.42, vUv.y) * (1.0 - smoothstep(0.62, 0.9, vUv.y));
 
-          // Animated shimmer along the shaft (two scrolling noise octaves).
+          // Animated shimmer along the shaft (two scrolling noise octaves) +
+          // caustic-like vertical banding so beams feel tied to surface refraction.
           float n = noise(vec2(vUv.x * 3.0, vUv.y * 6.0 - uTime * 0.35));
           n += 0.5 * noise(vec2(vUv.x * 7.0 + 3.0, vUv.y * 10.0 - uTime * 0.6));
-          n = 0.55 + 0.45 * (n / 1.5);
+          float bands = 0.75 + 0.25 * sin(vUv.y * 28.0 + uTime * 1.4 + vWorld.x * 0.08);
+          bands *= 0.85 + 0.15 * sin(vUv.y * 55.0 - uTime * 2.1);
+          n = (0.5 + 0.5 * (n / 1.5)) * bands;
 
           float alpha = horiz * vert * n * uIntensity;
           if (alpha < 0.002) discard;
@@ -102,9 +105,9 @@ export class VolumetricLightShafts {
           // Warm the shaft toward the surface (sunlit water) and keep it cool-teal in
           // the deep — a within-beam color gradient reads far more like real god rays
           // than a flat tint, and adds warm/cool contrast against the navy murk.
-          vec3 col = mix(uColor, vec3(1.0, 0.93, 0.72), smoothstep(0.32, 0.6, vUv.y) * 0.5);
+          vec3 col = mix(uColor, vec3(1.0, 0.93, 0.72), smoothstep(0.32, 0.6, vUv.y) * 0.55);
           // Hot core: the bright center of each shaft picks up extra warmth.
-          col += vec3(0.25, 0.18, 0.06) * horiz * horiz;
+          col += vec3(0.28, 0.2, 0.07) * horiz * horiz;
           gl_FragColor = vec4(col, alpha);
         }
       `,
@@ -150,7 +153,7 @@ export class VolumetricLightShafts {
 
   /** Fade shafts with time-of-day (strong at midday, gone at night). */
   setDayFactor(dayFactor: number): void {
-    this.material.uniforms.uIntensity.value = 0.25 + 1.25 * Math.max(0, dayFactor);
+    this.material.uniforms.uIntensity.value = 0.35 + 1.7 * Math.max(0, dayFactor);
   }
 
   setIntensity(intensity: number): void {

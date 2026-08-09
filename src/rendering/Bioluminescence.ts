@@ -9,7 +9,7 @@ export class BioluminescenceSystem {
   private geometry: THREE.BufferGeometry;
   private material: THREE.ShaderMaterial;
   private time: number = 0;
-  private particleCount: number = 2000;
+  private particleCount: number = 3200;
   private scene: THREE.Scene;
   
   constructor(scene: THREE.Scene) {
@@ -31,10 +31,10 @@ export class BioluminescenceSystem {
     const speeds: number[] = [];
     
     for (let i = 0; i < this.particleCount; i++) {
-      // Distribute in a large volume, concentrated at depth
-      const x = (Math.random() - 0.5) * 100;
-      const y = -20 - Math.random() * 40; // Deeper waters
-      const z = (Math.random() - 0.5) * 100;
+      // Mid-water volume so glow sits in the camera band (not only the abyss)
+      const x = (Math.random() - 0.5) * 110;
+      const y = -3 - Math.random() * 32;
+      const z = (Math.random() - 0.5) * 110;
       
       positions.push(x, y, z);
       
@@ -104,10 +104,10 @@ export class BioluminescenceSystem {
           
           // Distance fade
           float dist = length(pos - cameraPosition);
-          vDistanceFade = 1.0 - smoothstep(30.0, 60.0, dist);
+          vDistanceFade = 1.0 - smoothstep(35.0, 75.0, dist);
           
           vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-          gl_PointSize = size * (400.0 / -mvPosition.z) * (0.5 + vPulse * 0.5);
+          gl_PointSize = size * (480.0 / -mvPosition.z) * (0.55 + vPulse * 0.55);
           gl_Position = projectionMatrix * mvPosition;
         }
       `,
@@ -139,7 +139,7 @@ export class BioluminescenceSystem {
           alpha *= intensity;
 
           // Brighten the color
-          vec3 glowColor = vColor * (1.2 + vPulse * 0.4) * intensity;
+          vec3 glowColor = vColor * (1.75 + vPulse * 0.55) * intensity;
 
           gl_FragColor = vec4(glowColor, alpha);
         }
@@ -172,25 +172,24 @@ export class BioluminescenceSystem {
    * Useful for creature interactions
    */
   public addFlash(position: THREE.Vector3, color: THREE.Color, intensity: number = 1.0): void {
-    // Create a temporary bright particle
-    const flashGeometry = new THREE.SphereGeometry(0.5, 8, 8);
+    const flashGeometry = new THREE.SphereGeometry(0.55, 10, 10);
     const flashMaterial = new THREE.MeshBasicMaterial({
       color: color,
       transparent: true,
-      opacity: intensity,
+      opacity: Math.min(1, intensity),
       blending: THREE.AdditiveBlending,
+      depthWrite: false,
     });
     
     const flash = new THREE.Mesh(flashGeometry, flashMaterial);
     flash.position.copy(position);
     this.scene.add(flash);
     
-    // Animate and remove
-    const startTime = Date.now();
-    const duration = 500; // ms
+    const startTime = performance.now();
+    const duration = 420 + intensity * 180;
     
     const animate = () => {
-      const elapsed = Date.now() - startTime;
+      const elapsed = performance.now() - startTime;
       const progress = elapsed / duration;
       
       if (progress >= 1.0) {
@@ -200,9 +199,8 @@ export class BioluminescenceSystem {
         return;
       }
       
-      // Fade out and expand
-      flashMaterial.opacity = intensity * (1 - progress);
-      const scale = 1 + progress * 2;
+      flashMaterial.opacity = intensity * (1 - progress) * (1 - progress);
+      const scale = 1 + progress * (2.8 + intensity);
       flash.scale.set(scale, scale, scale);
       
       requestAnimationFrame(animate);

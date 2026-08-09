@@ -61,19 +61,16 @@ export class SprayParticles {
         varying float vLifetime;
         
         void main() {
-          // Circular particle shape
           vec2 center = gl_PointCoord - vec2(0.5);
           float dist = length(center);
-          
           if (dist > 0.5) discard;
           
-          // Soft edges
-          float alpha = 1.0 - smoothstep(0.3, 0.5, dist);
-          
-          // Fade based on lifetime
+          // Soft mist disk — wider feather so spray reads as vapor, not hard dots
+          float alpha = 1.0 - smoothstep(0.12, 0.5, dist);
           alpha *= vLifetime * opacity;
-          
-          gl_FragColor = vec4(color, alpha);
+          // Cool blue-white mist tint
+          vec3 mist = mix(color, vec3(0.75, 0.9, 1.0), 0.45);
+          gl_FragColor = vec4(mist, alpha * 0.85);
         }
       `,
       transparent: true,
@@ -119,9 +116,9 @@ export class SprayParticles {
       }
     }
     
-    // Spawn new particles
+    // Spawn a light ambient mist; crest bursts come from RenderingEngine via spawnAt
     if (this.spawnTimer >= this.spawnRate) {
-      this.spawnParticles(10); // Spawn 10 particles per frame
+      this.spawnParticles(3);
       this.spawnTimer = 0;
     }
     
@@ -184,7 +181,6 @@ export class SprayParticles {
    */
   public spawnAt(position: THREE.Vector3, count: number = 5): void {
     for (let n = 0; n < count; n++) {
-      // Find inactive particle
       let particleIndex = -1;
       for (let i = 0; i < this.particleCount; i++) {
         if (this.lifetimes[i] <= 0) {
@@ -196,19 +192,18 @@ export class SprayParticles {
       if (particleIndex === -1) continue;
       
       const idx = particleIndex * 3;
-      this.positions[idx] = position.x + (Math.random() - 0.5) * 2;
-      this.positions[idx + 1] = position.y;
-      this.positions[idx + 2] = position.z + (Math.random() - 0.5) * 2;
+      this.positions[idx] = position.x + (Math.random() - 0.5) * 1.6;
+      this.positions[idx + 1] = position.y + Math.random() * 0.4;
+      this.positions[idx + 2] = position.z + (Math.random() - 0.5) * 1.6;
       
-      // Random velocity
-      const speed = 1 + Math.random() * 2;
+      const speed = 1.2 + Math.random() * 2.8;
       const angle = Math.random() * Math.PI * 2;
-      this.velocities[idx] = Math.cos(angle) * speed;
-      this.velocities[idx + 1] = 2 + Math.random() * 2;
-      this.velocities[idx + 2] = Math.sin(angle) * speed;
+      this.velocities[idx] = Math.cos(angle) * speed * 0.7;
+      this.velocities[idx + 1] = 2.5 + Math.random() * 3.5;
+      this.velocities[idx + 2] = Math.sin(angle) * speed * 0.7;
       
-      this.lifetimes[particleIndex] = 0.5 + Math.random() * 0.5;
-      this.sizes[particleIndex] = 1.0;
+      this.lifetimes[particleIndex] = 0.7 + Math.random() * 0.9;
+      this.sizes[particleIndex] = 0.8 + Math.random() * 1.4;
     }
   }
 

@@ -35,12 +35,12 @@ export class MultiScaleWaves {
   private initializeGerstnerWaves(): void {
     // Create 6-8 Gerstner waves with varying parameters
     const waveConfigs = [
-      { wavelength: 8.0, amplitude: 0.4, direction: new THREE.Vector2(1, 0), steepness: 0.5 },
-      { wavelength: 5.0, amplitude: 0.25, direction: new THREE.Vector2(0.8, 0.6), steepness: 0.6 },
-      { wavelength: 3.5, amplitude: 0.15, direction: new THREE.Vector2(-0.7, 0.7), steepness: 0.4 },
-      { wavelength: 2.0, amplitude: 0.08, direction: new THREE.Vector2(0.5, -0.9), steepness: 0.3 },
-      { wavelength: 1.2, amplitude: 0.04, direction: new THREE.Vector2(-0.9, -0.4), steepness: 0.2 },
-      { wavelength: 0.8, amplitude: 0.02, direction: new THREE.Vector2(0.3, 0.95), steepness: 0.15 },
+      { wavelength: 8.0, amplitude: 0.55, direction: new THREE.Vector2(1, 0), steepness: 0.55 },
+      { wavelength: 5.0, amplitude: 0.35, direction: new THREE.Vector2(0.8, 0.6), steepness: 0.65 },
+      { wavelength: 3.5, amplitude: 0.22, direction: new THREE.Vector2(-0.7, 0.7), steepness: 0.45 },
+      { wavelength: 2.0, amplitude: 0.12, direction: new THREE.Vector2(0.5, -0.9), steepness: 0.35 },
+      { wavelength: 1.2, amplitude: 0.06, direction: new THREE.Vector2(-0.9, -0.4), steepness: 0.25 },
+      { wavelength: 0.8, amplitude: 0.035, direction: new THREE.Vector2(0.3, 0.95), steepness: 0.18 },
     ];
 
     for (const config of waveConfigs) {
@@ -79,28 +79,28 @@ export class MultiScaleWaves {
         vec3 offset = vec3(0.0);
         
         // Wave 1
-        offset += gerstnerWave(position, 8.0, 0.4, ${this.gerstnerWaves[0]?.speed || 3.5}, 
-                               vec2(1.0, 0.0), 0.5, time);
+        offset += gerstnerWave(position, 8.0, 0.55, ${this.gerstnerWaves[0]?.speed || 3.5}, 
+                               vec2(1.0, 0.0), 0.55, time);
         
         // Wave 2
-        offset += gerstnerWave(position, 5.0, 0.25, ${this.gerstnerWaves[1]?.speed || 2.8}, 
-                               vec2(0.8, 0.6), 0.6, time);
+        offset += gerstnerWave(position, 5.0, 0.35, ${this.gerstnerWaves[1]?.speed || 2.8}, 
+                               vec2(0.8, 0.6), 0.65, time);
         
         // Wave 3
-        offset += gerstnerWave(position, 3.5, 0.15, ${this.gerstnerWaves[2]?.speed || 2.3}, 
-                               vec2(-0.7, 0.7), 0.4, time);
+        offset += gerstnerWave(position, 3.5, 0.22, ${this.gerstnerWaves[2]?.speed || 2.3}, 
+                               vec2(-0.7, 0.7), 0.45, time);
         
         // Wave 4
-        offset += gerstnerWave(position, 2.0, 0.08, ${this.gerstnerWaves[3]?.speed || 1.75}, 
-                               vec2(0.5, -0.9), 0.3, time);
+        offset += gerstnerWave(position, 2.0, 0.12, ${this.gerstnerWaves[3]?.speed || 1.75}, 
+                               vec2(0.5, -0.9), 0.35, time);
         
         // Wave 5
-        offset += gerstnerWave(position, 1.2, 0.04, ${this.gerstnerWaves[4]?.speed || 1.35}, 
-                               vec2(-0.9, -0.4), 0.2, time);
+        offset += gerstnerWave(position, 1.2, 0.06, ${this.gerstnerWaves[4]?.speed || 1.35}, 
+                               vec2(-0.9, -0.4), 0.25, time);
         
         // Wave 6
-        offset += gerstnerWave(position, 0.8, 0.02, ${this.gerstnerWaves[5]?.speed || 1.1}, 
-                               vec2(0.3, 0.95), 0.15, time);
+        offset += gerstnerWave(position, 0.8, 0.035, ${this.gerstnerWaves[5]?.speed || 1.1}, 
+                               vec2(0.3, 0.95), 0.18, time);
         
         return offset;
       }
@@ -162,7 +162,7 @@ export class MultiScaleWaves {
         float ripples = (ripple1 + ripple2) * 0.5;
         
         // Scale to small amplitude
-        return (ripples - 0.5) * 0.08;
+        return (ripples - 0.5) * 0.12;
       }
     `;
   }

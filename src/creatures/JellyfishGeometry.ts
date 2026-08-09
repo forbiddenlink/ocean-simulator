@@ -148,8 +148,8 @@ export class JellyfishGeometry {
       // Most jellyfish have dome-shaped bells
       geometry = new THREE.SphereGeometry(
         size / 2,
-        32,
-        32,
+        48,
+        40,
         0,
         Math.PI * 2,
         0,
@@ -172,7 +172,7 @@ export class JellyfishGeometry {
       // Bioluminescent self-glow — without emissive the bell was a flat pale disc in
       // the dim deep. This makes it a luminous, cinematic jelly that reads as alive.
       emissive: new THREE.Color(colors.biolum),
-      emissiveIntensity: 0.9,
+      emissiveIntensity: 1.35,
     });
 
     // Fresnel edge glow: brighten the rim of the bell (classic backlit-jelly look).

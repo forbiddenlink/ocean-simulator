@@ -102,6 +102,8 @@ export class UnderwaterParticles {
       uniforms: {
         time: { value: 0 },
         cameraPosition: { value: new THREE.Vector3() },
+        sunDirection: { value: new THREE.Vector3(0.3, 1.0, 0.2).normalize() },
+        dayFactor: { value: 1.0 },
       },
       vertexShader: `
         attribute float scale;
@@ -110,30 +112,36 @@ export class UnderwaterParticles {
         varying vec3 vColor;
         varying float vAlpha;
         varying float vScale;
+        varying vec3 vWorldPos;
 
         uniform float time;
+        uniform vec3 sunDirection;
+        uniform float dayFactor;
 
         void main() {
           vColor = color;
           vScale = scale;
+          vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
 
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
 
-          // Distance fade - particles visible further away
           float distance = length(mvPosition.xyz);
           vAlpha = smoothstep(80.0, 15.0, distance);
 
-          // Depth fade (particles fade near surface but visible throughout water column)
           float depthFade = smoothstep(-1.0, -6.0, position.y);
           vAlpha *= depthFade;
 
-          // Scale based on size attribute - larger particles for marine snow
-          // Use perspective-correct sizing
-          float perspectiveScale = 350.0 / max(-mvPosition.z, 1.0);
-          gl_PointSize = scale * 6.5 * perspectiveScale;
+          // Sparkle when a particle sits in a caustic lobe / shaft path
+          vec2 cuv = vWorldPos.xz * 0.16;
+          float caus = sin(cuv.x * 3.2 + sin(cuv.y * 1.7 + time) * 1.5 + time)
+                     * sin(cuv.y * 3.0 + cos(cuv.x * 1.9 - time * 0.8) * 1.5 + time * 1.1);
+          caus = smoothstep(0.25, 0.95, caus * 0.5 + 0.5);
+          float sunLit = max(0.0, sunDirection.y);
+          vAlpha *= 0.75 + 0.55 * caus * dayFactor * sunLit;
 
-          // Clamp to reasonable range
-          gl_PointSize = clamp(gl_PointSize, 1.0, 12.0);
+          float perspectiveScale = 350.0 / max(-mvPosition.z, 1.0);
+          gl_PointSize = scale * 6.5 * perspectiveScale * (1.0 + caus * 0.35 * dayFactor);
+          gl_PointSize = clamp(gl_PointSize, 1.0, 14.0);
 
           gl_Position = projectionMatrix * mvPosition;
         }
@@ -144,18 +152,14 @@ export class UnderwaterParticles {
         varying float vScale;
 
         void main() {
-          // Circular particle shape with soft edge
           vec2 center = gl_PointCoord - vec2(0.5);
           float dist = length(center);
 
           if (dist > 0.5) discard;
 
-          // Softer edge falloff for larger particles (marine snow), sharper for small
           float edgeSoftness = mix(0.15, 0.35, clamp(vScale, 0.0, 1.0));
           float alpha = smoothstep(0.5, edgeSoftness, dist) * vAlpha;
-
-          // Softer marine snow — present but not a distracting field of bright dots.
-          alpha *= 0.5;
+          alpha *= 0.48;
 
           gl_FragColor = vec4(vColor, alpha);
         }
@@ -218,6 +222,12 @@ export class UnderwaterParticles {
     }
 
     this.particleGeometry.attributes.position.needsUpdate = true;
+  }
+
+  /** Sync particle sparkle with sun / day-night so night doesn't glitter falsely. */
+  setLighting(sunDirection: THREE.Vector3, dayFactor: number): void {
+    this.particleMaterial.uniforms.sunDirection.value.copy(sunDirection).normalize();
+    this.particleMaterial.uniforms.dayFactor.value = Math.max(0, dayFactor);
   }
 
   /**

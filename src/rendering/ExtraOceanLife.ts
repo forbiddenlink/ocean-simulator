@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { mergeBufferGeometries } from 'three-stdlib';
+import { sampleSandHeight } from './RealisticOceanFloor';
+import { CoralFormations } from './CoralFormations';
 
 /**
  * Extra ocean critters: octopuses, seahorses, moray eels, lobsters, nudibranchs.
@@ -14,20 +16,20 @@ export class ExtraOceanLife {
     this.group.name = 'extraOceanLife';
 
     this.spawnOctopuses(floorDepth, 6);
-    this.spawnSeahorses(floorDepth, 14);
+    this.spawnSeahorses(floorDepth, 16);
     this.spawnMorayEels(floorDepth, 8);
-    this.spawnLobsters(floorDepth, 10);
-    this.spawnNudibranchs(floorDepth, 18);
+    this.spawnLobsters(floorDepth, 12);
+    this.spawnNudibranchs(floorDepth, 22);
     this.spawnAnglerfish(floorDepth, 6);
     this.spawnSquids(floorDepth, 6);
     this.spawnPufferfish(floorDepth, 9);
     this.spawnSeaSnakes(floorDepth, 6);
     this.spawnNautiluses(floorDepth, 5);
-    this.spawnGiantClams(floorDepth, 10);
-    this.spawnSeaCucumbers(floorDepth, 12);
+    this.spawnGiantClams(floorDepth, 14);
+    this.spawnSeaCucumbers(floorDepth, 14);
     this.spawnCuttlefish(floorDepth, 5);
     this.spawnCombJellies(floorDepth, 10);
-    this.spawnHermitCrabs(floorDepth, 10);
+    this.spawnHermitCrabs(floorDepth, 12);
 
     // Collapse each creature's many small parts into one mesh per material. This is a pure
     // draw-call optimization — identical geometry, far fewer objects — which matters because
@@ -35,6 +37,24 @@ export class ExtraOceanLife {
     this.optimizeDrawCalls();
 
     scene.add(this.group);
+  }
+
+  /** Place floor-dwellers on sand, preferring reef patches when available. */
+  private floorSpot(floorY: number, spread = 85): THREE.Vector3 {
+    const patches = CoralFormations.lastReefPatches;
+    let x: number;
+    let z: number;
+    if (patches.length && Math.random() < 0.7) {
+      const p = patches[Math.floor(Math.random() * patches.length)];
+      const a = Math.random() * Math.PI * 2;
+      const d = Math.random() * (p.radius + 6);
+      x = p.x + Math.cos(a) * d;
+      z = p.z + Math.sin(a) * d;
+    } else {
+      x = (Math.random() - 0.5) * spread;
+      z = (Math.random() - 0.5) * spread;
+    }
+    return new THREE.Vector3(x, floorY + sampleSandHeight(x, z) + 0.15, z);
   }
 
   /**
@@ -227,6 +247,7 @@ export class ExtraOceanLife {
         uniform float amplitude;
         uniform float freq;
         varying vec3 vNormal;
+        varying vec3 vWorldPos;
         varying float vY;
         void main() {
           vec3 p = position;
@@ -234,6 +255,7 @@ export class ExtraOceanLife {
           p.x += wave * 0.5;
           p.z += wave * 0.4;
           vNormal = normalize(normalMatrix * normal);
+          vWorldPos = (modelMatrix * vec4(p, 1.0)).xyz;
           vY = p.y;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
         }
@@ -241,19 +263,54 @@ export class ExtraOceanLife {
       fragmentShader: /* glsl */ `
         uniform vec3 baseColor;
         varying vec3 vNormal;
+        varying vec3 vWorldPos;
         varying float vY;
         void main() {
-          vec3 light = normalize(vec3(0.3, 1.0, 0.4));
+          vec3 light = normalize(vec3(0.25, 1.0, 0.35));
           float d = max(dot(vNormal, light), 0.0);
-          vec3 col = baseColor * (0.45 + 0.7 * d);
-          // subtle highlight at top
-          col += vec3(0.06) * smoothstep(0.0, 1.5, vY);
+          float rim = pow(1.0 - max(dot(vNormal, vec3(0.0, 0.0, 1.0)), 0.0), 2.4);
+          // Mantle mottling
+          float mott = sin(vWorldPos.x * 4.2) * sin(vWorldPos.z * 3.6 + vY * 2.0);
+          mott = smoothstep(-0.2, 0.55, mott);
+          vec3 col = baseColor * (0.38 + 0.78 * d);
+          col = mix(col * 0.78, col * 1.18, mott);
+          col += vec3(0.12, 0.28, 0.36) * rim * 0.55;
+          col += vec3(0.08) * smoothstep(0.0, 1.5, vY);
+          // Wet specular kick
+          float spec = pow(max(dot(reflect(-light, vNormal), vec3(0.0, 0.2, 1.0)), 0.0), 48.0);
+          col += vec3(0.55, 0.72, 0.85) * spec * 0.45;
           gl_FragColor = vec4(col, 1.0);
         }
       `,
     });
     this.animatedMaterials.push(mat);
     return mat;
+  }
+
+  /** Wet Physical material helper for ambient reef critters. */
+  private wetMat(color: number | THREE.Color, opts: {
+    roughness?: number;
+    metalness?: number;
+    clearcoat?: number;
+    emissive?: number;
+    emissiveIntensity?: number;
+    iridescence?: number;
+  } = {}): THREE.MeshPhysicalMaterial {
+    return new THREE.MeshPhysicalMaterial({
+      color,
+      roughness: opts.roughness ?? 0.45,
+      metalness: opts.metalness ?? 0.08,
+      clearcoat: opts.clearcoat ?? 0.45,
+      clearcoatRoughness: 0.22,
+      emissive: new THREE.Color(opts.emissive ?? 0x000000),
+      emissiveIntensity: opts.emissiveIntensity ?? 0,
+      iridescence: opts.iridescence ?? 0,
+      iridescenceIOR: 1.33,
+      iridescenceThicknessRange: [80, 280],
+      sheen: 0.2,
+      sheenRoughness: 0.4,
+      sheenColor: new THREE.Color(0x6699aa),
+    });
   }
 
   // === OCTOPUS — body + 8 tentacles with rippling wave animation ===
@@ -363,12 +420,11 @@ export class ExtraOceanLife {
     }
   }
 
-  // === COMB JELLY (ctenophore) — translucent oval with 8 glowing cilia rows ===
+  // === COMB JELLY (ctenophore) — translucent oval with 8 rainbow-cilia rows ===
   private spawnCombJellies(floorY: number, count: number): void {
     for (let i = 0; i < count; i++) {
       const jelly = new THREE.Group();
 
-      // Translucent body.
       const body = new THREE.Mesh(
         new THREE.SphereGeometry(0.4, 16, 14),
         new THREE.MeshPhysicalMaterial({
@@ -384,12 +440,42 @@ export class ExtraOceanLife {
       body.scale.set(0.8, 1.3, 0.8);
       jelly.add(body);
 
-      // 8 glowing comb rows running pole-to-pole (unlit bright strips -> bloom + biolume).
-      const rowMat = new THREE.MeshBasicMaterial({ color: 0x9affe0 });
+      // Iridescent comb rows — hue-cycling ShaderMaterial so cilia shimmer like real CTENES
+      const rowMat = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        uniforms: {
+          time: { value: 0 },
+          phase: { value: Math.random() * Math.PI * 2 },
+        },
+        vertexShader: /* glsl */ `
+          varying float vY;
+          void main() {
+            vY = position.y;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          uniform float time;
+          uniform float phase;
+          varying float vY;
+          void main() {
+            float hue = fract(vY * 0.55 + time * 0.35 + phase);
+            // Cheap HSV→RGB rainbow for comb-row bioluminescence
+            vec3 rgb = clamp(abs(mod(hue * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+            float pulse = 0.65 + 0.35 * sin(time * 2.4 + vY * 8.0 + phase);
+            gl_FragColor = vec4(rgb * 1.15, 0.85 * pulse);
+          }
+        `,
+      });
+      this.animatedMaterials.push(rowMat);
+
       for (let r = 0; r < 8; r++) {
         const ang = (r / 8) * Math.PI * 2;
         const row = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.0, 0.06), rowMat);
         row.position.set(Math.cos(ang) * 0.33, 0, Math.sin(ang) * 0.33);
+        row.userData.noMerge = true;
         jelly.add(row);
       }
 
@@ -405,9 +491,9 @@ export class ExtraOceanLife {
   private spawnHermitCrabs(floorY: number, count: number): void {
     for (let i = 0; i < count; i++) {
       const crab = new THREE.Group();
-      const shellA = new THREE.MeshStandardMaterial({ color: 0xcaa877, roughness: 0.7 });
-      const shellB = new THREE.MeshStandardMaterial({ color: 0x8a5a35, roughness: 0.7 });
-      const bodyMat = new THREE.MeshStandardMaterial({ color: 0xb0503a, roughness: 0.6, metalness: 0.1 });
+      const shellA = this.wetMat(0xcaa877, { roughness: 0.55 });
+      const shellB = this.wetMat(0x8a5a35, { roughness: 0.55 });
+      const bodyMat = this.wetMat(0xb0503a, { roughness: 0.45, metalness: 0.12, clearcoat: 0.35 });
 
       // Coiled shell (small spiral of chambers).
       const turns = 8;
@@ -446,7 +532,7 @@ export class ExtraOceanLife {
         crab.add(claw);
       }
 
-      crab.position.set((Math.random() - 0.5) * 85, floorY + 0.2, (Math.random() - 0.5) * 85);
+      crab.position.copy(this.floorSpot(floorY));
       crab.rotation.y = Math.random() * Math.PI * 2;
       crab.scale.setScalar(0.6 + Math.random() * 0.5);
       crab.userData.kind = 'hermitcrab';
@@ -458,8 +544,8 @@ export class ExtraOceanLife {
   private spawnNautiluses(floorY: number, count: number): void {
     for (let i = 0; i < count; i++) {
       const naut = new THREE.Group();
-      const shellA = new THREE.MeshStandardMaterial({ color: 0xf3ead2, roughness: 0.55, metalness: 0.05 });
-      const shellB = new THREE.MeshStandardMaterial({ color: 0xb5502f, roughness: 0.55, metalness: 0.05 });
+      const shellA = this.wetMat(0xf3ead2, { roughness: 0.42, clearcoat: 0.4 });
+      const shellB = this.wetMat(0xb5502f, { roughness: 0.42, clearcoat: 0.4 });
 
       // Logarithmic spiral of shrinking spheres forming the coiled shell.
       const turns = 18;
@@ -474,7 +560,7 @@ export class ExtraOceanLife {
       }
 
       // Tentacle cluster + hood at the shell opening.
-      const flesh = new THREE.MeshStandardMaterial({ color: 0xd9a07a, roughness: 0.6 });
+      const flesh = this.wetMat(0xd9a07a, { roughness: 0.4, clearcoat: 0.5, iridescence: 0.2 });
       const hood = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 10), flesh);
       hood.position.set(0.95, -0.2, 0);
       hood.scale.set(0.9, 0.8, 0.6);
@@ -501,12 +587,13 @@ export class ExtraOceanLife {
     const mantleColors = [0x2a9d8f, 0x4361a8, 0x8a4fa0, 0x2a8fb0, 0x3aa06a];
     for (let i = 0; i < count; i++) {
       const clam = new THREE.Group();
-      const shellMat = new THREE.MeshStandardMaterial({ color: 0xdad2c0, roughness: 0.8, metalness: 0.05 });
-      const mantleMat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(mantleColors[i % mantleColors.length]),
-        roughness: 0.4,
-        metalness: 0.1,
-        emissive: new THREE.Color(mantleColors[i % mantleColors.length]).multiplyScalar(0.15),
+      const shellMat = this.wetMat(0xdad2c0, { roughness: 0.65, clearcoat: 0.25 });
+      const mantleMat = this.wetMat(mantleColors[i % mantleColors.length], {
+        roughness: 0.32,
+        clearcoat: 0.55,
+        emissive: mantleColors[i % mantleColors.length],
+        emissiveIntensity: 0.28,
+        iridescence: 0.45,
       });
 
       // Two fluted half-shells (open like a clam), built from a ridged half-sphere.
@@ -538,7 +625,7 @@ export class ExtraOceanLife {
       lip.position.y = 0.32;
       clam.add(lip);
 
-      clam.position.set((Math.random() - 0.5) * 85, floorY + 0.2, (Math.random() - 0.5) * 85);
+      clam.position.copy(this.floorSpot(floorY));
       clam.rotation.y = Math.random() * Math.PI * 2;
       clam.scale.setScalar(0.6 + Math.random() * 0.8);
       clam.userData.kind = 'giantclam';
@@ -551,11 +638,7 @@ export class ExtraOceanLife {
     const cukeColors = [0x7a3b2e, 0x5a4a2a, 0x8a5a3a, 0x4a3a4a, 0x9a6a4a];
     for (let i = 0; i < count; i++) {
       const cuke = new THREE.Group();
-      const mat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(cukeColors[i % cukeColors.length]),
-        roughness: 0.85,
-        metalness: 0.0,
-      });
+      const mat = this.wetMat(cukeColors[i % cukeColors.length], { roughness: 0.72, clearcoat: 0.2 });
 
       // Bumpy tube: a stretched, noisy sphere.
       const geo = new THREE.SphereGeometry(0.35, 16, 12);
@@ -572,14 +655,17 @@ export class ExtraOceanLife {
       cuke.add(body);
 
       // A few tube-feet / papillae bumps on top.
-      const footMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(cukeColors[i % cukeColors.length]).multiplyScalar(1.3), roughness: 0.8 });
+      const footMat = this.wetMat(
+        new THREE.Color(cukeColors[i % cukeColors.length]).multiplyScalar(1.3),
+        { roughness: 0.7, clearcoat: 0.15 }
+      );
       for (let f = 0; f < 8; f++) {
         const foot = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.14, 5), footMat);
         foot.position.set((f / 7 - 0.5) * 1.5, 0.28, (Math.random() - 0.5) * 0.3);
         cuke.add(foot);
       }
 
-      cuke.position.set((Math.random() - 0.5) * 85, floorY + 0.25, (Math.random() - 0.5) * 85);
+      cuke.position.copy(this.floorSpot(floorY));
       cuke.rotation.y = Math.random() * Math.PI * 2;
       cuke.scale.setScalar(0.6 + Math.random() * 0.6);
       cuke.userData.kind = 'seacucumber';
@@ -648,13 +734,13 @@ export class ExtraOceanLife {
     for (let i = 0; i < count; i++) {
       const puffer = new THREE.Group();
       const color = new THREE.Color(pufferColors[i % pufferColors.length]);
-      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.05 });
+      const mat = this.wetMat(color, { roughness: 0.4, clearcoat: 0.55, iridescence: 0.25 });
 
       const body = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 14), mat);
       puffer.add(body);
 
       // Spikes distributed over the sphere (fibonacci-ish).
-      const spikeMat = new THREE.MeshStandardMaterial({ color: color.clone().multiplyScalar(0.8), roughness: 0.7 });
+      const spikeMat = this.wetMat(color.clone().multiplyScalar(0.8), { roughness: 0.55, clearcoat: 0.3 });
       const spikeCount = 60;
       for (let s = 0; s < spikeCount; s++) {
         const phi = Math.acos(1 - (2 * (s + 0.5)) / spikeCount);
@@ -693,8 +779,8 @@ export class ExtraOceanLife {
       const baseHue = 0.12 + Math.random() * 0.5;
       const bandA = new THREE.Color().setHSL(baseHue, 0.5, 0.5);
       const bandB = new THREE.Color(0x1a1a22);
-      const matA = new THREE.MeshStandardMaterial({ color: bandA, roughness: 0.5, metalness: 0.1 });
-      const matB = new THREE.MeshStandardMaterial({ color: bandB, roughness: 0.5, metalness: 0.1 });
+      const matA = this.wetMat(bandA, { roughness: 0.38, clearcoat: 0.5, metalness: 0.12 });
+      const matB = this.wetMat(bandB, { roughness: 0.38, clearcoat: 0.5, metalness: 0.12 });
 
       const segCount = 16;
       for (let s = 0; s < segCount; s++) {
@@ -730,9 +816,7 @@ export class ExtraOceanLife {
     for (let i = 0; i < count; i++) {
       const sh = new THREE.Group();
       const color = new THREE.Color(seahorseColors[i % seahorseColors.length]);
-      const mat = new THREE.MeshStandardMaterial({
-        color, roughness: 0.55, metalness: 0.15,
-      });
+      const mat = this.wetMat(color, { roughness: 0.4, metalness: 0.18, clearcoat: 0.55, iridescence: 0.2 });
 
       // Body — curved cylinder approximated with several stacked spheres
       const segCount = 6;
@@ -848,9 +932,7 @@ export class ExtraOceanLife {
     const lobsterColors = [0xa84028, 0x802818, 0xc05030, 0x6a3a2a];
     for (let i = 0; i < count; i++) {
       const color = new THREE.Color(lobsterColors[i % lobsterColors.length]);
-      const mat = new THREE.MeshStandardMaterial({
-        color, roughness: 0.45, metalness: 0.25,
-      });
+      const mat = this.wetMat(color, { roughness: 0.35, metalness: 0.28, clearcoat: 0.55 });
       const lob = new THREE.Group();
 
       // Body — segmented
@@ -908,11 +990,7 @@ export class ExtraOceanLife {
         lob.add(eye);
       }
 
-      lob.position.set(
-        (Math.random() - 0.5) * 78,
-        floorY + 0.35,
-        (Math.random() - 0.5) * 78
-      );
+      lob.position.copy(this.floorSpot(floorY));
       lob.rotation.y = Math.random() * Math.PI * 2;
       const scale = 0.55 + Math.random() * 0.45;
       lob.scale.setScalar(scale);
@@ -930,17 +1008,19 @@ export class ExtraOceanLife {
     for (let i = 0; i < count; i++) {
       const color = new THREE.Color(nudiColors[i % nudiColors.length]);
       const accentColor = new THREE.Color(nudiColors[(i + 3) % nudiColors.length]);
-      const mat = new THREE.MeshStandardMaterial({
-        color,
-        roughness: 0.3,
-        metalness: 0.05,
-        emissive: color.clone().multiplyScalar(0.15),
+      const mat = this.wetMat(color, {
+        roughness: 0.28,
+        clearcoat: 0.6,
+        emissive: color.getHex(),
+        emissiveIntensity: 0.22,
+        iridescence: 0.35,
       });
-      const accentMat = new THREE.MeshStandardMaterial({
-        color: accentColor,
-        roughness: 0.25,
-        metalness: 0.1,
-        emissive: accentColor.clone().multiplyScalar(0.2),
+      const accentMat = this.wetMat(accentColor, {
+        roughness: 0.22,
+        clearcoat: 0.65,
+        emissive: accentColor.getHex(),
+        emissiveIntensity: 0.28,
+        iridescence: 0.4,
       });
 
       const nud = new THREE.Group();
@@ -971,11 +1051,7 @@ export class ExtraOceanLife {
         nud.add(rh);
       }
 
-      nud.position.set(
-        (Math.random() - 0.5) * 80,
-        floorY + 0.12,
-        (Math.random() - 0.5) * 80
-      );
+      nud.position.copy(this.floorSpot(floorY));
       nud.rotation.y = Math.random() * Math.PI * 2;
       const scale = 0.55 + Math.random() * 0.5;
       nud.scale.setScalar(scale);

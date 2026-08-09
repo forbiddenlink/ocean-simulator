@@ -3,18 +3,18 @@ import { Position, Velocity } from '../components/Transform';
 import { Health, Energy, CreatureType } from '../components/Biology';
 import type { OceanWorld } from '../core/World';
 
-// Population limits per species type
+// Population limits per species type — high enough for dense bait balls + hunt drama
 const POPULATION_LIMITS = {
-  fish: 100,
-  shark: 8,
-  dolphin: 12,
-  jellyfish: 30,
-  ray: 15,
-  turtle: 6,
-  crab: 20,
-  starfish: 15,
-  urchin: 15,
-  whale: 3
+  fish: 520,
+  shark: 18,
+  dolphin: 36,
+  jellyfish: 48,
+  ray: 18,
+  turtle: 14,
+  crab: 45,
+  starfish: 30,
+  urchin: 22,
+  whale: 5
 };
 
 // Spawning configuration

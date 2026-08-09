@@ -67,7 +67,9 @@ const underwaterColorGradingShader = /* glsl */ `
     // position, growing with the distance-scatter term — light diffusing through the
     // water column. The single biggest "there is a sun up there" atmosphere cue.
     float sunUvDist = distance(uv, sunScreenPos);
-    float inscatter = exp(-sunUvDist * sunUvDist * 2.4) * (0.35 + 0.65 * scatterFactor);
+    float inscatter = exp(-sunUvDist * sunUvDist * 1.9) * (0.4 + 0.6 * scatterFactor);
+    // Wider soft corona so looking toward the surface always feels lit
+    inscatter += exp(-sunUvDist * sunUvDist * 8.0) * 0.35;
     color += inscatterColor * inscatter * inscatterStrength;
 
     // Camera-depth exposure falloff — deeper = darker overall.
@@ -98,8 +100,8 @@ class UnderwaterColorGradingEffect extends Effect {
         ['depthDesat', new THREE.Uniform(0.35)],
         ['scatterColor', new THREE.Uniform(new THREE.Color(0.06, 0.26, 0.36))],
         ['sunScreenPos', new THREE.Uniform(new THREE.Vector2(0.5, 0.12))],
-        ['inscatterColor', new THREE.Uniform(new THREE.Color(0.55, 0.72, 0.78))],
-        ['inscatterStrength', new THREE.Uniform(0.5)],
+        ['inscatterColor', new THREE.Uniform(new THREE.Color(0.62, 0.78, 0.85))],
+        ['inscatterStrength', new THREE.Uniform(0.72)],
       ]),
     });
   }
@@ -299,6 +301,14 @@ export class PostProcessingPipeline {
     ((this.underwaterColorGrading.uniforms.get('scatterColor') as THREE.Uniform).value as THREE.Color).setHex(hex);
   }
 
+  setInscatterStrength(strength: number): void {
+    (this.underwaterColorGrading.uniforms.get('inscatterStrength') as THREE.Uniform).value = strength;
+  }
+
+  setInscatterColor(hex: number): void {
+    ((this.underwaterColorGrading.uniforms.get('inscatterColor') as THREE.Uniform).value as THREE.Color).setHex(hex);
+  }
+
   setVignette(offset: number, darkness: number): void {
     this.vignetteEffect.offset = offset;
     this.vignetteEffect.darkness = darkness;
@@ -316,6 +326,10 @@ export class PostProcessingPipeline {
   /** Focus the DOF on a world-space distance (e.g. the creature the camera looks at). */
   setDofFocus(worldDistance: number): void {
     this.dofEffect.cocMaterial.worldFocusDistance = worldDistance;
+  }
+
+  setDofBokeh(scale: number): void {
+    this.dofEffect.bokehScale = scale;
   }
 
   setGodRaysEnabled(_enabled: boolean): void {

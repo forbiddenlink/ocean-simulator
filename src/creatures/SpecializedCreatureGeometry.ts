@@ -296,44 +296,115 @@ export class SpecializedCreatureGeometry {
     return geometry;
   }
 
-  private static createSharkHead(length: number, _species: string): THREE.Group {
+  private static createSharkHead(length: number, species: string): THREE.Group {
     const headGroup = new THREE.Group();
     const headSize = length * 0.22;
 
-    // Eyes (smaller, more menacing)
-    const eyeSize = headSize * 0.12;
-    const eyeLeft = this.createSimpleEye(eyeSize, 0.05); // Darker eye
-    eyeLeft.position.set(headSize * 0.4, headSize * 0.3, headSize * 0.7);
+    // Eyes (sclera + iris + pupil)
+    const eyeSize = headSize * 0.13;
+    const eyeLeft = this.createDetailedEye(eyeSize, 0.42);
+    eyeLeft.position.set(headSize * 0.35, headSize * 0.28, headSize * 0.72);
     headGroup.add(eyeLeft);
 
-    const eyeRight = eyeLeft.clone();
-    eyeRight.position.z = -headSize * 0.7;
+    const eyeRight = this.createDetailedEye(eyeSize, 0.42);
+    eyeRight.position.set(headSize * 0.35, headSize * 0.28, -headSize * 0.72);
+    eyeRight.scale.z = -1;
     headGroup.add(eyeRight);
 
-    // Gill slits (5-7 vertical slits)
-    const gillCount = 5;
+    // Gill slits (5–7 vertical slits) with slight depth
+    const gillCount = species === 'great_white' ? 5 : 6;
     for (let i = 0; i < gillCount; i++) {
       const gillSlit = this.createGillSlit(headSize);
       gillSlit.position.set(
-        -headSize * 0.1 + i * headSize * 0.08,
+        -headSize * 0.12 + i * headSize * 0.075,
         0,
-        headSize * 0.6
+        headSize * 0.62
       );
       headGroup.add(gillSlit);
 
       const gillSlitRight = gillSlit.clone();
-      gillSlitRight.position.z = -headSize * 0.6;
+      gillSlitRight.position.z = -headSize * 0.62;
       headGroup.add(gillSlitRight);
     }
 
-    // Nose/snout (pointed)
-    const snout = new THREE.ConeGeometry(headSize * 0.15, headSize * 0.4, 16);
-    const snoutMesh = new THREE.Mesh(snout);
-    snoutMesh.rotation.z = Math.PI / 2;
-    snoutMesh.position.x = headSize * 0.7;
-    headGroup.add(snoutMesh);
+    // Ventral mouth opening
+    const mouth = new THREE.Mesh(
+      new THREE.SphereGeometry(headSize * 0.22, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55)
+    );
+    mouth.scale.set(1.1, 0.45, 0.85);
+    mouth.position.set(headSize * 0.55, -headSize * 0.22, 0);
+    mouth.rotation.z = 0.25;
+    mouth.name = 'gill';
+    headGroup.add(mouth);
+
+    // Upper + lower tooth rows (dark wedges along the jaw)
+    const toothCount = 9;
+    for (let i = 0; i < toothCount; i++) {
+      const t = (i / (toothCount - 1)) * 2 - 1;
+      const tooth = new THREE.Mesh(new THREE.ConeGeometry(headSize * 0.028, headSize * 0.07, 5));
+      tooth.rotation.z = Math.PI;
+      tooth.position.set(
+        headSize * 0.48 + Math.abs(t) * headSize * 0.04,
+        -headSize * 0.12,
+        t * headSize * 0.28
+      );
+      tooth.name = 'pupil';
+      headGroup.add(tooth);
+
+      const lower = tooth.clone();
+      lower.rotation.z = 0;
+      lower.position.y = -headSize * 0.28;
+      headGroup.add(lower);
+    }
+
+    // Nose/snout — hammerhead gets lateral lobes
+    if (species === 'hammerhead') {
+      const lobe = new THREE.Mesh(
+        new THREE.BoxGeometry(headSize * 0.35, headSize * 0.18, headSize * 1.55, 4, 3, 8)
+      );
+      lobe.position.set(headSize * 0.55, headSize * 0.05, 0);
+      lobe.name = 'body';
+      headGroup.add(lobe);
+    } else {
+      const snout = new THREE.ConeGeometry(headSize * 0.16, headSize * 0.45, 20);
+      const snoutMesh = new THREE.Mesh(snout);
+      snoutMesh.rotation.z = Math.PI / 2;
+      snoutMesh.position.x = headSize * 0.75;
+      snoutMesh.name = 'body';
+      headGroup.add(snoutMesh);
+    }
+
+    // Nares (nostril pits)
+    for (const side of [1, -1] as const) {
+      const nare = new THREE.Mesh(new THREE.SphereGeometry(headSize * 0.035, 8, 6));
+      nare.position.set(headSize * 0.72, -headSize * 0.02, side * headSize * 0.12);
+      nare.name = 'gill';
+      headGroup.add(nare);
+    }
 
     return headGroup;
+  }
+
+  private static createDetailedEye(size: number, pupilRatio: number): THREE.Group {
+    const eyeGroup = new THREE.Group();
+
+    const sclera = new THREE.Mesh(new THREE.SphereGeometry(size, 20, 16));
+    sclera.name = 'eye';
+    eyeGroup.add(sclera);
+
+    const iris = new THREE.Mesh(new THREE.SphereGeometry(size * 0.72, 16, 12));
+    iris.position.z = size * 0.42;
+    iris.name = 'iris';
+    eyeGroup.add(iris);
+
+    const pupil = new THREE.Mesh(
+      new THREE.SphereGeometry(size * Math.max(0.32, pupilRatio), 12, 10)
+    );
+    pupil.position.z = size * 0.62;
+    pupil.name = 'pupil';
+    eyeGroup.add(pupil);
+
+    return eyeGroup;
   }
 
   private static createHeterocercalTail(length: number): THREE.Mesh {
@@ -488,7 +559,9 @@ export class SpecializedCreatureGeometry {
     colors.fill(0.1); // Dark gill interior
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-    return new THREE.Mesh(geometry);
+    const mesh = new THREE.Mesh(geometry);
+    mesh.name = 'gill';
+    return mesh;
   }
 
   // ============ DOLPHIN GEOMETRY HELPERS ============
@@ -581,21 +654,22 @@ export class SpecializedCreatureGeometry {
     headGroup.add(rostrumMesh);
 
     // Eyes
-    const eyeSize = headSize * 0.1;
-    const eyeLeft = this.createSimpleEye(eyeSize, 0.05);
-    eyeLeft.position.set(headSize * 0.3, headSize * 0.2, headSize * 0.5);
+    const eyeSize = headSize * 0.11;
+    const eyeLeft = this.createDetailedEye(eyeSize, 0.48);
+    eyeLeft.position.set(headSize * 0.3, headSize * 0.2, headSize * 0.52);
     headGroup.add(eyeLeft);
 
-    const eyeRight = eyeLeft.clone();
-    eyeRight.position.z = -headSize * 0.5;
+    const eyeRight = this.createDetailedEye(eyeSize, 0.48);
+    eyeRight.position.set(headSize * 0.3, headSize * 0.2, -headSize * 0.52);
+    eyeRight.scale.z = -1;
     headGroup.add(eyeRight);
 
-    // Blowhole (on top of head)
-    const blowhole = new THREE.CircleGeometry(headSize * 0.05, 16);
-    const blowholeMesh = new THREE.Mesh(blowhole);
-    blowholeMesh.rotation.x = -Math.PI / 2;
-    blowholeMesh.position.set(-headSize * 0.1, headSize * 0.3, 0);
-    headGroup.add(blowholeMesh);
+    // Blowhole (on top of head) — dark pit
+    const blowhole = new THREE.Mesh(new THREE.SphereGeometry(headSize * 0.045, 12, 8));
+    blowhole.scale.set(1.4, 0.35, 0.9);
+    blowhole.position.set(-headSize * 0.1, headSize * 0.32, 0);
+    blowhole.name = 'gill';
+    headGroup.add(blowhole);
 
     return headGroup;
   }
@@ -757,7 +831,7 @@ export class SpecializedCreatureGeometry {
 
     // Eyes on top
     const eyeSize = length * 0.08;
-    const eyeLeft = this.createSimpleEye(eyeSize, 0.05);
+    const eyeLeft = this.createSimpleEye(eyeSize, 0.45);
     eyeLeft.position.set(0, length * 0.05, length * 0.15);
     headGroup.add(eyeLeft);
 
@@ -835,19 +909,22 @@ export class SpecializedCreatureGeometry {
 
     const sclera = new THREE.SphereGeometry(size, 16, 16);
     const scleraMesh = new THREE.Mesh(sclera);
+    scleraMesh.name = 'eye';
     eyeGroup.add(scleraMesh);
 
-    const pupil = new THREE.SphereGeometry(size * pupilRatio, 12, 12);
+    const pupil = new THREE.SphereGeometry(size * Math.max(0.35, pupilRatio), 12, 12);
     const pupilMesh = new THREE.Mesh(pupil);
-    pupilMesh.position.z = size * 0.5;
+    pupilMesh.position.z = size * 0.55;
+    pupilMesh.name = 'pupil';
     eyeGroup.add(pupilMesh);
 
     return eyeGroup;
   }
 
   private static mergeGroup(group: THREE.Group): THREE.BufferGeometry {
-    const geometries: THREE.BufferGeometry[] = [];
+    const geometries: { geo: THREE.BufferGeometry; name: string }[] = [];
 
+    group.updateMatrixWorld(true);
     group.traverse((child) => {
       if (child instanceof THREE.Mesh && child.geometry) {
         let geometry = child.geometry.clone();
@@ -856,10 +933,10 @@ export class SpecializedCreatureGeometry {
           geometry = geometry.toNonIndexed();
         }
 
-        child.updateMatrix();
-        geometry.applyMatrix4(child.matrix);
+        child.updateMatrixWorld(true);
+        geometry.applyMatrix4(child.matrixWorld);
 
-        geometries.push(geometry);
+        geometries.push({ geo: geometry, name: child.name || '' });
       }
     });
 
@@ -868,32 +945,58 @@ export class SpecializedCreatureGeometry {
     }
 
     let totalVertices = 0;
-    for (const geo of geometries) {
-      totalVertices += geo.getAttribute('position').count;
+    for (const item of geometries) {
+      totalVertices += item.geo.getAttribute('position').count;
     }
 
     const mergedPositions = new Float32Array(totalVertices * 3);
     const mergedColors = new Float32Array(totalVertices * 3);
+    const mergedNormals = new Float32Array(totalVertices * 3);
 
     let offset = 0;
 
-    for (const geo of geometries) {
-      const positions = geo.getAttribute('position');
-      const colors = geo.getAttribute('color');
+    for (const item of geometries) {
+      const positions = item.geo.getAttribute('position');
+      const normals = item.geo.getAttribute('normal');
+      const isPupil = item.name === 'pupil';
+      const isEye = item.name === 'eye';
+      const isIris = item.name === 'iris';
+      const isGill = item.name.includes('gill');
 
       for (let i = 0; i < positions.count; i++) {
         mergedPositions[offset * 3] = positions.getX(i);
         mergedPositions[offset * 3 + 1] = positions.getY(i);
         mergedPositions[offset * 3 + 2] = positions.getZ(i);
 
-        if (colors) {
-          mergedColors[offset * 3] = colors.getX(i);
-          mergedColors[offset * 3 + 1] = colors.getY(i);
-          mergedColors[offset * 3 + 2] = colors.getZ(i);
+        if (normals) {
+          mergedNormals[offset * 3] = normals.getX(i);
+          mergedNormals[offset * 3 + 1] = normals.getY(i);
+          mergedNormals[offset * 3 + 2] = normals.getZ(i);
+        }
+
+        const y = positions.getY(i);
+        if (isPupil) {
+          mergedColors[offset * 3] = 0.05;
+          mergedColors[offset * 3 + 1] = 0.05;
+          mergedColors[offset * 3 + 2] = 0.06;
+        } else if (isIris) {
+          mergedColors[offset * 3] = 0.55;
+          mergedColors[offset * 3 + 1] = 0.38;
+          mergedColors[offset * 3 + 2] = 0.12;
+        } else if (isEye) {
+          mergedColors[offset * 3] = 0.92;
+          mergedColors[offset * 3 + 1] = 0.94;
+          mergedColors[offset * 3 + 2] = 0.88;
+        } else if (isGill) {
+          mergedColors[offset * 3] = 0.2;
+          mergedColors[offset * 3 + 1] = 0.18;
+          mergedColors[offset * 3 + 2] = 0.2;
         } else {
-          mergedColors[offset * 3] = 0.8;
-          mergedColors[offset * 3 + 1] = 0.8;
-          mergedColors[offset * 3 + 2] = 0.8;
+          // Countershade: darker dorsum, lighter ventrum
+          const shade = y > 0 ? 0.78 : 1.15;
+          mergedColors[offset * 3] = shade * 0.95;
+          mergedColors[offset * 3 + 1] = shade;
+          mergedColors[offset * 3 + 2] = shade * 1.05;
         }
 
         offset++;
@@ -903,7 +1006,8 @@ export class SpecializedCreatureGeometry {
     const mergedGeometry = new THREE.BufferGeometry();
     mergedGeometry.setAttribute('position', new THREE.BufferAttribute(mergedPositions, 3));
     mergedGeometry.setAttribute('color', new THREE.BufferAttribute(mergedColors, 3));
-    mergedGeometry.computeVertexNormals();
+    mergedGeometry.setAttribute('normal', new THREE.BufferAttribute(mergedNormals, 3));
+    // Do NOT computeVertexNormals on the non-indexed soup — that flat-facets predators.
 
     return mergedGeometry;
   }

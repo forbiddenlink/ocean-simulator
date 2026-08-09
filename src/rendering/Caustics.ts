@@ -11,7 +11,6 @@ import * as THREE from 'three';
  * - Higher quality patterns
  */
 export class CausticsEffect {
-  private causticsTexture: THREE.WebGLRenderTarget;
   private causticsMaterial: THREE.ShaderMaterial;
   private causticsPlane: THREE.Mesh;
   private time: number = 0;
@@ -21,17 +20,10 @@ export class CausticsEffect {
   constructor(scene: THREE.Scene, _renderer: THREE.WebGLRenderer, waterHeightTexture?: THREE.Texture) {
     this.scene = scene;
     this.waterHeightTexture = waterHeightTexture;
-    
-    this.causticsTexture = new THREE.WebGLRenderTarget(2048, 2048, { // Increased resolution
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
-      format: THREE.RGBAFormat,
-    });
-    
+
     this.causticsMaterial = this.createCausticsMaterial();
     this.causticsPlane = this.createCausticsPlane();
-    
-    // Add caustics to scene
+
     scene.add(this.causticsPlane);
   }
   
@@ -39,11 +31,12 @@ export class CausticsEffect {
     return new THREE.ShaderMaterial({
       uniforms: {
         time: { value: 0 },
-        intensity: { value: 0.55 }, // Subtler caustics so they don't tile-grid
-        scale: { value: 14.0 }, // Larger organic patterns
-        speed: { value: 0.42 },
-        causticsTex: { value: null },
+        intensity: { value: 0.72 }, // Punchier dapples once wave-linked
+        scale: { value: 13.0 }, // Larger organic patterns
+        speed: { value: 0.48 },
         waterHeightMap: { value: this.waterHeightTexture || null },
+        hasWaterHeight: { value: this.waterHeightTexture ? 1.0 : 0.0 },
+        oceanSize: { value: 1200.0 },
         chromaticAberration: { value: 0.045 }, // More chromatic aberration for rainbow effect
         sunDirection: { value: new THREE.Vector3(0.5, 1.0, 0.3).normalize() },
         surfaceY: { value: 0.0 }, // Water surface Y position
@@ -67,6 +60,8 @@ export class CausticsEffect {
         uniform float scale;
         uniform float speed;
         uniform sampler2D waterHeightMap;
+        uniform float hasWaterHeight;
+        uniform float oceanSize;
         uniform float chromaticAberration;
         uniform vec3 sunDirection;
         uniform float surfaceY;
@@ -187,8 +182,21 @@ export class CausticsEffect {
           vec2 uv2 = vWorldPosition.xz * 0.07 + vec2(0.5, 0.5);
           vec2 uv3 = vWorldPosition.xz * 0.12 + vec2(0.25, 0.75); // Third layer for complexity
 
-          // Sample water surface displacement
-          float waterDisplacement = texture2D(waterHeightMap, uv1 * 0.5).r;
+          // Sample real FFT height (world XZ → ocean UV) so dapples track waves
+          float waterDisplacement = 0.0;
+          float crestBoost = 1.0;
+          if (hasWaterHeight > 0.5) {
+            vec2 oceanUv = vWorldPosition.xz / max(oceanSize, 1.0) + 0.5;
+            float h = texture2D(waterHeightMap, oceanUv).r;
+            // Finite difference for surface slope → lens focusing
+            float texel = 1.0 / 128.0;
+            float hx = texture2D(waterHeightMap, oceanUv + vec2(texel, 0.0)).r
+                     - texture2D(waterHeightMap, oceanUv - vec2(texel, 0.0)).r;
+            float hz = texture2D(waterHeightMap, oceanUv + vec2(0.0, texel)).r
+                     - texture2D(waterHeightMap, oceanUv - vec2(0.0, texel)).r;
+            waterDisplacement = h * 0.35 + length(vec2(hx, hz)) * 0.8;
+            crestBoost = 0.85 + 0.45 * smoothstep(-0.5, 1.5, h);
+          }
 
           // Domain-warp the sampling space so the voronoi lattice stops aligning to the
           // world axes — that axis-aligned regularity was the "tiled grid" read on the
@@ -200,9 +208,9 @@ export class CausticsEffect {
           );
 
           // Modulate caustics by water surface with more displacement influence
-          vec2 displacedUv1 = uv1 + waterDisplacement * 0.15 + swirl * 0.9;
-          vec2 displacedUv2 = uv2 + waterDisplacement * 0.12 + swirl * 0.75;
-          vec2 displacedUv3 = uv3 + waterDisplacement * 0.08 + swirl * 0.6;
+          vec2 displacedUv1 = uv1 + waterDisplacement * 0.28 + swirl * 0.9;
+          vec2 displacedUv2 = uv2 + waterDisplacement * 0.22 + swirl * 0.75;
+          vec2 displacedUv3 = uv3 + waterDisplacement * 0.16 + swirl * 0.6;
 
           vec3 caustics1 = causticsChromatic(displacedUv1, time);
           vec3 caustics2 = causticsChromatic(displacedUv2, time + 1.5);
@@ -210,6 +218,7 @@ export class CausticsEffect {
 
           // Combine three caustics layers for more complex patterns
           vec3 causticsColor = max(caustics1, max(caustics2 * 0.65, caustics3 * 0.4));
+          causticsColor *= crestBoost;
 
           // Apply color tint (slight blue-green for underwater)
           vec3 tint = vec3(0.75, 0.95, 1.0);
@@ -248,20 +257,42 @@ export class CausticsEffect {
   }
   
   private createCausticsPlane(): THREE.Mesh {
-    // Create a large plane to project caustics onto the ocean floor
-    const geometry = new THREE.PlaneGeometry(400, 400, 1, 1); // INCREASED size
+    // Large additive plane just above the seabed. Follows the camera on XZ in update()
+    // so dapples never end at a hard 400m edge while swimming.
+    const geometry = new THREE.PlaneGeometry(280, 280, 1, 1);
     geometry.rotateX(-Math.PI / 2);
-    geometry.translate(0, -29.5, 0); // Slightly above floor to be visible
+    geometry.translate(0, -29.45, 0);
 
     return new THREE.Mesh(geometry, this.causticsMaterial);
   }
   
   /**
-   * Update caustics animation
+   * Bind FFT ocean height so caustic filaments track real wave motion.
    */
-  public update(deltaTime: number): void {
+  public setWaterHeightMap(texture: THREE.Texture | null, oceanSize: number = 1200): void {
+    this.waterHeightTexture = texture ?? undefined;
+    this.causticsMaterial.uniforms.waterHeightMap.value = texture;
+    this.causticsMaterial.uniforms.hasWaterHeight.value = texture ? 1.0 : 0.0;
+    this.causticsMaterial.uniforms.oceanSize.value = oceanSize;
+  }
+
+  /**
+   * Sync caustic sun direction with the scene sun.
+   */
+  public setSunDirection(dir: THREE.Vector3): void {
+    this.causticsMaterial.uniforms.sunDirection.value.copy(dir).normalize();
+  }
+
+  /**
+   * Update caustics animation. Pass camera so the dapple plane tracks the player.
+   */
+  public update(deltaTime: number, camera?: THREE.Camera): void {
     this.time += deltaTime;
     this.causticsMaterial.uniforms.time.value = this.time;
+    if (camera) {
+      this.causticsPlane.position.x = camera.position.x;
+      this.causticsPlane.position.z = camera.position.z;
+    }
   }
   
   /**
@@ -282,8 +313,8 @@ export class CausticsEffect {
    * Clean up resources
    */
   public dispose(): void {
-    this.causticsTexture.dispose();
     this.causticsMaterial.dispose();
+    this.causticsPlane.geometry.dispose();
     this.scene.remove(this.causticsPlane);
   }
 }
