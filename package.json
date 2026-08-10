@@ -17,19 +17,19 @@
     "biome:format": "biome format . --write"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.6",
+    "@biomejs/biome": "^2.5.7",
     "@vitest/ui": "^4.1.10",
-    "terser": "^5.49.0",
+    "terser": "^5.49.2",
     "three-stdlib": "^2.36.1",
     "typescript": "~6.0.3",
-    "vite": "^8.1.5",
+    "vite": "^8.2.0",
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "@types/three": "^0.185.1",
+    "@types/three": "^0.185.4",
     "bitecs": "^0.4.0",
     "lil-gui": "^0.21.0",
-    "posthog-js": "^1.407.3",
+    "posthog-js": "^1.410.4",
     "postprocessing": "^6.39.4",
     "three": "^0.185.1"
   },
