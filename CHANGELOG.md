@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.0...v1.0.1) (2026-08-29)
+
+
+### Bug Fixes
+
+* **deps:** move resolution overrides to package.json and add missing patches ([#53](https://github.com/forbiddenlink/ocean-simulator/issues/53)) ([4fab7f2](https://github.com/forbiddenlink/ocean-simulator/commit/4fab7f293a0e36e92429e23a2f19c46d08e10160))
+
 ## 1.0.0 (2026-08-09)
 
 
