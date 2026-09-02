@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.2](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.1...v1.0.2) (2026-09-02)
+
+
+### Bug Fixes
+
+* **ci:** let pnpm/action-setup read the version from packageManager ([348ce1a](https://github.com/forbiddenlink/ocean-simulator/commit/348ce1a9ea16f57066f29711b6dec0fb11b548db))
+* **deps:** give every resolution override an upper bound ([b639cf2](https://github.com/forbiddenlink/ocean-simulator/commit/b639cf23a1224be9b218ad62d7dbf914738a5903))
+* **security:** pin transitive dependencies flagged by Dependabot ([1ecd24b](https://github.com/forbiddenlink/ocean-simulator/commit/1ecd24be3173a278f019f92d6b69ee74bfae886b))
+
 ## [1.0.1](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.0...v1.0.1) (2026-08-29)
 
 
