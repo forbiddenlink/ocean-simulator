@@ -26,6 +26,9 @@ importers:
       lil-gui:
         specifier: ^0.21.0
         version: 0.21.0
+      postcss:
+        specifier: '>=8.5.23 <9'
+        version: 8.5.23
       posthog-js:
         specifier: ^1.418.13
         version: 1.418.13
@@ -785,8 +788,8 @@ packages:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
 
-  postcss@8.5.26:
-    resolution: {integrity: sha512-u82N74LFzG8ca+dD8puPnplTXoGH4fTPpVGuIbt36G3qvNlkvfD0lEAZSxaly3KX8TS/L1A1gsCEmvKmBcVbkQ==}
+  postcss@8.5.23:
+    resolution: {integrity: sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg==}
     engines: {node: ^10 || ^12 || >=14}
 
   posthog-js@1.418.13:
@@ -1472,7 +1475,7 @@ snapshots:
 
   picomatch@4.0.7: {}
 
-  postcss@8.5.26:
+  postcss@8.5.23:
     dependencies:
       nanoid: 3.3.18
       picocolors: 1.1.1
@@ -1607,7 +1610,7 @@ snapshots:
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
-      postcss: 8.5.26
+      postcss: 8.5.23
       rolldown: 1.2.5
       tinyglobby: 0.2.17
     optionalDependencies:
