@@ -28,13 +28,11 @@ const SPAWN_CONFIG = {
   WELL_FED_ENERGY_THRESHOLD: 50 // Reduced from 100 - easier to be "well fed"
 };
 
-// Track spawn cooldowns
-const spawnCooldowns = new Map<number, number>();
-
 /**
  * System that manages population dynamics - birth, death, energy-based survival
  */
 export function createPopulationSystem(_world: OceanWorld, entityFactory: any) {
+  const spawnCooldowns = new Map<number, number>();
   return (world: OceanWorld) => {
     const deltaTime = world.time.delta; // Already in seconds from updateWorldTime
     const entities = query(world, [Position, Velocity, Health, Energy, CreatureType]);
@@ -53,6 +51,13 @@ export function createPopulationSystem(_world: OceanWorld, entityFactory: any) {
       whale: 0
     };
     
+    const typeNames = ['fish', 'shark', 'dolphin', 'jellyfish', 'ray', 'turtle', 'crab', 'starfish', 'urchin', 'whale'];
+    for (const eid of entities) {
+      if (Health.current[eid] <= 0 || Energy.current[eid] <= SPAWN_CONFIG.DEATH_ENERGY_THRESHOLD) continue;
+      const typeName = typeNames[CreatureType.type[eid]] as keyof typeof populations;
+      if (typeName) populations[typeName]++;
+    }
+
     const deadEntities: number[] = [];
     const spawnRequests: Array<{ type: number; variant: number; position: [number, number, number] }> = [];
     
@@ -60,10 +65,7 @@ export function createPopulationSystem(_world: OceanWorld, entityFactory: any) {
       const eid = entities[i];
       const creatureType = CreatureType.type[eid];
       
-      // Count populations
-      const typeNames = ['fish', 'shark', 'dolphin', 'jellyfish', 'ray', 'turtle', 'crab', 'starfish', 'urchin', 'whale'];
       const typeName = typeNames[creatureType] as keyof typeof populations;
-      if (typeName) populations[typeName]++;
       
       // Energy-based health effects
       const currentEnergy = Energy.current[eid];
@@ -130,6 +132,9 @@ export function createPopulationSystem(_world: OceanWorld, entityFactory: any) {
           ]
         });
         
+        // Reserve the population slot before considering the next parent.
+        populations[typeName]++;
+
         // Cost energy and set cooldown
         Energy.current[eid] -= SPAWN_CONFIG.ENERGY_COST_OF_SPAWN;
         spawnCooldowns.set(eid, SPAWN_CONFIG.SPAWN_COOLDOWN);
