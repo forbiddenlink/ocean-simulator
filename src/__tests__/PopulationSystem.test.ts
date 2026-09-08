@@ -1,138 +1,72 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { createWorld, addEntity, removeEntity, getAllEntities } from 'bitecs';
-import { Position } from '../components/Transform';
-import { Health, Energy, CreatureType, Age } from '../components/Biology';
+import { describe, it, expect } from 'vitest';
+import { query } from 'bitecs';
+import { createOceanWorld } from '../core/World';
+import * as EntityFactory from '../core/EntityFactory';
+import { CreatureType, Health, Energy } from '../components/Biology';
+import { createPopulationSystem } from '../systems/PopulationSystem';
 
-describe('PopulationSystem concepts', () => {
-  let world: any;
+function countSpecies(world: ReturnType<typeof createOceanWorld>, type: number): number {
+  return Array.from(query(world, [CreatureType])).filter(eid => CreatureType.type[eid] === type).length;
+}
 
-  beforeEach(() => {
-    world = createWorld();
+describe('PopulationSystem', () => {
+  it('keeps cooldowns across ticks without sharing them with another system', () => {
+    const world = createOceanWorld();
+    const parent = EntityFactory.createWhale(world, 0, -10, 0);
+    const firstSystem = createPopulationSystem(world, EntityFactory);
+    firstSystem(world);
+    expect(countSpecies(world, 9)).toBe(2);
+
+    // Prevent offspring reproducing so this checks the original parent's cooldown.
+    for (const eid of query(world, [CreatureType])) {
+      if (eid !== parent) Energy.current[eid] = 100;
+    }
+    firstSystem(world);
+    expect(countSpecies(world, 9)).toBe(2);
+
+    const secondSystem = createPopulationSystem(world, EntityFactory);
+    secondSystem(world);
+    expect(countSpecies(world, 9)).toBe(3);
   });
 
-  describe('entity lifecycle', () => {
-    it('should create entities with proper components', () => {
-      const eid = addEntity(world);
+  it('reserves remaining slots when multiple parents can reproduce', () => {
+    const world = createOceanWorld();
+    for (let i = 0; i < 3; i++) EntityFactory.createWhale(world, i, -10, 0);
 
-      // Set up a fish
-      Position.x[eid] = 10;
-      Position.y[eid] = -5;
-      Position.z[eid] = 20;
-      Health.current[eid] = 100;
-      Health.max[eid] = 100;
-      Energy.current[eid] = 50;
-      Energy.max[eid] = 100;
-      CreatureType.type[eid] = 0; // Fish
-      Age.current[eid] = 0;
+    createPopulationSystem(world, EntityFactory)(world);
 
-      expect(Position.x[eid]).toBe(10);
-      expect(Health.current[eid]).toBe(100);
-      expect(CreatureType.type[eid]).toBe(0);
-    });
-
-    it('should remove entities correctly', () => {
-      const eid1 = addEntity(world);
-      const eid2 = addEntity(world);
-
-      expect(getAllEntities(world).length).toBe(2);
-
-      removeEntity(world, eid1);
-
-      expect(getAllEntities(world).length).toBe(1);
-      expect(getAllEntities(world)).toContain(eid2);
-    });
+    expect(countSpecies(world, 9)).toBe(5);
   });
 
-  describe('energy mechanics', () => {
-    it('should handle energy depletion', () => {
-      const eid = addEntity(world);
-      Energy.current[eid] = 100;
-      Energy.max[eid] = 100;
-      Health.current[eid] = 100;
-      Health.max[eid] = 100;
+  it('does not reproduce when the full population is already at its cap', () => {
+    const world = createOceanWorld();
+    for (let i = 0; i < 5; i++) EntityFactory.createWhale(world, i, -10, 0);
 
-      // Simulate energy drain
-      const energyDrain = 5;
-      Energy.current[eid] -= energyDrain;
+    createPopulationSystem(world, EntityFactory)(world);
 
-      expect(Energy.current[eid]).toBe(95);
-    });
-
-    it('should cap energy at max', () => {
-      const eid = addEntity(world);
-      Energy.current[eid] = 90;
-      Energy.max[eid] = 100;
-
-      // Simulate eating (gaining energy)
-      const energyGain = 50;
-      Energy.current[eid] = Math.min(Energy.max[eid], Energy.current[eid] + energyGain);
-
-      expect(Energy.current[eid]).toBe(100); // Capped at max
-    });
-
-    it('should handle starvation damage when energy is low', () => {
-      const eid = addEntity(world);
-      Energy.current[eid] = 10; // Below starvation threshold (20)
-      Energy.max[eid] = 100;
-      Health.current[eid] = 100;
-      Health.max[eid] = 100;
-
-      // Simulate starvation damage (0.5 dmg/sec, 1 second delta)
-      const starvationThreshold = 20;
-      const starvationDamage = 0.5;
-
-      if (Energy.current[eid] < starvationThreshold) {
-        Health.current[eid] -= starvationDamage;
-      }
-
-      expect(Health.current[eid]).toBe(99.5);
-    });
+    expect(countSpecies(world, 9)).toBe(5);
   });
 
-  describe('health mechanics', () => {
-    it('should mark entity for removal when health reaches zero', () => {
-      const eid = addEntity(world);
-      Health.current[eid] = 5;
-      Health.max[eid] = 100;
+  it('reserves births independently for each species', () => {
+    const world = createOceanWorld();
+    for (let i = 0; i < 4; i++) EntityFactory.createWhale(world, i, -10, 0);
+    for (let i = 0; i < 17; i++) EntityFactory.createShark(world, i, -10, 0);
 
-      // Simulate damage
-      Health.current[eid] -= 10;
+    createPopulationSystem(world, EntityFactory)(world);
 
-      const isDead = Health.current[eid] <= 0;
-      expect(isDead).toBe(true);
-    });
-
-    it('should regenerate health when well-fed', () => {
-      const eid = addEntity(world);
-      Health.current[eid] = 50;
-      Health.max[eid] = 100;
-      Energy.current[eid] = 80; // Well-fed (above 50%)
-      Energy.max[eid] = 100;
-
-      // Simulate health regeneration
-      const wellFedThreshold = 0.5;
-      const regenRate = 0.1;
-
-      if (Energy.current[eid] / Energy.max[eid] > wellFedThreshold) {
-        Health.current[eid] = Math.min(Health.max[eid], Health.current[eid] + regenRate);
-      }
-
-      expect(Health.current[eid]).toBe(50.1);
-    });
+    expect(countSpecies(world, 9)).toBe(5);
+    expect(countSpecies(world, 1)).toBe(18);
   });
 
-  describe('creature types', () => {
-    it('should distinguish predators from prey', () => {
-      const shark = addEntity(world);
-      CreatureType.type[shark] = 1; // Shark
-      CreatureType.isPredator[shark] = 1;
+  it('allows a replacement for a creature removed in the same tick', () => {
+    const world = createOceanWorld();
+    for (let i = 0; i < 4; i++) EntityFactory.createWhale(world, i, -10, 0);
+    const dead = EntityFactory.createWhale(world, 0, -10, 0);
+    Health.current[dead] = 0;
 
-      const fish = addEntity(world);
-      CreatureType.type[fish] = 0; // Fish
-      CreatureType.isPredator[fish] = 0;
+    createPopulationSystem(world, EntityFactory)(world);
 
-      expect(CreatureType.isPredator[shark]).toBe(1);
-      expect(CreatureType.isPredator[fish]).toBe(0);
-    });
+    expect(countSpecies(world, 9)).toBe(5);
+    expect(Array.from(query(world, [CreatureType])).every(eid => Health.current[eid] > 0)).toBe(true);
   });
 });
