@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.3...v1.0.4) (2026-09-09)
+
+
+### Bug Fixes
+
+* enforce population limits across reproduction ticks ([#73](https://github.com/forbiddenlink/ocean-simulator/issues/73)) ([ebd46dd](https://github.com/forbiddenlink/ocean-simulator/commit/ebd46ddca4772eee5e92f1e76fd93e2ffcaae837))
+
 ## [1.0.3](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.2...v1.0.3) (2026-09-08)
 
 
