@@ -18,12 +18,12 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",
-    "@vitest/ui": "^4.1.11",
-    "terser": "^5.51.2",
-    "three-stdlib": "^2.36.1",
-    "typescript": "~7.0.2",
-    "vite": "^8.2.2",
-    "vitest": "^4.1.11"
+    "@vitest/ui": "4.1.11",
+    "terser": "5.51.2",
+    "three-stdlib": "2.36.1",
+    "typescript": "7.0.2",
+    "vite": "8.2.2",
+    "vitest": "4.1.11"
   },
   "dependencies": {
     "@types/three": "^0.185.4",
