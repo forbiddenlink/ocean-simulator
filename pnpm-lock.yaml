@@ -24,6 +24,9 @@ importers:
       bitecs:
         specifier: ^0.4.0
         version: 0.4.0
+      fflate:
+        specifier: '>=0.8.3 <0.9'
+        version: 0.8.3
       lil-gui:
         specifier: ^0.21.0
         version: 0.21.0
