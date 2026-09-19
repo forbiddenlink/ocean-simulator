@@ -7,16 +7,16 @@ caustics, AgX tonemapping).
 
 ## Stack
 
-- Three.js ^0.185, bitECS ^0.4, Vite ^8, TypeScript ~7.0 (all `^`/`~` ranges from package.json)
+- Three.js ^0.185, bitECS ^0.4, Vite 8.2.2, TypeScript 7.0.2 (Vite/TypeScript pinned exact in package.json)
 - Rendering extras: `postprocessing`, `lil-gui`, `three-stdlib`
 - Analytics: `posthog-js`
-- Package manager: pnpm (`packageManager: pnpm@10.32.1`, `pnpm-lock.yaml` present)
+- Package manager: pnpm (`packageManager: pnpm@10.34.5`, `pnpm-lock.yaml` present)
 - Biome for lint/format (not ESLint/Prettier)
 - Vitest for tests
 
 ## Commands
 
-- `pnpm run dev` - dev server (Vite, default port 5173)
+- `pnpm run dev` - dev server (Vite, port 3000 per `vite.config.ts`)
 - `pnpm run build` - `tsc && vite build`
 - `pnpm run preview` - preview the production build
 - `pnpm run test` - `vitest run`

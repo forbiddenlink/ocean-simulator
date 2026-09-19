@@ -119,8 +119,9 @@ src/
   creatures/      # Procedural geometry (fish, sharks, whales, etc.)
   rendering/      # Visual systems (ocean, lighting, particles)
   systems/        # ECS systems (movement, hunting, population)
-  shaders/        # GLSL shaders
 ```
+
+Shader code is inline GLSL strings within the TypeScript files above, not a separate directory.
 
 ## License
 
