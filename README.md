@@ -1,34 +1,34 @@
 # Ocean Ecosystem Simulator
 
-A **cinematic** real-time underwater ecosystem built with Three.js and bitECS — a moody deep-water world of hundreds of living marine creatures, volumetric god rays, and emergent schooling behaviour, running in the browser.
+A **cinematic** real-time underwater ecosystem built with Three.js and bitECS: a moody deep-water world of hundreds of living marine creatures, volumetric god rays, and emergent schooling behaviour, running in the browser.
 
-![Ocean Ecosystem Simulator — Cinematic Deep](public/og-image.png)
+![Ocean Ecosystem Simulator: Cinematic Deep](public/og-image.png)
 
-> **Hero flythrough:** an 18-second in-engine cinematic dive lives at [`public/hero.mp4`](public/hero.mp4) — surface → through the light shafts and a passing school → over the reef.
+> **Hero flythrough:** an 18-second in-engine cinematic dive lives at [`public/hero.mp4`](public/hero.mp4): surface, through the light shafts and a passing school, over the reef.
 
-## Cinematic Deep — a rendering case study
+## Cinematic Deep: a rendering case study
 
-The engine was technically strong but the art direction read flat — a bright "swimming
+The engine was technically strong but the art direction read flat, a bright "swimming
 pool," not an ocean. A ground-up **Cinematic Deep** pass rebuilt the look toward an
 Abzù-style stylized-gorgeous target. The techniques, roughly in order of impact:
 
 **Atmosphere & depth**
-- **Per-channel Beer-Lambert depth grading** — red is absorbed fastest, cyan persists, so
+- **Per-channel Beer-Lambert depth grading**: red is absorbed fastest, cyan persists, so
   distance dissolves into deep-water murk. The single biggest "ocean not pool" cue.
   (`PostProcessingPipeline` underwater grading + `WavelengthLighting` fog.)
-- **Image-based lighting** — fixed a real bug where the environment map was an empty (black)
+- **Image-based lighting**: fixed a real bug where the environment map was an empty (black)
   cube, flattening every PBR material; replaced with a PMREM underwater gradient so creatures
   pick up plausible ambient reflection. (`HDRIEnvironment`.)
-- **Depth of field** — a gentle world-focus DoF keeps mid-field crisp while the far murk
+- **Depth of field**: a gentle world-focus DoF keeps mid-field crisp while the far murk
   softens to bokeh, the depth separation that reads as *cinematic*. (`PostProcessingPipeline`,
   quality-gated.)
-- **Sun in-scattering** — a warm glow blooms around the sun's projected screen position,
+- **Sun in-scattering**: a warm glow blooms around the sun's projected screen position,
   growing with distance-scatter: light diffusing through the water column.
 
 **Light**
-- **Volumetric god-ray shafts** — additive columns descending from the surface with a
+- **Volumetric god-ray shafts**: additive columns descending from the surface with a
   warm-near-surface / cool-deep within-beam gradient and animated shimmer. (`VolumetricLightShafts`.)
-- **Organic caustics** — domain-warped voronoi light pooling on the seabed (killed a tiled-grid
+- **Organic caustics**: domain-warped voronoi light pooling on the seabed (killed a tiled-grid
   artifact) plus animated caustic dapples on the upward-facing surfaces of every creature, so
   the whole ecosystem shares one light. (`Caustics`, `BatchedMeshPool`.)
 
@@ -42,19 +42,19 @@ Abzù-style stylized-gorgeous target. The techniques, roughly in order of impact
 **Post & art direction**
 - **AgX tonemapping** (preserves teal better than ACES), film grain, chromatic aberration,
   bloom-on-highlights, vignette.
-- **Three art-directed look presets** — a single button cycles **Cinematic Deep → Bioluminescent
+- **Three art-directed look presets**: a single button cycles **Cinematic Deep → Bioluminescent
   (a midnight dive where jellies, an anglerfish lure and plankton become the only light) →
   Clean Tropical**. Each preset drives every light, fog, exposure, post parameter and freezes
   time-of-day for reproducibility. (`OceanSimulator.applyLookPreset`.)
-- **Presentation** — an auto intro flythrough (cancel-on-input, `prefers-reduced-motion` aware)
+- **Presentation**: an auto intro flythrough (cancel-on-input, `prefers-reduced-motion` aware)
   and a loading/title card.
 
 ### Engineering notes
-- **Optional GLTF creature pipeline** — drop CC0 `.glb` packs into `public/models/` to replace
+- **Optional GLTF creature pipeline**: drop CC0 `.glb` packs into `public/models/` to replace
   procedural bodies with real models (same material + AI). Inert by default. (`CreatureModelLoader`.)
-- **Draw-call optimization** — ambient creatures are merged by material at spawn, cutting the
+- **Draw-call optimization**: ambient creatures are merged by material at spawn, cutting the
   layer from ~2,200 tiny meshes to ~380 with identical geometry. (`ExtraOceanLife.optimizeDrawCalls`.)
-- **Cleanup** — removed ~1,600 lines of dead code and unused dependencies (an ~8 MB physics
+- **Cleanup**: removed ~1,600 lines of dead code and unused dependencies (an ~8 MB physics
   engine that was never imported, plus a dead file-based shader pipeline).
 
 ## Features
@@ -82,8 +82,8 @@ Abzù-style stylized-gorgeous target. The techniques, roughly in order of impact
 ## Quick Start
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 Open `http://localhost:3000`

@@ -62,7 +62,6 @@ frame. `OceanWorld` extends the bitECS world with `time`, `config`, `spatialGrid
 - `src/systems/` - FIRASystem, HuntingSystem, EnhancedMovementSystem, etc.
 - `src/components/`, `src/creatures/`, `src/spatial/`, `src/ui/`, `src/lib/`, `src/utils/`
 - `src/__tests__/` - unit tests (systems, utils)
-- `docs/`, `thoughts/` - project notes
 
 ## Conventions
 
