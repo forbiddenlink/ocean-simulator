@@ -29,6 +29,9 @@ dist-ssr
 .claude/tsc-cache/
 .claude/settings.local.json
 
+# Local symlink to CLAUDE.md for agents that look for AGENTS.md
+/AGENTS.md
+
 # Screenshots/debug images
 *.png
 

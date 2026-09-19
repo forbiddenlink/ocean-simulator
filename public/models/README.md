@@ -8,8 +8,8 @@ better than most free low-poly packs. This folder is the drop-in point when you 
 
 | Source | Verdict for this project |
 |--------|--------------------------|
-| Quaternius / poly.pizza “Animated Fish” | Stylized cartoon — usually clashes with AgX + Beer-Lambert water |
-| Photogrammetry / sculpted CC0 (real proportions) | Good — use these |
+| Quaternius / poly.pizza “Animated Fish” | Stylized cartoon, usually clashes with AgX + Beer-Lambert water |
+| Photogrammetry / sculpted CC0 (real proportions) | Good, use these |
 | Keep procedural | Best default until you have the above |
 
 ## Activating
@@ -32,9 +32,9 @@ better than most free low-poly packs. This folder is the drop-in point when you 
 
 ## Good sources (CC0 / check license per file)
 
-- [Poly Pizza](https://poly.pizza) — filter CC0; prefer higher triangle counts
-- [Sketchfab](https://sketchfab.com) — filter Downloadable + CC0
-- [Quaternius](https://quaternius.com) — great for stylized games, weak fit here
+- [Poly Pizza](https://poly.pizza): filter CC0; prefer higher triangle counts
+- [Sketchfab](https://sketchfab.com): filter Downloadable + CC0
+- [Quaternius](https://quaternius.com): great for stylized games, weak fit here
 
 ## Species keys
 
