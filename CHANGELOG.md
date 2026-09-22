@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.4...v1.0.5) (2026-09-21)
+
+
+### Bug Fixes
+
+* **deps:** drop stale package-lock.json so security alerts track the real lockfile ([#78](https://github.com/forbiddenlink/ocean-simulator/issues/78)) ([0b6043f](https://github.com/forbiddenlink/ocean-simulator/commit/0b6043fd9a1fc024137cb15566efe2ff9dc5375d))
+
 ## [1.0.4](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.3...v1.0.4) (2026-09-09)
 
 
