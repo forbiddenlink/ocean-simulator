@@ -1,15 +1,24 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { sampleSandHeight } from './RealisticOceanFloor';
 import { CoralFormations } from './CoralFormations';
 
 /**
- * Kelp forest with GPU vertex-shader sway (no per-frame CPU normal rebuilds).
+ * Kelp forest with GPU vertex-shader sway.
+ *
+ * Every blade in the forest lives in ONE merged geometry drawn with ONE material. The
+ * per-plant sway parameters that used to force a unique material — and therefore a unique
+ * compiled shader program — per blade are now vertex attributes, so the whole forest is a
+ * single draw call and a single program.
  */
 export class KelpForest {
-  private kelp: THREE.Group[] = [];
   private scene: THREE.Scene;
-  private materials: THREE.MeshPhysicalMaterial[] = [];
   private time = 0;
+
+  private bladeMesh?: THREE.Mesh;
+  private holdfastMesh?: THREE.InstancedMesh;
+  private bladderMesh?: THREE.InstancedMesh;
+  private readonly timeUniform = { value: 0 };
 
   constructor(scene: THREE.Scene, floorY: number, count: number = 70) {
     this.scene = scene;
@@ -27,6 +36,17 @@ export class KelpForest {
       patches.push({ x: reef.x + 6, z: reef.z - 4, r: reef.radius * 0.7 });
     }
 
+    const bladeGeometries: THREE.BufferGeometry[] = [];
+    const holdfastTransforms: THREE.Matrix4[] = [];
+    const bladderTransforms: THREE.Matrix4[] = [];
+
+    const plantMatrix = new THREE.Matrix4();
+    const frondMatrix = new THREE.Matrix4();
+    const localMatrix = new THREE.Matrix4();
+    const quaternion = new THREE.Quaternion();
+    const position = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+
     for (let i = 0; i < count; i++) {
       const patch = patches[i % patches.length];
       const a = Math.random() * Math.PI * 2;
@@ -36,72 +56,71 @@ export class KelpForest {
       const height = 5.5 + Math.random() * 7;
       const y = floorY + sampleSandHeight(x, z);
 
-      const plant = this.createKelpPlant(x, y, z, height);
-      this.kelp.push(plant);
-      this.scene.add(plant);
-    }
-  }
+      plantMatrix.makeTranslation(x, y, z);
 
-  private createKelpPlant(x: number, y: number, z: number, height: number): THREE.Group {
-    const group = new THREE.Group();
-    const frondCount = 5 + Math.floor(Math.random() * 5);
-    const phase = Math.random() * Math.PI * 2;
-    const swaySpeed = 0.35 + Math.random() * 0.35;
-    const swayAmount = 0.45 + Math.random() * 0.4;
+      const frondCount = 5 + Math.floor(Math.random() * 5);
+      const phase = Math.random() * Math.PI * 2;
+      const swaySpeed = 0.35 + Math.random() * 0.35;
+      const swayAmount = 0.45 + Math.random() * 0.4;
 
-    // Holdfast / root bulb
-    const holdfast = new THREE.Mesh(
-      new THREE.SphereGeometry(0.22 + Math.random() * 0.12, 10, 8),
-      new THREE.MeshPhysicalMaterial({
-        color: 0x4a3a28,
-        roughness: 0.9,
-        metalness: 0.0,
-      })
-    );
-    holdfast.scale.set(1.2, 0.55, 1.2);
-    holdfast.position.y = 0.08;
-    group.add(holdfast);
+      // Holdfast / root bulb
+      const holdfastRadius = 0.22 + Math.random() * 0.12;
+      holdfastTransforms.push(
+        new THREE.Matrix4().compose(
+          position.set(x, y + 0.08, z),
+          quaternion.identity(),
+          scale.set(holdfastRadius * 1.2, holdfastRadius * 0.55, holdfastRadius * 1.2)
+        )
+      );
 
-    for (let i = 0; i < frondCount; i++) {
-      const frond = this.createKelpFrond(height, i / frondCount, phase + i * 0.4, swaySpeed, swayAmount);
-      frond.rotation.y = (i / frondCount) * Math.PI * 2;
-      group.add(frond);
+      for (let f = 0; f < frondCount; f++) {
+        frondMatrix.makeRotationY((f / frondCount) * Math.PI * 2);
+        localMatrix.copy(plantMatrix).multiply(frondMatrix);
 
-      // Occasional pneumatocyst (float bladder) mid-frond
-      if (Math.random() < 0.35) {
-        const bladder = new THREE.Mesh(
-          new THREE.SphereGeometry(0.08 + Math.random() * 0.05, 8, 6),
-          new THREE.MeshPhysicalMaterial({
-            color: 0x6a8a4a,
-            roughness: 0.4,
-            transmission: 0.2,
-            thickness: 0.15,
-            transparent: true,
-            opacity: 0.85,
-          })
+        const blade = this.createBladeGeometry(
+          height,
+          f / frondCount,
+          phase + f * 0.4,
+          swaySpeed,
+          swayAmount
         );
-        bladder.position.set(
-          Math.sin(i) * 0.15,
-          height * (0.35 + Math.random() * 0.4),
-          Math.cos(i) * 0.15
-        );
-        group.add(bladder);
+        blade.applyMatrix4(localMatrix);
+        bladeGeometries.push(blade);
+
+        // Occasional pneumatocyst (float bladder) mid-frond
+        if (Math.random() < 0.35) {
+          const bladderRadius = 0.08 + Math.random() * 0.05;
+          bladderTransforms.push(
+            new THREE.Matrix4().compose(
+              position.set(
+                x + Math.sin(f) * 0.15,
+                y + height * (0.35 + Math.random() * 0.4),
+                z + Math.cos(f) * 0.15
+              ),
+              quaternion.identity(),
+              scale.setScalar(bladderRadius)
+            )
+          );
+        }
       }
     }
 
-    group.position.set(x, y, z);
-    group.userData.phase = phase;
-    return group;
+    this.buildBlades(bladeGeometries);
+    this.buildHoldfasts(holdfastTransforms);
+    this.buildBladders(bladderTransforms);
   }
 
-  private createKelpFrond(
+  /**
+   * One blade, in plant-local space, carrying its own sway parameters as attributes so
+   * every blade can share a single material.
+   */
+  private createBladeGeometry(
     height: number,
     offset: number,
     phase: number,
     swaySpeed: number,
     swayAmount: number
-  ): THREE.Group {
-    const frondGroup = new THREE.Group();
+  ): THREE.BufferGeometry {
     const widthBase = 0.14 + Math.random() * 0.12;
     const divisions = 28;
 
@@ -138,50 +157,60 @@ export class KelpForest {
     geometry.setIndex(indices);
     geometry.computeVertexNormals();
 
-    const kelpColors = [0x5a8751, 0x6f8171, 0x7d8e6e, 0x9b8e76, 0x7daa5a, 0x8dba6a];
-    const color = kelpColors[Math.floor(Math.random() * kelpColors.length)];
+    const vertexCount = geometry.attributes.position.count;
+    const sway = new Float32Array(vertexCount * 3);
+    for (let i = 0; i < vertexCount; i++) {
+      sway[i * 3] = phase;
+      sway[i * 3 + 1] = swaySpeed;
+      sway[i * 3 + 2] = swayAmount;
+    }
+    geometry.setAttribute('aKelpSway', new THREE.BufferAttribute(sway, 3));
+
+    return geometry;
+  }
+
+  private buildBlades(geometries: THREE.BufferGeometry[]): void {
+    if (geometries.length === 0) return;
+
+    const merged = mergeGeometries(geometries, false);
+    for (const geometry of geometries) geometry.dispose();
+    if (!merged) return;
+    merged.computeBoundingSphere();
+
     const material = new THREE.MeshPhysicalMaterial({
-      color,
+      color: 0x6f8a5c,
       side: THREE.DoubleSide,
       roughness: 0.52,
       metalness: 0.0,
       transparent: true,
       opacity: 0.84,
-      transmission: 0.34,
-      thickness: 0.22,
-      ior: 1.35,
-      attenuationColor: new THREE.Color(color),
-      attenuationDistance: 1.8,
-      emissive: new THREE.Color(color).multiplyScalar(0.12),
+      emissive: new THREE.Color(0x6f8a5c).multiplyScalar(0.12),
       emissiveIntensity: 1.0,
       clearcoat: 0.18,
       clearcoatRoughness: 0.4,
     });
 
     material.onBeforeCompile = (shader) => {
-      shader.uniforms.uKelpTime = { value: 0 };
-      shader.uniforms.uKelpPhase = { value: phase };
-      shader.uniforms.uKelpSpeed = { value: swaySpeed };
-      shader.uniforms.uKelpAmount = { value: swayAmount };
-      (material as THREE.MeshPhysicalMaterial & { userData: { kelpShader?: typeof shader } }).userData.kelpShader = shader;
+      shader.uniforms.uKelpTime = this.timeUniform;
 
       shader.vertexShader = shader.vertexShader.replace(
         '#include <common>',
         `#include <common>
 uniform float uKelpTime;
-uniform float uKelpPhase;
-uniform float uKelpSpeed;
-uniform float uKelpAmount;
+attribute vec3 aKelpSway;
 varying float vKelpTip;`
       );
       shader.vertexShader = shader.vertexShader.replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
 {
+  float kelpPhase = aKelpSway.x;
+  float kelpSpeed = aKelpSway.y;
+  float kelpAmount = aKelpSway.z;
   vKelpTip = uv.y;
   float tip = uv.y * uv.y;
-  float wave = sin(uKelpTime * uKelpSpeed + uKelpPhase + uv.y * 6.2831) * uKelpAmount;
-  float twist = cos(uKelpTime * uKelpSpeed * 0.8 + uKelpPhase) * 0.28;
+  float wave = sin(uKelpTime * kelpSpeed + kelpPhase + uv.y * 6.2831) * kelpAmount;
+  float twist = cos(uKelpTime * kelpSpeed * 0.8 + kelpPhase) * 0.28;
   transformed.x += (wave + twist * 0.35) * tip;
   transformed.z += (twist + wave * 0.4) * tip;
 }`
@@ -200,41 +229,68 @@ varying float vKelpTip;`
 }`
       );
     };
-    material.customProgramCacheKey = () => `kelp-gpu-sway-${phase.toFixed(2)}`;
-    this.materials.push(material);
+    material.customProgramCacheKey = () => 'kelp-gpu-sway';
 
-    const blade = new THREE.Mesh(geometry, material);
-    blade.castShadow = true;
-    blade.receiveShadow = true;
-    frondGroup.add(blade);
-    return frondGroup;
+    const mesh = new THREE.Mesh(merged, material);
+    mesh.name = 'kelpBlades';
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.matrixAutoUpdate = false;
+    this.bladeMesh = mesh;
+    this.scene.add(mesh);
+  }
+
+  private buildHoldfasts(transforms: THREE.Matrix4[]): void {
+    if (transforms.length === 0) return;
+    const mesh = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(1, 10, 8),
+      new THREE.MeshPhysicalMaterial({ color: 0x4a3a28, roughness: 0.9, metalness: 0.0 }),
+      transforms.length
+    );
+    mesh.name = 'kelpHoldfasts';
+    transforms.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    this.holdfastMesh = mesh;
+    this.scene.add(mesh);
+  }
+
+  private buildBladders(transforms: THREE.Matrix4[]): void {
+    if (transforms.length === 0) return;
+    const mesh = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(1, 8, 6),
+      new THREE.MeshPhysicalMaterial({
+        color: 0x6a8a4a,
+        roughness: 0.4,
+        transparent: true,
+        opacity: 0.85,
+      }),
+      transforms.length
+    );
+    mesh.name = 'kelpBladders';
+    transforms.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
+    mesh.instanceMatrix.needsUpdate = true;
+    this.bladderMesh = mesh;
+    this.scene.add(mesh);
   }
 
   public update(deltaTime: number): void {
     this.time += deltaTime;
-    for (const mat of this.materials) {
-      const shader = (mat as THREE.MeshPhysicalMaterial & {
-        userData: { kelpShader?: { uniforms: Record<string, { value: number }> } };
-      }).userData.kelpShader;
-      if (shader?.uniforms?.uKelpTime) {
-        shader.uniforms.uKelpTime.value = this.time;
-      }
-    }
+    this.timeUniform.value = this.time;
   }
 
   public dispose(): void {
-    this.kelp.forEach((plant) => {
-      plant.traverse((obj) => {
-        if (obj instanceof THREE.Mesh) {
-          obj.geometry.dispose();
-          const m = obj.material;
-          if (Array.isArray(m)) m.forEach((x) => x.dispose());
-          else if (m) m.dispose();
-        }
-      });
-      this.scene.remove(plant);
-    });
-    this.kelp = [];
-    this.materials = [];
+    for (const mesh of [this.bladeMesh, this.holdfastMesh, this.bladderMesh]) {
+      if (!mesh) continue;
+      this.scene.remove(mesh);
+      mesh.geometry.dispose();
+      const material = mesh.material;
+      if (Array.isArray(material)) material.forEach((m) => m.dispose());
+      else material?.dispose();
+    }
+    this.bladeMesh = undefined;
+    this.holdfastMesh = undefined;
+    this.bladderMesh = undefined;
   }
 }

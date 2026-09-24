@@ -432,8 +432,6 @@ export class ExtraOceanLife {
           transparent: true,
           opacity: 0.28,
           roughness: 0.1,
-          transmission: 0.7,
-          thickness: 0.4,
           side: THREE.DoubleSide,
         })
       );

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { optimizeDecor } from './SceneOptimizer';
 import { HighFidelityWater } from './HighFidelityWater';
 import { FFTOcean } from './FFTOcean';
 import { WavelengthLighting } from './WavelengthLighting';
@@ -167,6 +168,20 @@ export class RenderingEngine {
 
     // Apply initial lighting state
     this.lightSystem.applyToSceneFog(this.scene, this.camera.position.y);
+
+    // Collapse the procedural décor into a few draw calls. The builders above create one
+    // mesh and one material per coral polyp and per starfish arm, which cost thousands of
+    // draw calls every frame. Nothing here changes how the scene looks.
+    optimizeDecor(
+      this.scene,
+      [this.coralReef],
+      [
+        { root: this.marineLife },
+        // Anglerfish scale their own lure mesh every frame, so leave them unmerged.
+        { root: this.extraOceanLife?.group, skip: (child) => child.userData.kind === 'angler' },
+      ],
+      [this.anemones?.group]
+    );
 
     // Initialize post-processing pipeline
     this.postProcessing = new PostProcessingPipeline(this.renderer, this.scene, this.camera);

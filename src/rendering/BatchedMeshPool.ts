@@ -1065,7 +1065,7 @@ uniform float uCausticTime;`
   /**
    * Update individual mesh transforms
    */
-  private updateIndividualMesh(eid: number): void {
+  private updateIndividualMesh(eid: number, animateVertices: boolean): void {
     const mesh = this.getIndividualMesh(eid);
 
     // Update position
@@ -1121,14 +1121,13 @@ uniform float uCausticTime;`
       mesh.quaternion.slerp(this.tempQuaternion, 0.15);
     }
 
-    // LOD: Skip expensive biomechanical animation for distant creatures
+    // Biomechanical animation rewrites and re-uploads the whole vertex buffer, so it is
+    // budgeted by the caller: only the nearest few creatures deform each frame. Everything
+    // else still gets position, rotation and scale.
     const creatureType = CreatureType.type[eid];
-    const cameraDist = mesh.position.distanceTo(this.renderEngine.camera.position);
-    if (cameraDist < 40) {
-      // Full animation for nearby creatures
+    if (animateVertices) {
       applyBiomechanicalAnimationToMesh(mesh, eid, creatureType);
     }
-    // Distant creatures (>40m) still get position/rotation updates but skip vertex deformation
 
     // Emit bubble trails for fast-moving sharks (1), dolphins (2), and whales (9)
     if (creatureType === 1 || creatureType === 2 || creatureType === 9) {
@@ -1153,6 +1152,12 @@ uniform float uCausticTime;`
   /**
    * Update all mesh transforms and properties
    */
+  /** Creatures allowed to run CPU vertex deformation in one frame. */
+  private static readonly ANIMATION_BUDGET = 6;
+  /** Beyond this distance the deformation is not visible enough to pay for. */
+  private static readonly ANIMATION_DISTANCE = 30;
+  private readonly animationCandidates: Array<{ eid: number; distanceSq: number }> = [];
+
   public updateMeshes(world: OceanWorld): void {
     const entities = query(world, [Position, MeshComponent]);
 
@@ -1161,6 +1166,12 @@ uniform float uCausticTime;`
     // per-frame mesh-sync cost). The hot path is just the transform update below.
     this.frameCount++;
     const doCleanup = this.frameCount % 20 === 0;
+
+    // Pick which individual creatures may deform this frame. Each deformation rewrites a
+    // multi-thousand-vertex buffer on the CPU and re-uploads it, so the budget is what
+    // keeps a crowded scene inside its frame time.
+    this.animationCandidates.length = 0;
+    const cameraPosition = this.renderEngine.camera.position;
 
     for (const eid of entities) {
       const creatureType = CreatureType.type[eid] ?? -1;
@@ -1172,9 +1183,25 @@ uniform float uCausticTime;`
         }
         this.updateFishInstance(eid, world);
       } else {
-        // Complex creatures - individual meshes
-        this.updateIndividualMesh(eid);
+        const dx = Position.x[eid] - cameraPosition.x;
+        const dy = Position.y[eid] - cameraPosition.y;
+        const dz = Position.z[eid] - cameraPosition.z;
+        this.animationCandidates.push({
+          eid,
+          distanceSq: dx * dx + dy * dy + dz * dz,
+        });
       }
+    }
+
+    this.animationCandidates.sort((a, b) => a.distanceSq - b.distanceSq);
+    const maxDistanceSq =
+      BatchedMeshPool.ANIMATION_DISTANCE * BatchedMeshPool.ANIMATION_DISTANCE;
+
+    for (let i = 0; i < this.animationCandidates.length; i++) {
+      const candidate = this.animationCandidates[i];
+      const animate =
+        i < BatchedMeshPool.ANIMATION_BUDGET && candidate.distanceSq < maxDistanceSq;
+      this.updateIndividualMesh(candidate.eid, animate);
     }
 
     if (doCleanup) {
