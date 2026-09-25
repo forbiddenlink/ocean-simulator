@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.6](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.5...v1.0.6) (2026-09-25)
+
+
+### Bug Fixes
+
+* **render:** stop the scene costing seconds per frame ([#82](https://github.com/forbiddenlink/ocean-simulator/issues/82)) ([c76786a](https://github.com/forbiddenlink/ocean-simulator/commit/c76786acd6174922fc1dffc7f8e802dcd2bca365))
+
 ## [1.0.5](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.4...v1.0.5) (2026-09-21)
 
 
