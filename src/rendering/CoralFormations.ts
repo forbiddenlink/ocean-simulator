@@ -215,8 +215,6 @@ export class CoralFormations {
     const color = colors[Math.floor(Math.random() * colors.length)];
     const mat = this.coralMat(color, {
       side: THREE.DoubleSide,
-      transmission: 0.18,
-      thickness: 0.12,
       opacity: 0.92,
       transparent: true,
       roughness: 0.65,

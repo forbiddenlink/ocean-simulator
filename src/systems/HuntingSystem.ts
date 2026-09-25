@@ -216,6 +216,15 @@ export function createHuntingSystem(_world: OceanWorld) {
     }
     
     // Process all prey - check for nearby predators and flee
+    const livePredators: number[] = [];
+    for (let i = 0; i < predators.length; i++) {
+      const predatorEid = predators[i];
+      if (CreatureType.isPredator[predatorEid] === 0) continue;
+      if (Energy.current[predatorEid] <= 0) continue;
+      livePredators.push(predatorEid);
+    }
+    const fearRadiusSq = HUNT_CONFIG.FEAR_RADIUS * HUNT_CONFIG.FEAR_RADIUS;
+
     for (let i = 0; i < allPrey.length; i++) {
       const preyEid = allPrey[i];
       
@@ -229,36 +238,29 @@ export function createHuntingSystem(_world: OceanWorld) {
         Position.z[preyEid]
       );
       
-      let nearestThreat = tempVec3b.set(0, 0, 0);
       let hasThreat = false;
-      let minThreatDist = Infinity;
+      let minThreatDistSq = Infinity;
+      let threatX = 0;
+      let threatY = 0;
+      let threatZ = 0;
 
-      // Use spatial grid to check for nearby predators within fear radius
-      const nearbyEntities = world.spatialGrid.getNeighbors(
-        preyPos.x,
-        preyPos.y,
-        preyPos.z,
-        HUNT_CONFIG.FEAR_RADIUS
-      );
+      // A grid query here scanned ~125 cells per prey fish only to discard nearly every
+      // candidate, because predators are a handful of entities out of several hundred.
+      // Scanning the (short) live-predator list directly is strictly less work.
+      for (let j = 0; j < livePredators.length; j++) {
+        const predatorEid = livePredators[j];
+        const dx = Position.x[predatorEid] - preyPos.x;
+        const dy = Position.y[predatorEid] - preyPos.y;
+        const dz = Position.z[predatorEid] - preyPos.z;
+        const distSq = dx * dx + dy * dy + dz * dz;
+        if (distSq >= fearRadiusSq) continue;
 
-      for (let j = 0; j < nearbyEntities.length; j++) {
-        const predatorEid = nearbyEntities[j];
-
-        if (CreatureType.isPredator[predatorEid] === 0) continue;
-        if (Energy.current[predatorEid] <= 0) continue;
-
-        const predatorPos = tempVec3b.set(
-          Position.x[predatorEid],
-          Position.y[predatorEid],
-          Position.z[predatorEid]
-        );
-
-        const dist = preyPos.distanceTo(predatorPos);
-
-        if (dist < minThreatDist) {
-          nearestThreat.copy(predatorPos);
+        if (distSq < minThreatDistSq) {
+          minThreatDistSq = distSq;
+          threatX = Position.x[predatorEid];
+          threatY = Position.y[predatorEid];
+          threatZ = Position.z[predatorEid];
           hasThreat = true;
-          minThreatDist = dist;
         }
       }
 
@@ -269,7 +271,8 @@ export function createHuntingSystem(_world: OceanWorld) {
         TargetMemory.panicTimer[preyEid] = HUNT_CONFIG.PANIC_DURATION;
         
         // Calculate flee direction (away from threat)
-        const fleeDir = tempVec3b.copy(preyPos).sub(nearestThreat).normalize();
+        const fleeDir = tempVec3b.set(threatX, threatY, threatZ);
+        fleeDir.subVectors(preyPos, fleeDir).normalize();
         
         const fleeForce = HUNT_CONFIG.FLEE_SPEED_MULTIPLIER;
         Acceleration.x[preyEid] += fleeDir.x * fleeForce;
@@ -283,6 +286,14 @@ export function createHuntingSystem(_world: OceanWorld) {
         FIRA.cohesionWeight[preyEid] = 0.3;
 
         if (schoolId > 0) {
+          // Only now is a neighbour query worth paying for: a prey fish that is actually
+          // being hunted, not every fish in the scene.
+          const nearbyEntities = world.spatialGrid.getNeighbors(
+            preyPos.x,
+            preyPos.y,
+            preyPos.z,
+            HUNT_CONFIG.SCHOOL_PANIC_RADIUS
+          );
           for (let j = 0; j < nearbyEntities.length; j++) {
             const mateEid = nearbyEntities[j];
             if (mateEid === preyEid) continue;

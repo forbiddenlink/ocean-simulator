@@ -163,11 +163,8 @@ export class JellyfishGeometry {
       opacity: proportions.transparency,
       roughness: 0.1,
       metalness: 0.0,
-      transmission: 0.6,
-      thickness: 0.5,
       clearcoat: 1.0,
       clearcoatRoughness: 0.1,
-      ior: 1.4,
       side: THREE.DoubleSide,
       // Bioluminescent self-glow — without emissive the bell was a flat pale disc in
       // the dim deep. This makes it a luminous, cinematic jelly that reads as alive.

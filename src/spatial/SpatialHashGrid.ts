@@ -22,8 +22,14 @@ export interface SpatialGridConfig {
  */
 export class SpatialHashGrid {
   private invCellSize: number;
-  private grid: Map<string, Set<number>>; // key: "x,y,z" -> Set<entityId>
-  private entityCells: Map<number, string>; // entityId -> current cell key
+  private grid: Map<number, Set<number>>; // packed cell key -> Set<entityId>
+  private entityCells: Map<number, number>; // entityId -> current packed cell key
+
+  // Scratch cell coordinates, written by hashPosition. Avoids allocating an object on
+  // every lookup; neighbour queries hash hundreds of cells per entity per frame.
+  private cx = 0;
+  private cy = 0;
+  private cz = 0;
 
   // Grid dimensions
   private minX: number;
@@ -52,19 +58,24 @@ export class SpatialHashGrid {
   /**
    * Hash position to grid cell coordinates
    */
-  private hashPosition(x: number, y: number, z: number): { cx: number; cy: number; cz: number } {
-    return {
-      cx: Math.floor(x * this.invCellSize),
-      cy: Math.floor(y * this.invCellSize),
-      cz: Math.floor(z * this.invCellSize),
-    };
+  private hashPosition(x: number, y: number, z: number): void {
+    this.cx = Math.floor(x * this.invCellSize);
+    this.cy = Math.floor(y * this.invCellSize);
+    this.cz = Math.floor(z * this.invCellSize);
   }
 
   /**
-   * Convert cell coordinates to key string
+   * Pack cell coordinates into one integer key.
+   *
+   * A template-string key allocated a new string for every cell touched, which at ~125
+   * cells per neighbour query and several hundred queries per frame was the dominant cost
+   * of the flocking and hunting systems. Each axis gets 10 bits, biased by 512, which
+   * covers cell indices in [-512, 511] — far wider than the simulation bounds.
    */
-  private cellKey(cx: number, cy: number, cz: number): string {
-    return `${cx},${cy},${cz}`;
+  private static readonly KEY_BIAS = 512;
+  private cellKey(cx: number, cy: number, cz: number): number {
+    const bias = SpatialHashGrid.KEY_BIAS;
+    return (((cx + bias) << 20) | ((cy + bias) << 10) | (cz + bias)) >>> 0;
   }
 
   /**
@@ -84,8 +95,8 @@ export class SpatialHashGrid {
     const clampedY = Math.max(this.minY, Math.min(this.maxY, y));
     const clampedZ = Math.max(this.minZ, Math.min(this.maxZ, z));
 
-    const { cx, cy, cz } = this.hashPosition(clampedX, clampedY, clampedZ);
-    const key = this.cellKey(cx, cy, cz);
+    this.hashPosition(clampedX, clampedY, clampedZ);
+    const key = this.cellKey(this.cx, this.cy, this.cz);
 
     // Get or create cell
     let cell = this.grid.get(key);
@@ -131,7 +142,10 @@ export class SpatialHashGrid {
 
     // Determine which cells to check based on radius
     const radiusInCells = Math.ceil(radius * this.invCellSize);
-    const { cx, cy, cz } = this.hashPosition(x, y, z);
+    this.hashPosition(x, y, z);
+    const cx = this.cx;
+    const cy = this.cy;
+    const cz = this.cz;
 
     // Check all cells within radius
     for (let dx = -radiusInCells; dx <= radiusInCells; dx++) {
