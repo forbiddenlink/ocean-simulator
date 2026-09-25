@@ -7,10 +7,10 @@ caustics, AgX tonemapping).
 
 ## Stack
 
-- Three.js ^0.185, bitECS ^0.4, Vite 8.2.2, TypeScript 7.0.2 (Vite/TypeScript pinned exact in package.json)
+- Three.js ^0.185, bitECS ^0.4, Vite ^8.2.2, TypeScript ~7.0.2 (ranges, not exact pins)
 - Rendering extras: `postprocessing`, `lil-gui`, `three-stdlib`
 - Analytics: `posthog-js`
-- Package manager: pnpm (`packageManager: pnpm@10.34.5`, `pnpm-lock.yaml` present)
+- Package manager: pnpm (`packageManager: pnpm@10.32.1`, `pnpm-lock.yaml` present)
 - Biome for lint/format (not ESLint/Prettier)
 - Vitest for tests
 
@@ -62,6 +62,7 @@ frame. `OceanWorld` extends the bitECS world with `time`, `config`, `spatialGrid
 - `src/systems/` - FIRASystem, HuntingSystem, EnhancedMovementSystem, etc.
 - `src/components/`, `src/creatures/`, `src/spatial/`, `src/ui/`, `src/lib/`, `src/utils/`
 - `src/__tests__/` - unit tests (systems, utils)
+- `docs/`, `thoughts/` - project notes
 
 ## Conventions
 
