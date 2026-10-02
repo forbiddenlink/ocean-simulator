@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.7](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.6...v1.0.7) (2026-10-02)
+
+
+### Bug Fixes
+
+* add apple-touch-icon that index.html already declares ([#86](https://github.com/forbiddenlink/ocean-simulator/issues/86)) ([0700340](https://github.com/forbiddenlink/ocean-simulator/commit/070034035bf182c8b46cc6ee68ab4f8ba80fdd97))
+
 ## [1.0.6](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.5...v1.0.6) (2026-09-25)
 
 
