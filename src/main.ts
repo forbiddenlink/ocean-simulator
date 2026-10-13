@@ -58,6 +58,13 @@ try {
   });
 } catch (error) {
   console.error('Error initializing simulator:', error);
-  // Never trap the user behind the loading card on failure.
+  // Never trap the user behind the loading card on failure, and never leave a blank canvas.
   document.getElementById('loading-screen')?.remove();
+  canvas.remove();
+  const message = document.createElement('div');
+  message.className = 'init-error';
+  message.setAttribute('role', 'alert');
+  message.textContent =
+    'This simulation needs WebGL 2. Try a recent Chrome, Edge, Firefox or Safari.';
+  (mainContent ?? document.body).appendChild(message);
 }
