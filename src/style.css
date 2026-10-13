@@ -23,6 +23,20 @@ body {
   cursor: grabbing;
 }
 
+.init-error {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 1.125rem;
+  line-height: 1.5;
+  color: #e6f4fa;
+  background: #05131c;
+}
+
 #info {
   position: fixed;
   top: 20px;
