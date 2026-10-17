@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.7](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.6...v1.0.7) (2026-10-13)
+
+
+### Bug Fixes
+
+* add apple-touch-icon that index.html already declares ([#86](https://github.com/forbiddenlink/ocean-simulator/issues/86)) ([0700340](https://github.com/forbiddenlink/ocean-simulator/commit/070034035bf182c8b46cc6ee68ab4f8ba80fdd97))
+* **deps:** raise dompurify override floor to 3.4.16 ([#89](https://github.com/forbiddenlink/ocean-simulator/issues/89)) ([b502e9b](https://github.com/forbiddenlink/ocean-simulator/commit/b502e9b76515316787019d54fc7f105f0a10af60))
+* show a message when the renderer fails to initialize ([#93](https://github.com/forbiddenlink/ocean-simulator/issues/93)) ([88f7d1a](https://github.com/forbiddenlink/ocean-simulator/commit/88f7d1a62595ecb3e396aedd3806dc505db9a34c))
+
 ## [1.0.6](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.5...v1.0.6) (2026-09-25)
 
 
