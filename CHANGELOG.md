@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.8](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.7...v1.0.8) (2026-10-19)
+
+
+### Bug Fixes
+
+* **deps:** clear transitive CVEs with bounded overrides ([#94](https://github.com/forbiddenlink/ocean-simulator/issues/94)) ([a4394f5](https://github.com/forbiddenlink/ocean-simulator/commit/a4394f5e0c23315ed23f9fb10fe27c80b516e19c))
+
 ## [1.0.7](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.6...v1.0.7) (2026-10-13)
 
 
