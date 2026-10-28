@@ -17,7 +17,7 @@
     "biome:format": "biome format . --write"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.15",
+    "@biomejs/biome": "2.6.3",
     "@vitest/ui": "4.1.12",
     "terser": "5.51.2",
     "three-stdlib": "2.36.1",
