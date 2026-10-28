@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.9](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.8...v1.0.9) (2026-10-27)
+
+
+### Bug Fixes
+
+* **deps:** raise transitive override floors to patched versions ([#102](https://github.com/forbiddenlink/ocean-simulator/issues/102)) ([f2dd94b](https://github.com/forbiddenlink/ocean-simulator/commit/f2dd94bda32aecb24aeccbc689265ec4ba0731cd))
+
 ## [1.0.8](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.7...v1.0.8) (2026-10-19)
 
 
