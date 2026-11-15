@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.11](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.10...v1.0.11) (2026-11-15)
+
+
+### Performance Improvements
+
+* **assets:** re-encode hero.mp4 from 6.1 MB to 2.0 MB and add a size budget test ([#109](https://github.com/forbiddenlink/ocean-simulator/issues/109)) ([12e5fe0](https://github.com/forbiddenlink/ocean-simulator/commit/12e5fe0712d3527726f9941143208ad7deb3dd2a))
+
 ## [1.0.10](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.9...v1.0.10) (2026-11-15)
 
 
