@@ -2,6 +2,8 @@
 
 A **cinematic** real-time underwater ecosystem built with Three.js and bitECS: a moody deep-water world of hundreds of living marine creatures, volumetric god rays, and emergent schooling behaviour, running in the browser.
 
+Live: <https://ocean-simulator-silk.vercel.app>
+
 ![Ocean Ecosystem Simulator: Cinematic Deep](public/og-image.png)
 
 > **Hero flythrough:** an 18-second in-engine cinematic dive lives at [`public/hero.mp4`](public/hero.mp4): surface, through the light shafts and a passing school, over the reef.
@@ -79,21 +81,37 @@ Abzù-style stylized-gorgeous target. The techniques, roughly in order of impact
 - **Schooling Behavior**: Based on Reynolds' boids algorithm
 - **Ocean Currents**: Dynamic water flow affecting creature movement
 
-## Quick Start
+## Quick start
+
+The repo does not pin a Node version; use a current LTS release with pnpm.
 
 ```bash
 pnpm install
-pnpm run dev
+pnpm dev
 ```
 
-Open `http://localhost:3000`
+Open <http://localhost:3000>.
+
+### Scripts
+
+```bash
+pnpm dev            # vite dev server on port 3000
+pnpm build          # tsc && vite build
+pnpm preview        # preview the production build
+pnpm test           # vitest run
+pnpm biome:check    # biome lint and format check
+```
+
+### Environment variables
+
+The simulator needs none. Optional PostHog analytics reads `VITE_POSTHOG_KEY` and `VITE_POSTHOG_HOST`.
 
 ## Controls
 
 | Action | Control |
 |--------|---------|
 | Move | WASD |
-| Ascend / dive | Q / E |
+| Ascend / dive | E / Q |
 | Look | Mouse (drag) |
 | Hide interface | H |
 | Pause · speed · look mode · replay intro | Buttons in the HUD |
@@ -101,7 +119,7 @@ Open `http://localhost:3000`
 The **Look** button cycles the three art-directed presets (Cinematic Deep · Bioluminescent ·
 Clean Tropical). Any movement or click cancels the intro flythrough and hands you control.
 
-## Tech Stack
+## Tech stack
 
 | Component | Technology |
 |-----------|------------|
@@ -109,8 +127,11 @@ Clean Tropical). Any movement or click cancels the intro flythrough and hands yo
 | ECS | bitECS |
 | Post-Processing | postprocessing |
 | Build | Vite + TypeScript |
+| Debug UI | lil-gui |
+| Analytics (optional) | PostHog |
+| Tests | Vitest |
 
-## Project Structure
+## Project structure
 
 ```
 src/
@@ -119,10 +140,15 @@ src/
   creatures/      # Procedural geometry (fish, sharks, whales, etc.)
   rendering/      # Visual systems (ocean, lighting, particles)
   systems/        # ECS systems (movement, hunting, population)
+  simulation/     # fluid simulation
+  spatial/        # spatial hash grid
+  ui/             # HUD and UI manager
+  lib/fluid/      # fluid helpers
+  __tests__/      # Vitest specs
 ```
 
 Shader code is inline GLSL strings within the TypeScript files above, not a separate directory.
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
