@@ -49,8 +49,25 @@ const MODEL_KEY_BY_TYPE: Record<number, string> = {
   9: 'whale',
 };
 
+/** Steepest climb or dive a swimming body shows (about 30 degrees). */
+const MAX_SWIM_PITCH = 0.52;
+/** Most a body banks into a turn (about 23 degrees). */
+const MAX_SWIM_BANK = 0.4;
+/** Creatures that keep their rest orientation: jellyfish drift upright, starfish and urchins sit on the floor. */
+const STATIC_ORIENTATION_TYPES = new Set([3, 7, 8]);
+/** Floor walkers turn to face where they go but never pitch or bank. */
+const UPRIGHT_TYPES = new Set([6]);
+/** Models built with the head toward +X; they are turned to the -X convention once. */
+const HEAD_PLUS_X_TYPES = new Set([4, 5, 9]);
+
+/** Frame-rate independent share of the remaining turn to apply this frame (0.15 at 60 fps). */
+function turnBlend(dt: number): number {
+  return 1 - Math.exp(-dt * 9.75);
+}
+
 export class BatchedMeshPool {
   private renderEngine: RenderingEngine;
+  private frameDelta = 1 / 60;
 
   // Instanced meshes for fish - one per body type for visual variety
   private fishInstancedMeshes: THREE.InstancedMesh[] = [];
@@ -492,6 +509,41 @@ diffuseColor.rgb = patterned;
   }
 
   /**
+   * Target rotation for a body whose head is at local -X, swimming along (vx, vy, vz).
+   * Heading turns about world Y, pitch about the body's Z (nose up or down) and banking
+   * about the body's own X axis, into the turn. Returns the heading for the next call.
+   */
+  private swimOrientation(
+    vx: number,
+    vy: number,
+    vz: number,
+    lastYaw: number | undefined,
+    dt: number,
+    upright: boolean,
+    out: THREE.Quaternion
+  ): number {
+    // Rotating local -X by yaw about +Y gives (-cos yaw, 0, sin yaw); match (vx, vz).
+    const yaw = Math.atan2(vz, -vx);
+    let pitch = 0;
+    let roll = 0;
+    if (!upright) {
+      const horizontal = Math.sqrt(vx * vx + vz * vz);
+      // Positive Z rotation tips local -X downward, so climbing needs a negative angle.
+      pitch = -Math.max(-MAX_SWIM_PITCH, Math.min(MAX_SWIM_PITCH, Math.atan2(vy, horizontal)));
+      if (lastYaw !== undefined && dt > 0) {
+        let yawDelta = yaw - lastYaw;
+        while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
+        while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
+        // Positive X rotation lifts the left flank; a left turn (yaw increasing) banks left.
+        roll = Math.max(-MAX_SWIM_BANK, Math.min(MAX_SWIM_BANK, (yawDelta / dt) * 0.18));
+      }
+    }
+    this.tempEuler.set(roll, yaw, pitch, 'YZX');
+    out.setFromEuler(this.tempEuler);
+    return yaw;
+  }
+
+  /**
    * Update a fish instance's transform
    */
   private updateFishInstance(eid: number, world: OceanWorld): void {
@@ -529,29 +581,17 @@ diffuseColor.rgb = patterned;
       smoothVy /= count;
       smoothVz /= count;
 
-      // Model forward axis: head is at -X, tail at +X.
-      // We want local -X to point along the velocity direction.
-      // yaw should rotate local -X into (vx, vz) => yaw = atan2(vz, vx) + PI
-      const yaw = Math.atan2(smoothVz, smoothVx) + Math.PI;
-      const horizontalSpeed = Math.sqrt(smoothVx * smoothVx + smoothVz * smoothVz);
-      let pitch = -Math.atan2(smoothVy, horizontalSpeed);
-      pitch = Math.max(-0.52, Math.min(0.52, pitch));
-
-      let roll = 0;
-      if (instance.lastYaw !== undefined) {
-        let yawDelta = yaw - instance.lastYaw;
-        while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
-        while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
-        roll = -yawDelta * 3.0;
-        roll = Math.max(-0.6, Math.min(0.6, roll));
-      }
-      instance.lastYaw = yaw;
-
-      this.tempEuler.set(pitch, yaw, roll, 'YXZ');
-      this.tempQuaternion.setFromEuler(this.tempEuler);
-      instance.lastQuaternion.slerp(this.tempQuaternion, 0.15);
-      this.tempQuaternion.copy(instance.lastQuaternion);
+      const dt = world.time.delta;
+      const firstFrame = instance.lastYaw === undefined;
+      instance.lastYaw = this.swimOrientation(
+        smoothVx, smoothVy, smoothVz, instance.lastYaw, dt, false, this.tempQuaternion
+      );
+      if (firstFrame) instance.lastQuaternion.copy(this.tempQuaternion);
+      else instance.lastQuaternion.slerp(this.tempQuaternion, turnBlend(dt));
     }
+    // Always the fish's own heading: tempQuaternion is shared scratch and would otherwise
+    // still hold the previous fish's rotation whenever this one is (nearly) stationary.
+    this.tempQuaternion.copy(instance.lastQuaternion);
 
     this.tempScale.set(Scale.x[eid] || 1, Scale.y[eid] || 1, Scale.z[eid] || 1);
     this.tempMatrix.compose(this.tempPosition, this.tempQuaternion, this.tempScale);
@@ -1016,6 +1056,14 @@ uniform float uCausticTime;`
 
       if (geometryOrGroup instanceof THREE.Group) {
         meshOrGroup = geometryOrGroup;
+        if (HEAD_PLUS_X_TYPES.has(CreatureType.type[eid])) {
+          // The swim orientation assumes the head at -X. Turn the model inside a wrapper
+          // so the per-frame rotation of the outer group does not overwrite the flip.
+          const wrapper = new THREE.Group();
+          meshOrGroup.rotation.y = Math.PI;
+          wrapper.add(meshOrGroup);
+          meshOrGroup = wrapper;
+        }
         // Multi-part creatures (whale/shark/dolphin/ray/turtle) bake their materials
         // in the geometry factory — upgrade each body part so it reads as a lit animal.
         meshOrGroup.traverse((o) => {
@@ -1023,6 +1071,10 @@ uniform float uCausticTime;`
           if (m) this.enhanceBodyMaterial(m);
         });
       } else {
+        if (HEAD_PLUS_X_TYPES.has(CreatureType.type[eid])) {
+          // Merged single-mesh models (the ray) also face +X; flip the geometry once.
+          geometryOrGroup.rotateY(Math.PI);
+        }
         // Ensure geometry has normals (tangents are computed in shader)
         if (!geometryOrGroup.attributes.normal) {
           geometryOrGroup.computeVertexNormals();
@@ -1094,27 +1146,17 @@ uniform float uCausticTime;`
       smoothVy /= count;
       smoothVz /= count;
 
-      // Model forward axis: head is at -X, tail at +X
-      // yaw should rotate local -X into (vx, vz)
-      const yaw = Math.atan2(smoothVz, smoothVx) + Math.PI;
-      const horizontalSpeed = Math.sqrt(smoothVx * smoothVx + smoothVz * smoothVz);
-      // Clamp pitch to realistic angles (max ~30 degrees = 0.52 rad)
-      let pitch = -Math.atan2(smoothVy, horizontalSpeed); // Negative for correct pitch
-      pitch = Math.max(-0.52, Math.min(0.52, pitch)); // Limit to ±30 degrees
-
-      let roll = 0;
-      if (mesh.userData.lastYaw !== undefined) {
-        let yawDelta = yaw - mesh.userData.lastYaw;
-        while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
-        while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
-        roll = -yawDelta * 3.0;
-        roll = Math.max(-0.6, Math.min(0.6, roll));
+      const type = CreatureType.type[eid];
+      if (!STATIC_ORIENTATION_TYPES.has(type)) {
+        const dt = this.frameDelta;
+        const firstFrame = mesh.userData.lastYaw === undefined;
+        mesh.userData.lastYaw = this.swimOrientation(
+          smoothVx, smoothVy, smoothVz, mesh.userData.lastYaw, dt,
+          UPRIGHT_TYPES.has(type), this.tempQuaternion
+        );
+        if (firstFrame) mesh.quaternion.copy(this.tempQuaternion);
+        else mesh.quaternion.slerp(this.tempQuaternion, turnBlend(dt));
       }
-      mesh.userData.lastYaw = yaw;
-
-      this.tempEuler.set(pitch, yaw, roll, 'YXZ');
-      this.tempQuaternion.setFromEuler(this.tempEuler);
-      mesh.quaternion.slerp(this.tempQuaternion, 0.15);
     }
 
     // Biomechanical animation rewrites and re-uploads the whole vertex buffer, so it is
@@ -1155,6 +1197,7 @@ uniform float uCausticTime;`
   private readonly animationCandidates: Array<{ eid: number; distanceSq: number }> = [];
 
   public updateMeshes(world: OceanWorld): void {
+    this.frameDelta = world.time.delta;
     const entities = query(world, [Position, MeshComponent]);
 
     // Despawns are rare, so only reconcile mesh cleanup periodically instead of
