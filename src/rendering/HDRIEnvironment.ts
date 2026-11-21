@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SURFACE_Y } from './WaterMedium';
 
 /**
  * HDRI Environment Lighting System
@@ -204,7 +205,7 @@ export class HDRIEnvironment {
    * medium is the backdrop) and keeps it centred on the camera.
    */
   public followCamera(cameraPosition: THREE.Vector3): void {
-    this.skyMesh.visible = cameraPosition.y > 0;
+    this.skyMesh.visible = cameraPosition.y > SURFACE_Y;
     this.skyMesh.position.copy(cameraPosition);
   }
 

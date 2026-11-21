@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { HDRIEnvironment } from '../rendering/HDRIEnvironment'
+import { SURFACE_Y, WaterMediumEffect } from '../rendering/WaterMedium'
 
 function skyMesh(scene: THREE.Scene): THREE.Mesh {
   const mesh = scene.children.find(
@@ -29,5 +30,18 @@ describe('sky above the surface', () => {
     const env = new HDRIEnvironment(scene)
     env.followCamera(new THREE.Vector3(40, 1, -60))
     expect(skyMesh(scene).position.toArray()).toEqual([40, 1, -60])
+  })
+
+  it('switches the sky and the water medium at the same height', () => {
+    // If the sky shows before the water pass turns off, the pass treats the sky, which
+    // writes no depth, as a 600 m water column and fogs it over until the camera rises past
+    // the second threshold.
+    const scene = new THREE.Scene()
+    const env = new HDRIEnvironment(scene)
+    env.followCamera(new THREE.Vector3(0, SURFACE_Y + 0.01, 0))
+    expect(skyMesh(scene).visible).toBe(true)
+    env.followCamera(new THREE.Vector3(0, SURFACE_Y - 0.01, 0))
+    expect(skyMesh(scene).visible).toBe(false)
+    expect(new WaterMediumEffect().getFragmentShader()).toContain(`if (ro.y > ${SURFACE_Y.toFixed(1)})`)
   })
 })

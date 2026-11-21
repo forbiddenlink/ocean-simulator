@@ -94,6 +94,12 @@ export const CAUSTIC_GLSL = /* glsl */ `
  */
 export const SKY_DEPTH = 0.9999999;
 
+/**
+ * Height of the sea surface. Above it the camera sees the sky and the water medium does
+ * nothing; the sky and this pass must switch at the same height.
+ */
+export const SURFACE_Y = 0;
+
 const waterMediumShader = /* glsl */ `
   uniform mat4 uInvProjection;
   uniform mat4 uCameraWorld;
@@ -154,7 +160,7 @@ const waterMediumShader = /* glsl */ `
     float camDepth = max(-ro.y, 0.0);
 
     // Underwater only: above the surface the medium does nothing.
-    if (ro.y > 0.5) {
+    if (ro.y > ${SURFACE_Y.toFixed(1)}) {
       outputColor = vec4(inputColor.rgb * uExposure, inputColor.a);
       return;
     }
