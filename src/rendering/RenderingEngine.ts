@@ -123,15 +123,7 @@ export class RenderingEngine {
 
     // Add Water Surface - choose between FFT ocean (photorealistic) or basic water
     if (this.useFFTOcean) {
-      this.fftOcean = new FFTOcean(
-        256, // Large cascade resolution (detail cascade is 128)
-        1000, // Slightly tighter patch = higher spatial frequency in the swell band
-        30,
-        new THREE.Vector2(1, 0.35),
-        2.8
-      );
-      this.fftOcean.mesh.position.y = 0; // Sea level
-      this.scene.add(this.fftOcean.mesh);
+      this.fftOcean = this.createFFTOcean();
 
       // Add foam and spray for FFT ocean
       this.foamSystem = new FoamSystem(this.scene, 1500);
@@ -505,6 +497,20 @@ export class RenderingEngine {
     }
   }
 
+  /** The one FFT surface configuration, shared by startup and the debug toggle. */
+  private createFFTOcean(): FFTOcean {
+    const ocean = new FFTOcean(
+      256, // Large cascade resolution (detail cascade is 128)
+      1000, // Slightly tighter patch = higher spatial frequency in the swell band
+      30,
+      new THREE.Vector2(1, 0.35),
+      2.8
+    );
+    ocean.mesh.position.y = 0; // Sea level
+    this.scene.add(ocean.mesh);
+    return ocean;
+  }
+
   /**
    * Toggle between FFT ocean and basic water
    */
@@ -516,9 +522,7 @@ export class RenderingEngine {
         this.highFidelityWater = undefined;
       }
       
-      this.fftOcean = new FFTOcean(256, 1000, 30, new THREE.Vector2(1, 0.35), 2.8);
-      this.fftOcean.mesh.position.y = 0;
-      this.scene.add(this.fftOcean.mesh);
+      this.fftOcean = this.createFFTOcean();
       
       this.foamSystem = new FoamSystem(this.scene, 1000);
       this.sprayParticles = new SprayParticles(this.scene, 2000);
@@ -529,6 +533,8 @@ export class RenderingEngine {
       // Switch to basic water
       if (this.fftOcean) {
         this.scene.remove(this.fftOcean.mesh);
+        // Also terminates the wave worker and frees the cascade textures.
+        this.fftOcean.dispose();
         this.fftOcean = undefined;
       }
       
