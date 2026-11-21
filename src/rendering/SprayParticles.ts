@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 
+/** Height below which a falling drop counts as back in the sea. Waves reach about this low. */
+const SEA_LEVEL_CUTOFF = -0.5;
+
 /**
  * Spray particle system for wave crests and breaking waves
  * Creates realistic water spray and mist effects
@@ -110,7 +113,13 @@ export class SprayParticles {
         
         // Decrease lifetime
         this.lifetimes[i] -= deltaTime;
-        
+
+        // A drop that falls back into the sea is gone. Left alive, it sinks and glows as a
+        // bright dot under water.
+        if (this.positions[idx + 1] < SEA_LEVEL_CUTOFF && this.velocities[idx + 1] < 0) {
+          this.lifetimes[i] = 0;
+        }
+
         // Update size (fade out)
         this.sizes[i] = Math.max(0, this.lifetimes[i]);
       }
@@ -153,7 +162,7 @@ export class SprayParticles {
       const radius = Math.random() * 50 + 10;
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
-      const y = Math.random() * 2 - 1; // Slightly above/below water surface
+      const y = Math.random() * 0.5; // At or just above the surface; spray never starts under water
       
       const idx = particleIndex * 3;
       this.positions[idx] = x;

@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { mergeBufferGeometries } from 'three-stdlib';
 import { sampleSandHeight } from './RealisticOceanFloor';
+import { normalizeGeometry } from './SceneOptimizer';
 import { CoralFormations } from './CoralFormations';
+import { taperedTube } from './TaperedTube';
 
 /**
  * Extra ocean critters: octopuses, seahorses, moray eels, lobsters, nudibranchs.
@@ -9,9 +11,14 @@ import { CoralFormations } from './CoralFormations';
  */
 export class ExtraOceanLife {
   public group: THREE.Group;
-  private animatedMaterials: THREE.ShaderMaterial[] = [];
+  /** Time uniforms of every animated material, advanced once per frame. */
+  private animatedMaterials: Array<{ time: { value: number } }> = [];
+  /** Sun strength, 1 = noon and 0 = night. Shared by every material that only shows by daylight. */
+  private daylight = { value: 1 };
+  private readonly floorY: number;
 
   constructor(scene: THREE.Scene, floorDepth: number) {
+    this.floorY = floorDepth;
     this.group = new THREE.Group();
     this.group.name = 'extraOceanLife';
 
@@ -54,7 +61,7 @@ export class ExtraOceanLife {
       x = (Math.random() - 0.5) * spread;
       z = (Math.random() - 0.5) * spread;
     }
-    return new THREE.Vector3(x, floorY + sampleSandHeight(x, z) + 0.15, z);
+    return new THREE.Vector3(x, floorY + sampleSandHeight(x, z) + FLOOR_CLEARANCE, z);
   }
 
   /**
@@ -78,18 +85,14 @@ export class ExtraOceanLife {
             kept.push(child);
             continue;
           }
-          const geo = mesh.geometry.clone();
+          // Uniform attribute set so same-material parts merge cleanly.
+          const geo = normalizeGeometry(mesh.geometry, mat.vertexColors);
+          if (!geo) {
+            kept.push(child);
+            continue;
+          }
           mesh.updateMatrix();
           geo.applyMatrix4(mesh.matrix); // parts are flat children of the creature group
-          // Uniform attribute set so same-material parts merge cleanly.
-          for (const name of Object.keys(geo.attributes)) {
-            if (name !== 'position' && name !== 'normal' && name !== 'uv') geo.deleteAttribute(name);
-          }
-          if (!geo.getAttribute('normal')) geo.computeVertexNormals();
-          if (!geo.getAttribute('uv')) {
-            const c = geo.getAttribute('position').count;
-            geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(c * 2), 2));
-          }
           const list = byMaterial.get(mat) ?? [];
           list.push(geo.index ? geo.toNonIndexed() : geo);
           byMaterial.set(mat, list);
@@ -114,9 +117,14 @@ export class ExtraOceanLife {
     }
   }
 
+  /** Sun strength, 1 = noon and 0 = night. Fades the shimmer that only daylight makes. */
+  setDaylight(strength: number): void {
+    this.daylight.value = THREE.MathUtils.clamp(strength, 0, 1);
+  }
+
   update(deltaTime: number, elapsed: number): void {
-    for (const mat of this.animatedMaterials) {
-      mat.uniforms.time.value = elapsed;
+    for (const uniforms of this.animatedMaterials) {
+      uniforms.time.value = elapsed;
     }
     // Subtle bobbing of seahorses
     for (const child of this.group.children) {
@@ -162,7 +170,119 @@ export class ExtraOceanLife {
     nautilus: 0.7,
     combjelly: 1.2,
     octopus: 0.4,
+    cowfish: 0.8,
   };
+
+  /**
+   * Replace procedural bodies with scanned ones (see `CRITTER_MODELS`). Each scan is fitted
+   * to the bounding box of the body it replaces: same longest side, same centre, and floor
+   * dwellers keep their underside on the sand. Position, size and the idle motion in
+   * `update()` stay as they were. Kinds without a loaded template stay procedural.
+   *
+   * Templates come from `CreatureModelLoader.loadTemplates`: centred, unit length along X.
+   * Their geometry and materials are shared by every copy.
+   */
+  applyModels(templates: Map<string, THREE.Group>): void {
+    const removed = new Set<THREE.BufferGeometry>();
+    const inverse = new THREE.Matrix4();
+    const relative = new THREE.Matrix4();
+    const part = new THREE.Box3();
+
+    for (const creature of [...this.group.children]) {
+      const kind = creature.userData.kind as string;
+      const spec = CRITTER_MODELS[kind];
+      const template = templates.get(kind);
+      if (!spec || !template) continue;
+
+      creature.updateMatrixWorld(true);
+      inverse.copy(creature.matrixWorld).invert();
+      const body = new THREE.Box3();
+      const old: THREE.Mesh[] = [];
+      creature.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.geometry.computeBoundingBox();
+        relative.multiplyMatrices(inverse, mesh.matrixWorld);
+        body.union(part.copy(mesh.geometry.boundingBox!).applyMatrix4(relative));
+        old.push(mesh);
+      });
+      if (body.isEmpty()) continue;
+      for (const mesh of old) {
+        mesh.removeFromParent();
+        removed.add(mesh.geometry);
+      }
+
+      const scan = ExtraOceanLife.copyTemplate(template, `${kind}Scan`, spec.upright);
+      const size = body.getSize(new THREE.Vector3());
+      // The sand surface in the creature's own space: `floorSpot` puts the origin
+      // FLOOR_CLEARANCE above it.
+      const sand = spec.floor ? -FLOOR_CLEARANCE / creature.scale.y : undefined;
+      ExtraOceanLife.fit(scan, body, Math.max(size.x, size.y, size.z), sand);
+      if (spec.lift) scan.position.y += spec.lift * size.y;
+      creature.add(scan);
+    }
+
+    // Free the procedural geometry no remaining mesh still uses.
+    const kept = new Set<THREE.BufferGeometry>();
+    this.group.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) kept.add((o as THREE.Mesh).geometry);
+    });
+    for (const geometry of removed) if (!kept.has(geometry)) geometry.dispose();
+
+    const cowfish = templates.get('cowfish');
+    if (cowfish) this.spawnCowfish(cowfish, 8);
+  }
+
+  /** A copy of a template that shares its geometry and materials. */
+  private static copyTemplate(template: THREE.Group, name: string, upright = false): THREE.Group {
+    const scan = new THREE.Group();
+    scan.name = name;
+    for (const child of template.children) {
+      const src = child as THREE.Mesh;
+      if (!src.isMesh) continue;
+      const mesh = new THREE.Mesh(src.geometry, src.material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scan.add(mesh);
+    }
+    // Scans lie along X; an upright animal turns its head (+X in these files) to +Y.
+    if (upright) scan.rotation.z = Math.PI / 2;
+    return scan;
+  }
+
+  /**
+   * Scale `scan` so its longest side is `length` and centre it on `target`. With `floorY`,
+   * its underside goes to that height instead of the target's centre height.
+   */
+  private static fit(scan: THREE.Group, target: THREE.Box3, length: number, floorY?: number): void {
+    scan.scale.setScalar(1);
+    scan.position.set(0, 0, 0);
+    scan.updateMatrixWorld(true);
+    const own = new THREE.Box3().setFromObject(scan);
+    const ownSize = own.getSize(new THREE.Vector3());
+    scan.scale.setScalar(length / (Math.max(ownSize.x, ownSize.y, ownSize.z) || 1));
+    scan.updateMatrixWorld(true);
+    own.setFromObject(scan);
+    const shift = target.getCenter(new THREE.Vector3()).sub(own.getCenter(new THREE.Vector3()));
+    if (floorY !== undefined) shift.y = floorY - own.min.y;
+    scan.position.copy(shift);
+  }
+
+  /** Boxfish have no procedural body, so they only appear once their scan loads. */
+  private spawnCowfish(template: THREE.Group, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const fish = new THREE.Group();
+      const scan = ExtraOceanLife.copyTemplate(template, 'cowfishScan');
+      const length = 0.9 + Math.random() * 0.4;
+      scan.scale.setScalar(length);
+      fish.add(scan);
+      const spot = this.floorSpot(this.floorY, 70);
+      fish.position.set(spot.x, spot.y + 1.2 + Math.random() * 3, spot.z);
+      fish.rotation.y = Math.random() * Math.PI * 2;
+      fish.userData.kind = 'cowfish';
+      this.group.add(fish);
+    }
+  }
 
   // === ANGLERFISH — deep-sea predator with a bioluminescent lure. The lure is an
   // unlit bright mesh so it blooms and, in the bioluminescent night look, becomes one
@@ -234,56 +354,65 @@ export class ExtraOceanLife {
     }
   }
 
-  private makeWaveMaterial(color: THREE.Color, amplitude: number, freq: number): THREE.ShaderMaterial {
-    const mat = new THREE.ShaderMaterial({
-      uniforms: {
-        time: { value: 0 },
-        baseColor: { value: color },
-        amplitude: { value: amplitude },
-        freq: { value: freq },
-      },
-      vertexShader: /* glsl */ `
-        uniform float time;
-        uniform float amplitude;
-        uniform float freq;
-        varying vec3 vNormal;
-        varying vec3 vWorldPos;
-        varying float vY;
-        void main() {
-          vec3 p = position;
-          float wave = sin(p.y * freq + time * 1.6) * amplitude * smoothstep(0.0, 1.5, abs(p.y));
-          p.x += wave * 0.5;
-          p.z += wave * 0.4;
-          vNormal = normalize(normalMatrix * normal);
-          vWorldPos = (modelMatrix * vec4(p, 1.0)).xyz;
-          vY = p.y;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-        }
-      `,
-      fragmentShader: /* glsl */ `
-        uniform vec3 baseColor;
-        varying vec3 vNormal;
-        varying vec3 vWorldPos;
-        varying float vY;
-        void main() {
-          vec3 light = normalize(vec3(0.25, 1.0, 0.35));
-          float d = max(dot(vNormal, light), 0.0);
-          float rim = pow(1.0 - max(dot(vNormal, vec3(0.0, 0.0, 1.0)), 0.0), 2.4);
-          // Mantle mottling
-          float mott = sin(vWorldPos.x * 4.2) * sin(vWorldPos.z * 3.6 + vY * 2.0);
-          mott = smoothstep(-0.2, 0.55, mott);
-          vec3 col = baseColor * (0.38 + 0.78 * d);
-          col = mix(col * 0.78, col * 1.18, mott);
-          col += vec3(0.12, 0.28, 0.36) * rim * 0.55;
-          col += vec3(0.08) * smoothstep(0.0, 1.5, vY);
-          // Wet specular kick
-          float spec = pow(max(dot(reflect(-light, vNormal), vec3(0.0, 0.2, 1.0)), 0.0), 48.0);
-          col += vec3(0.55, 0.72, 0.85) * spec * 0.45;
-          gl_FragColor = vec4(col, 1.0);
-        }
-      `,
+  /**
+   * Skin for the soft-bodied species (octopus, squid, cuttlefish, eels, anglerfish): a lit
+   * physical material, so it takes the sun, caustics, depth colour and night like the rest
+   * of the scene, with a sway that grows away from the body's base along local Y.
+   */
+  private makeWaveMaterial(
+    color: THREE.Color,
+    amplitude: number,
+    freq: number,
+    opts: { axis?: 'y' | 'x'; vertexColors?: boolean } = {}
+  ): THREE.MeshStandardMaterial {
+    const axis = opts.axis ?? 'y';
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.55,
+      metalness: 0,
+      vertexColors: opts.vertexColors ?? false,
     });
-    this.animatedMaterials.push(mat);
+    const uniforms = {
+      time: { value: 0 },
+      amplitude: { value: amplitude },
+      freq: { value: freq },
+    };
+    mat.userData.swayUniforms = uniforms;
+    mat.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, uniforms);
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          uniform float time;
+          uniform float amplitude;
+          uniform float freq;
+          varying float vMottle;`
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          ${
+            axis === 'x'
+              ? `// Travelling wave from head (+X) to tail: the body swims, not just sways.
+          transformed.z += sin(transformed.x * freq + time * 2.4) * amplitude;`
+              : `float sway = sin(transformed.y * freq + time * 1.6) * amplitude * smoothstep(0.0, 1.5, abs(transformed.y));
+          transformed.x += sway * 0.5;
+          transformed.z += sway * 0.4;`
+          }
+          // Mantle mottling, fixed to the body so it moves with the skin.
+          vMottle = smoothstep(-0.2, 0.55, sin(position.x * 4.2) * sin(position.z * 3.6 + position.y * 2.0));`
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\n          varying float vMottle;')
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+          diffuseColor.rgb *= mix(0.8, 1.15, vMottle);`
+        );
+    };
+    mat.customProgramCacheKey = () => `extraOceanLife-sway-${axis}`;
+    this.animatedMaterials.push(uniforms);
     return mat;
   }
 
@@ -446,6 +575,7 @@ export class ExtraOceanLife {
         uniforms: {
           time: { value: 0 },
           phase: { value: Math.random() * Math.PI * 2 },
+          daylight: this.daylight,
         },
         vertexShader: /* glsl */ `
           varying float vY;
@@ -457,17 +587,19 @@ export class ExtraOceanLife {
         fragmentShader: /* glsl */ `
           uniform float time;
           uniform float phase;
+          uniform float daylight;
           varying float vY;
           void main() {
             float hue = fract(vY * 0.55 + time * 0.35 + phase);
-            // Cheap HSV→RGB rainbow for comb-row bioluminescence
+            // Cheap HSV to RGB rainbow. The shimmer is daylight diffracted by the beating
+            // cilia, not the animal's own light, so it fades out at night.
             vec3 rgb = clamp(abs(mod(hue * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
             float pulse = 0.65 + 0.35 * sin(time * 2.4 + vY * 8.0 + phase);
-            gl_FragColor = vec4(rgb * 1.15, 0.85 * pulse);
+            gl_FragColor = vec4(rgb * 1.15, 0.85 * pulse * mix(0.04, 1.0, daylight));
           }
         `,
       });
-      this.animatedMaterials.push(rowMat);
+      this.animatedMaterials.push(rowMat.uniforms as { time: { value: number } });
 
       for (let r = 0; r < 8; r++) {
         const ang = (r / 8) * Math.PI * 2;
@@ -770,33 +902,31 @@ export class ExtraOceanLife {
     }
   }
 
-  // === SEA SNAKES — sinuous banded body, undulating along the seabed ===
+  // === SEA SNAKES — banded sea kraits swimming over the reef with a travelling body wave ===
   private spawnSeaSnakes(floorY: number, count: number): void {
+    const dark = new THREE.Color(0x15171c);
     for (let i = 0; i < count; i++) {
-      const snake = new THREE.Group();
-      const baseHue = 0.12 + Math.random() * 0.5;
-      const bandA = new THREE.Color().setHSL(baseHue, 0.5, 0.5);
-      const bandB = new THREE.Color(0x1a1a22);
-      const matA = this.wetMat(bandA, { roughness: 0.38, clearcoat: 0.5, metalness: 0.12 });
-      const matB = this.wetMat(bandB, { roughness: 0.38, clearcoat: 0.5, metalness: 0.12 });
-
-      const segCount = 16;
-      for (let s = 0; s < segCount; s++) {
-        const t = s / (segCount - 1);
-        const r = 0.16 * (1 - 0.5 * Math.abs(t - 0.5) * 2) + 0.03; // fatter middle
-        const seg = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), s % 2 === 0 ? matA : matB);
-        seg.position.set(t * 4.5 - 2.25, Math.sin(t * Math.PI * 3) * 0.4, Math.cos(t * Math.PI * 3) * 0.2);
-        snake.add(seg);
+      // Blue-grey body with ~30 black rings, like a banded sea krait.
+      const pale = new THREE.Color().setHSL(0.56 + Math.random() * 0.05, 0.25, 0.62);
+      const mat = this.makeWaveMaterial(new THREE.Color(0xffffff), 0.16, 2.6, { axis: 'x', vertexColors: true });
+      // Gentle lateral S along X, head at +X.
+      const spine: THREE.Vector3[] = [];
+      for (let k = 0; k <= 8; k++) {
+        const t = k / 8;
+        spine.push(new THREE.Vector3(-2.3 + t * 4.6, 0, Math.sin(t * Math.PI * 2.2) * 0.25));
       }
-      // Head slightly larger with eyes.
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 10), matA);
-      head.position.set(2.4, Math.sin(Math.PI * 3) * 0.4, 0);
-      head.scale.set(1.3, 0.9, 0.9);
-      snake.add(head);
-      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xf6d060 });
+      const body = taperedTube(
+        spine,
+        (t) => 0.035 + 0.075 * Math.sin(Math.PI * Math.min(1, t * 1.15)) ** 0.6,
+        { segments: 96, radial: 10, color: (t) => (Math.sin(t * Math.PI * 60) > 0.35 ? dark : pale) }
+      );
+      const snake = new THREE.Group();
+      snake.add(new THREE.Mesh(body, mat));
+      const eyeMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.2 });
+      const head = spine[spine.length - 1];
       for (const sgn of [-1, 1]) {
-        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), eyeMat);
-        eye.position.set(2.5, 0.05, sgn * 0.12);
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), eyeMat);
+        eye.position.set(head.x - 0.09, 0.03, head.z + sgn * 0.045);
         snake.add(eye);
       }
 
@@ -808,63 +938,64 @@ export class ExtraOceanLife {
     }
   }
 
-  // === SEAHORSES — vertical posture, slow bob ===
+  // === SEAHORSES — upright S-shaped body, curled prehensile tail, tube snout; slow bob ===
   private spawnSeahorses(floorY: number, count: number): void {
-    const seahorseColors = [0xf5a430, 0xc94a78, 0xfff080, 0x82c850];
+    const seahorseColors = [0xd99a3a, 0xb8506e, 0xe6d27a, 0x8aa65a];
+    // Spine from tail tip up to the crown, in the XY plane with the snout pointing +X.
+    const spine = [
+      [0.12, 0.3],
+      [0.2, 0.14],
+      [0.08, 0.02],
+      [-0.07, 0.12],
+      [-0.02, 0.38],
+      [0.04, 0.72],
+      [0.12, 1.08],
+      [0.1, 1.42],
+      [-0.02, 1.7],
+      [0.02, 1.92],
+      [0.1, 2.02],
+    ].map(([x, y]) => new THREE.Vector3(x, y, 0));
+    const radius = (t: number): number => {
+      if (t < 0.35) return 0.02 + t * 0.2; // thin curled tail
+      if (t < 0.75) return 0.09 + Math.sin(((t - 0.35) / 0.4) * Math.PI) * 0.1; // belly
+      if (t < 0.92) return 0.08; // neck
+      return 0.08 + Math.sin(((t - 0.92) / 0.08) * Math.PI * 0.5) * 0.04; // crown
+    };
+    const bodyGeo = taperedTube(spine, radius, {
+      segments: 80,
+      radial: 10,
+      squash: 0.8,
+      squashAxis: new THREE.Vector3(0, 0, 1),
+      // Bony body rings: a faint light/dark stripe every few rings.
+      color: (t) => new THREE.Color().setScalar(Math.sin(t * Math.PI * 46) > 0.5 ? 0.78 : 1),
+    });
+    const crown = spine[spine.length - 1];
+    const snoutGeo = taperedTube(
+      [new THREE.Vector3(crown.x, crown.y - 0.06, 0), new THREE.Vector3(crown.x + 0.22, crown.y - 0.12, 0), new THREE.Vector3(crown.x + 0.42, crown.y - 0.14, 0)],
+      (t) => (t > 0.85 ? 0.045 : 0.06 - t * 0.03),
+      { segments: 12, radial: 8 }
+    );
+
     for (let i = 0; i < count; i++) {
       const sh = new THREE.Group();
       const color = new THREE.Color(seahorseColors[i % seahorseColors.length]);
-      const mat = this.wetMat(color, { roughness: 0.4, metalness: 0.18, clearcoat: 0.55, iridescence: 0.2 });
-
-      // Body — curved cylinder approximated with several stacked spheres
-      const segCount = 6;
-      for (let s = 0; s < segCount; s++) {
-        const t = s / (segCount - 1);
-        const r = 0.20 - t * 0.10;
-        const segGeo = new THREE.SphereGeometry(r, 12, 10);
-        const seg = new THREE.Mesh(segGeo, mat);
-        const curve = Math.sin(t * 1.5) * 0.35;
-        seg.position.set(curve, 0.8 + t * 1.2, 0);
-        sh.add(seg);
-      }
-
-      // Head + snout
-      const headGeo = new THREE.SphereGeometry(0.22, 12, 10);
-      const head = new THREE.Mesh(headGeo, mat);
-      head.position.set(0.35 + Math.sin(1.5) * 0.35, 2.0, 0);
-      sh.add(head);
-
-      const snoutGeo = new THREE.CylinderGeometry(0.05, 0.10, 0.35, 8);
-      const snout = new THREE.Mesh(snoutGeo, mat);
-      snout.position.set(0.65, 2.05, 0);
-      snout.rotation.z = -Math.PI / 2;
-      sh.add(snout);
-
-      // Curled tail tip
-      const tailGeo = new THREE.TorusGeometry(0.15, 0.08, 8, 14, Math.PI * 1.4);
-      const tail = new THREE.Mesh(tailGeo, mat);
-      tail.position.set(-0.1, 0.6, 0);
-      tail.rotation.set(Math.PI / 2, 0, Math.PI / 4);
-      sh.add(tail);
-
-      // Eye
+      const mat = this.wetMat(color, { roughness: 0.5, metalness: 0.05, clearcoat: 0.4 });
+      mat.vertexColors = true;
+      sh.add(new THREE.Mesh(bodyGeo, mat));
+      sh.add(new THREE.Mesh(snoutGeo, mat));
       const eye = new THREE.Mesh(
-        new THREE.SphereGeometry(0.06, 8, 6),
-        new THREE.MeshBasicMaterial({ color: 0x1c1c1c })
+        new THREE.SphereGeometry(0.03, 8, 6),
+        new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.2 })
       );
-      eye.position.set(0.42, 2.05, 0.18);
+      eye.position.set(crown.x + 0.05, crown.y - 0.05, 0.07);
       sh.add(eye);
 
-      // Position — near kelp/floor, mid-water height
-      const baseY = floorY + 1.5 + Math.random() * 4;
-      sh.position.set(
-        (Math.random() - 0.5) * 70,
-        baseY,
-        (Math.random() - 0.5) * 70
-      );
+      // Near the reef and kelp, a little above the floor.
+      const spot = this.floorSpot(floorY);
+      const baseY = spot.y + 0.6 + Math.random() * 2.5;
+      sh.position.set(spot.x, baseY, spot.z);
       sh.rotation.y = Math.random() * Math.PI * 2;
-      const scale = 0.7 + Math.random() * 0.5;
-      sh.scale.setScalar(scale);
+      sh.scale.setScalar(0.35 + Math.random() * 0.2);
       sh.userData.kind = 'seahorse';
       sh.userData.baseY = baseY;
       sh.userData.phase = Math.random() * Math.PI * 2;
@@ -872,54 +1003,50 @@ export class ExtraOceanLife {
     }
   }
 
-  // === MORAY EELS — sinuous body poking out from rocks ===
+  // === MORAY EELS — thick, sideways-flattened body rising out of a reef crevice ===
   private spawnMorayEels(floorY: number, count: number): void {
-    const eelColors = [0x5a6a3a, 0x4a5a4a, 0x6a5a3a, 0x3a4a5a];
+    const eelColors = [0x5a6a3a, 0x4a5a40, 0x6a5a3a, 0x52583a];
     for (let i = 0; i < count; i++) {
       const eelColor = new THREE.Color(eelColors[i % eelColors.length]);
-      const mat = this.makeWaveMaterial(eelColor, 0.22, 1.8);
+      const mat = this.makeWaveMaterial(eelColor, 0.12, 1.8);
 
-      // Long tapered body — 12 segments along Y
+      // Base below the sand, rising in a lazy S, head angled forward (+X).
+      const lean = 0.2 + Math.random() * 0.25;
+      const spine = [
+        new THREE.Vector3(0, -0.6, 0),
+        new THREE.Vector3(0.05, 0.3, 0),
+        new THREE.Vector3(-0.12, 1.1, 0),
+        new THREE.Vector3(0.08, 1.8, 0),
+        new THREE.Vector3(0.3 + lean, 2.3, 0),
+        new THREE.Vector3(0.65 + lean, 2.45, 0),
+      ];
+      const body = taperedTube(
+        spine,
+        (t) => {
+          if (t < 0.8) return 0.2;
+          const u = (t - 0.8) / 0.2; // blunt head tapering to the snout
+          return 0.2 * Math.sqrt(Math.max(0, 1 - u * u)) * (1 - 0.3 * u) + 0.01;
+        },
+        { segments: 64, radial: 12, squash: 0.72, squashAxis: new THREE.Vector3(0, 0, 1) }
+      );
       const eel = new THREE.Group();
-      const segCount = 14;
-      for (let s = 0; s < segCount; s++) {
-        const t = s / (segCount - 1);
-        const r = 0.22 - t * 0.12;
-        const segGeo = new THREE.SphereGeometry(r, 10, 8);
-        const seg = new THREE.Mesh(segGeo, mat);
-        seg.position.set(0, s * 0.32, 0);
-        // gentle curve
-        seg.position.x = Math.sin(t * 3.0) * 0.15;
-        eel.add(seg);
-      }
+      eel.add(new THREE.Mesh(body, mat));
 
-      // Head with mouth
-      const headGeo = new THREE.SphereGeometry(0.28, 12, 10);
-      const head = new THREE.Mesh(headGeo, mat);
-      head.position.set(Math.sin(3.0) * 0.15, segCount * 0.32, 0);
-      head.scale.set(1.0, 0.85, 1.0);
-      eel.add(head);
-
-      // Eyes (small white)
-      for (const ex of [-0.18, 0.18]) {
-        const eye = new THREE.Mesh(
-          new THREE.SphereGeometry(0.05, 8, 6),
-          new THREE.MeshBasicMaterial({ color: 0xfff080 })
-        );
-        eye.position.set(ex, segCount * 0.32 + 0.05, 0.22);
+      // Eyes on the sides of the head, set back from the snout.
+      const eyeMat = new THREE.MeshStandardMaterial({ color: 0xd8c860, roughness: 0.2 });
+      const curve = new THREE.CatmullRomCurve3(spine, false, 'centripetal');
+      const eyeAt = curve.getPointAt(0.9);
+      for (const sgn of [-1, 1]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), eyeMat);
+        eye.position.set(eyeAt.x, eyeAt.y + 0.08, sgn * 0.13);
         eel.add(eye);
       }
 
-      // Position near rocks
-      eel.position.set(
-        (Math.random() - 0.5) * 75,
-        floorY + 0.5,
-        (Math.random() - 0.5) * 75
-      );
+      // Out of a crevice on a reef patch; the base is hidden in the sand.
+      eel.position.copy(this.floorSpot(floorY));
       eel.rotation.y = Math.random() * Math.PI * 2;
-      eel.rotation.z = (Math.random() - 0.5) * 0.4;
-      const scale = 0.6 + Math.random() * 0.5;
-      eel.scale.setScalar(scale);
+      eel.rotation.z = (Math.random() - 0.5) * 0.3;
+      eel.scale.setScalar(0.55 + Math.random() * 0.35);
       eel.userData.kind = 'eel';
       this.group.add(eel);
     }
@@ -1069,3 +1196,44 @@ export class ExtraOceanLife {
     });
   }
 }
+
+/**
+ * Height of a floor creature's origin above the sand. Procedural floor bodies are built
+ * around the origin, so their lower half sinks into the sand.
+ */
+export const FLOOR_CLEARANCE = 0.15;
+
+export interface CritterModelSpec {
+  /** Sits on the sand: the scan's underside rests on the sand surface. */
+  floor?: boolean;
+  /** Stands head-up (seahorses) rather than lying along its length. */
+  upright?: boolean;
+  /** Raise the scan above the procedural body, as a multiple of that body's height. */
+  lift?: number;
+}
+
+/**
+ * Kind -> scanned body. Files are prepared in Blender like the large creatures (nose to -X,
+ * unit length); see `public/models/README.md` for sources and credits. A kind whose file is
+ * missing keeps its procedural body. `cowfish` has no procedural body and is only added
+ * when its scan loads.
+ */
+export const CRITTER_MODELS: Record<string, CritterModelSpec & { url: string }> = {
+  // The scan is in a jetting pose, arms trailing, so it swims just above the sand
+  // instead of lying flat on it.
+  octopus: { url: '/models/critters/octopus.glb', floor: true, lift: 2.5 },
+  cuttlefish: { url: '/models/critters/cuttlefish.glb' },
+  hermitcrab: { url: '/models/critters/hermitcrab.glb', floor: true },
+  pufferfish: { url: '/models/critters/balloonfish.glb' },
+  seahorse: { url: '/models/critters/seahorse.glb', upright: true },
+  cowfish: { url: '/models/critters/cowfish.glb' },
+  // Reuses the reef prop scan (Tridacna crocea); it is already up +Y with its base at y = 0.
+  giantclam: { url: '/models/reef/tridacna.glb', floor: true },
+  // The scan is a straight moray, so it lies along the reef rather than rising out of it.
+  eel: { url: '/models/critters/moray.glb', floor: true },
+  lobster: { url: '/models/critters/lobster.glb', floor: true },
+  squid: { url: '/models/critters/squid.glb' },
+  nautilus: { url: '/models/critters/nautilus.glb' },
+  nudibranch: { url: '/models/critters/nudibranch.glb', floor: true },
+  seacucumber: { url: '/models/critters/seacucumber.glb', floor: true },
+};

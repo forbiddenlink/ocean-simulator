@@ -1,7 +1,11 @@
 import './style.css';
 import posthog from 'posthog-js';
 import { OceanSimulator } from './OceanSimulator';
-import { CreatureModelLoader, CREATURE_MODEL_PATHS } from './creatures/CreatureModelLoader';
+import {
+  CreatureModelLoader,
+  CREATURE_MODEL_PATHS,
+  SCHOOL_FISH_MODEL_PATHS,
+} from './creatures/CreatureModelLoader';
 
 // Initialize PostHog
 if (import.meta.env.VITE_POSTHOG_KEY) {
@@ -28,15 +32,21 @@ try {
   (window as unknown as { __sim: OceanSimulator }).__sim = simulator;
   simulator.start();
 
-  // Optional GLTF creature models (inert unless CREATURE_MODEL_PATHS is populated + the
-  // .glb files exist under public/models/). Best-effort: any success upgrades the matching
-  // large creatures; failures leave everything procedural. Never blocks startup.
+  // Scanned creature models from public/models/. Best-effort: each loaded model replaces
+  // that species' procedural body; a failed load leaves it procedural. Never blocks startup.
   CreatureModelLoader.preload(CREATURE_MODEL_PATHS)
     .then((models) => {
       if (models.size > 0) simulator.setCreatureModels(models);
     })
     .catch(() => {
       /* fully procedural fallback */
+    });
+  CreatureModelLoader.loadTemplates(SCHOOL_FISH_MODEL_PATHS)
+    .then((templates) => {
+      if (templates.size > 0) simulator.setSchoolFishModels(templates);
+    })
+    .catch(() => {
+      /* procedural school fish */
     });
 
   // Fade the loading/title card once the scene has painted a couple of frames.

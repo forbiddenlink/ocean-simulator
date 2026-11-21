@@ -14,6 +14,8 @@ import { BottomDwellerGeometry } from '../creatures/BottomDwellers';
 import { WhaleGeometry } from '../creatures/WhaleGeometry';
 import { applyBiomechanicalAnimationToMesh } from '../systems/BiomechanicalAnimationSystem';
 import { TargetMemory } from '../systems/HuntingSystem';
+import type { CreatureModel, SwimStyle } from '../creatures/CreatureModelLoader';
+import { schoolFishBody } from '../creatures/SchoolFishModel';
 
 // Debug flag - set to true for development debugging
 const DEBUG = false;
@@ -49,8 +51,62 @@ const MODEL_KEY_BY_TYPE: Record<number, string> = {
   9: 'whale',
 };
 
+/** Steepest climb or dive a swimming body shows (about 30 degrees). */
+const MAX_SWIM_PITCH = 0.52;
+/** Most a body banks into a turn (about 23 degrees). */
+const MAX_SWIM_BANK = 0.4;
+/** Creatures that keep their rest orientation: jellyfish drift upright, starfish and urchins sit on the floor. */
+const STATIC_ORIENTATION_TYPES = new Set([3, 7, 8]);
+/** Floor walkers turn to face where they go but never pitch or bank. */
+const UPRIGHT_TYPES = new Set([6]);
+/** Models built with the head toward +X; they are turned to the -X convention once. */
+const HEAD_PLUS_X_TYPES = new Set([4, 5, 9]);
+
+/**
+ * Vertex-shader swimming for scanned models, which have no skeleton. Works in model space:
+ * nose at x = -0.5, tail at x = +0.5, half-width about 0.4. Larger animals beat slower,
+ * and each animal gets its own phase from its world position.
+ */
+function swimVertexChunk(style: SwimStyle, length: number): string {
+  const rate = (5.5 / Math.sqrt(length)).toFixed(3);
+  const body: Record<SwimStyle, string> = {
+    // Side-to-side wave that travels to the tail and grows along the body.
+    lateral: `
+  float along = clamp(position.x + 0.5, 0.0, 1.0);
+  float env = smoothstep(0.1, 1.0, along);
+  transformed.z += sin(ph - along * 6.0) * 0.075 * env * env;
+  transformed.z += sin(ph) * 0.01 * (1.0 - along);`,
+    // Same wave up and down: cetacean flukes are horizontal.
+    vertical: `
+  float along = clamp(position.x + 0.5, 0.0, 1.0);
+  float env = smoothstep(0.35, 1.0, along);
+  transformed.y += sin(ph - along * 4.5) * 0.065 * env * env;`,
+    // Wing tips flap with a slight lag outward; the body stays level.
+    wing: `
+  float span = clamp(abs(position.z) / 0.41, 0.0, 1.0);
+  float w = smoothstep(0.12, 1.0, span);
+  transformed.y += sin(ph * 0.6 - span * 1.4) * 0.11 * w * w;`,
+    // Front flippers sweep in long strokes, rear flippers steer; the shell is rigid.
+    paddle: `
+  float side = smoothstep(0.5, 0.9, abs(position.z) / 0.4);
+  float front = 1.0 - smoothstep(-0.12, 0.12, position.x);
+  float stroke = ph * 0.4;
+  transformed.y += sin(stroke) * side * mix(0.02, 0.07, front);
+  transformed.x += cos(stroke) * side * front * 0.04;`,
+  };
+  return `{
+  float ph = uCausticTime * ${rate} + dot(modelMatrix[3].xyz, vec3(0.73, 0.21, 0.57));${body[style]}
+}`;
+}
+
+/** Frame-rate independent share of the remaining turn to apply this frame (0.15 at 60 fps). */
+function turnBlend(dt: number): number {
+  return 1 - Math.exp(-dt * 9.75);
+}
+
 export class BatchedMeshPool {
   private renderEngine: RenderingEngine;
+  private frameDelta = 1 / 60;
 
   // Instanced meshes for fish - one per body type for visual variety
   private fishInstancedMeshes: THREE.InstancedMesh[] = [];
@@ -70,11 +126,61 @@ export class BatchedMeshPool {
   private causticTime = { value: 0 };
   private frameCount = 0;
   // Optional GLTF creature models keyed by species (empty = fully procedural).
-  private creatureModels = new Map<string, THREE.BufferGeometry>();
+  private creatureModels = new Map<string, CreatureModel>();
 
-  /** Register loaded GLTF creature models; new large creatures use them in place of procedural bodies. */
-  public setCreatureModels(models: Map<string, THREE.BufferGeometry>): void {
+  /**
+   * Register loaded GLTF creature models. Models load after the first creatures spawn, so
+   * any existing procedural body of a modelled species is dropped and rebuilt from the
+   * model on the next update.
+   */
+  public setCreatureModels(models: Map<string, CreatureModel>): void {
     this.creatureModels = models;
+    for (const eid of [...this.individualMeshes.keys()]) {
+      const key = MODEL_KEY_BY_TYPE[CreatureType.type[eid]];
+      if (key && models.has(key)) this.releaseIndividualMesh(eid);
+    }
+  }
+
+  /**
+   * Swap procedural school-fish bodies for scanned reef fish, keyed by body type name
+   * (BODY_TYPE_NAMES). Each scan replaces its type's geometry and material in place, so
+   * existing instances keep their slots, matrices, colours and swim phases. Types without
+   * a scan stay procedural.
+   */
+  public setSchoolFishModels(templates: Map<string, THREE.Group>): void {
+    BODY_TYPE_NAMES.forEach((name, i) => {
+      const template = templates.get(name);
+      const mesh = this.fishInstancedMeshes[i];
+      const body = template && mesh ? schoolFishBody(template) : null;
+      if (!body) return;
+      body.geometry.setAttribute('animPhase', this.animPhaseAttributes[i]);
+      body.geometry.setAttribute('animSpeed', this.animSpeedAttributes[i]);
+      const procedural = mesh.material as THREE.Material;
+      mesh.geometry.dispose();
+      procedural.dispose();
+      this.fishGeometries[i] = body.geometry;
+      this.fishMaterials.splice(this.fishMaterials.indexOf(procedural), 1, ...body.materials);
+      mesh.geometry = body.geometry;
+      mesh.material = body.materials;
+      mesh.boundingSphere = null;
+      mesh.boundingBox = null;
+    });
+  }
+
+  /** Remove a creature's mesh from the scene and free GPU resources it owns alone. */
+  private releaseIndividualMesh(eid: number): void {
+    const mesh = this.individualMeshes.get(eid);
+    if (!mesh) return;
+    this.renderEngine.scene.remove(mesh);
+    this.individualMeshes.delete(eid);
+    // Model clones share geometry, materials and textures with every other clone.
+    if (mesh.userData.fromModel) return;
+    mesh.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.geometry?.dispose();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const m of materials) m?.dispose();
+    });
   }
   private tempMatrix: THREE.Matrix4 = new THREE.Matrix4();
   private tempPosition: THREE.Vector3 = new THREE.Vector3();
@@ -145,24 +251,20 @@ export class BatchedMeshPool {
   private createFishMaterial(): THREE.MeshPhysicalMaterial {
     const material = new THREE.MeshPhysicalMaterial({
       color: 0xffffff,
-      metalness: 0.32,
-      roughness: 0.22,
+      // Fish skin is a wet dielectric under a thin mucus layer: low metalness, a soft
+      // clearcoat for the wet sheen. Full iridescence + sheen + mirror clearcoat made
+      // every fish read as chrome plastic, and those three lobes were the most
+      // expensive fragment shading in the frame.
+      metalness: 0.06,
+      roughness: 0.42,
       flatShading: false,
       side: THREE.DoubleSide,
       vertexColors: true, // Eyes, gills, countershade baked into SimpleFishGeometry
       emissive: new THREE.Color(0x1a3044),
-      emissiveIntensity: 0.12,
-      iridescence: 1.0,
-      iridescenceIOR: 1.45,
-      iridescenceThicknessRange: [80, 580],
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.03,
-      sheen: 0.65,
-      sheenRoughness: 0.18,
-      sheenColor: new THREE.Color(0x88bbff),
-      transmission: 0.0,
-      thickness: 0.0,
-      specularIntensity: 1.2,
+      emissiveIntensity: 0.08,
+      clearcoat: 0.35,
+      clearcoatRoughness: 0.25,
+      specularIntensity: 0.8,
     });
 
     // Inject GPU swimming animation + procedural scale pattern
@@ -262,12 +364,14 @@ uniform float uCausticTime;
         `#include <normal_fragment_maps>
 {
   if (vFinType < 3.5) {
-    vec2 scN = vLocalPosition.xz * vec2(38.0, 54.0);
+    // Scales tile the flank, which spans local x (length) and y (height). Using z here
+    // stretched every scale into a long line across the body.
+    vec2 scN = vLocalPosition.xy * vec2(46.0, 52.0);
     scN.x += step(0.5, fract(scN.y * 0.5)) * 0.5;
     vec2 sfN = abs(fract(scN) - 0.5);
-    float scaleH = 1.0 - smoothstep(0.12, 0.42, max(sfN.x * 1.2, sfN.y));
-    // Soft secondary micro-ridges between scales
-    scaleH += 0.25 * (1.0 - smoothstep(0.28, 0.45, max(sfN.x, sfN.y)));
+    // Fade out once a scale is under ~2 px, where it would only alias into moire.
+    float scaleVis = 1.0 - smoothstep(0.25, 0.5, max(fwidth(scN.x), fwidth(scN.y)));
+    float scaleH = (1.0 - smoothstep(0.12, 0.42, max(sfN.x * 1.2, sfN.y))) * scaleVis;
     if (vFinType > 0.5) {
       // Fin rays: longitudinal height ridges
       float ray = abs(sin(vLocalPosition.y * 48.0 + vLocalPosition.x * 6.0));
@@ -283,7 +387,7 @@ uniform float uCausticTime;
     float det = dot(dp1, r1);
     float invDet = (abs(det) > 1e-8) ? (1.0 / det) : 0.0;
     vec3 surfGrad = (r1 * hx + r2 * hy) * invDet;
-    float bumpAmt = (vFinType > 0.5 && vFinType < 3.5) ? 0.55 : 0.85;
+    float bumpAmt = (vFinType > 0.5 && vFinType < 3.5) ? 0.4 : 0.3;
     normal = normalize(nRef - surfGrad * bumpAmt);
   }
 }
@@ -415,22 +519,29 @@ if (patternType < 1.0) {
 patterned = mix(patterned, vec3(dot(patterned, vec3(0.299, 0.587, 0.114))), 0.06);
 patterned *= vec3(0.88, 0.97, 1.05);
 
-// Apply soft countershade on every fish
-patterned = mix(patterned * 0.82, patterned * 1.18, belly);
-
-// Scale lattice + lateral line — denser + higher contrast so bump + clearcoat read at distance
+// Countershading on every fish: a dark, slightly green back that vanishes against the
+// deep water seen from above, and a pale silvery belly that vanishes against the bright
+// surface seen from below. This is the strongest "real fish" cue at schooling distance.
 {
-  vec2 sc = vLocalPosition.xz * vec2(38.0, 54.0);
+  vec3 back = patterned * vec3(0.38, 0.46, 0.44);
+  vec3 flank = patterned;
+  vec3 silver = mix(patterned, vec3(0.86, 0.9, 0.92), 0.55);
+  float up = smoothstep(-0.02, 0.16, vLocalPosition.y);
+  patterned = mix(flank, back, up);
+  patterned = mix(patterned, silver, belly * 0.8);
+}
+
+// Scale lattice + lateral line: subtle, and only where a scale is big enough on screen.
+{
+  vec2 sc = vLocalPosition.xy * vec2(46.0, 52.0);
   sc.x += step(0.5, fract(sc.y * 0.5)) * 0.5;
   vec2 sf = abs(fract(sc) - 0.5);
+  float vis = 1.0 - smoothstep(0.25, 0.5, max(fwidth(sc.x), fwidth(sc.y)));
   float cell = 1.0 - smoothstep(0.12, 0.38, max(sf.x * 1.2, sf.y));
-  patterned *= mix(0.72, 1.22, cell);
-  float ridge = smoothstep(0.28, 0.4, max(sf.x, sf.y));
-  patterned += vec3(0.1, 0.15, 0.18) * ridge * 0.7;
-  // Mid-body lateral line with pore dashes
-  float lat = 1.0 - smoothstep(0.01, 0.04, abs(vLocalPosition.y));
-  float pores = step(0.55, fract(vLocalPosition.x * 28.0));
-  patterned *= mix(1.0, 0.52, lat * mix(0.55, 0.95, pores));
+  patterned *= mix(1.0, mix(0.9, 1.05, cell), vis);
+  // Mid-body lateral line
+  float lat = 1.0 - smoothstep(0.008, 0.025, abs(vLocalPosition.y - 0.02));
+  patterned *= mix(1.0, 0.8, lat * vis);
 }
 
 // Fin membrane: ray striping + cooler tint
@@ -496,6 +607,41 @@ diffuseColor.rgb = patterned;
   }
 
   /**
+   * Target rotation for a body whose head is at local -X, swimming along (vx, vy, vz).
+   * Heading turns about world Y, pitch about the body's Z (nose up or down) and banking
+   * about the body's own X axis, into the turn. Returns the heading for the next call.
+   */
+  private swimOrientation(
+    vx: number,
+    vy: number,
+    vz: number,
+    lastYaw: number | undefined,
+    dt: number,
+    upright: boolean,
+    out: THREE.Quaternion
+  ): number {
+    // Rotating local -X by yaw about +Y gives (-cos yaw, 0, sin yaw); match (vx, vz).
+    const yaw = Math.atan2(vz, -vx);
+    let pitch = 0;
+    let roll = 0;
+    if (!upright) {
+      const horizontal = Math.sqrt(vx * vx + vz * vz);
+      // Positive Z rotation tips local -X downward, so climbing needs a negative angle.
+      pitch = -Math.max(-MAX_SWIM_PITCH, Math.min(MAX_SWIM_PITCH, Math.atan2(vy, horizontal)));
+      if (lastYaw !== undefined && dt > 0) {
+        let yawDelta = yaw - lastYaw;
+        while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
+        while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
+        // Positive X rotation lifts the left flank; a left turn (yaw increasing) banks left.
+        roll = Math.max(-MAX_SWIM_BANK, Math.min(MAX_SWIM_BANK, (yawDelta / dt) * 0.18));
+      }
+    }
+    this.tempEuler.set(roll, yaw, pitch, 'YZX');
+    out.setFromEuler(this.tempEuler);
+    return yaw;
+  }
+
+  /**
    * Update a fish instance's transform
    */
   private updateFishInstance(eid: number, world: OceanWorld): void {
@@ -533,29 +679,17 @@ diffuseColor.rgb = patterned;
       smoothVy /= count;
       smoothVz /= count;
 
-      // Model forward axis: head is at -X, tail at +X.
-      // We want local -X to point along the velocity direction.
-      // yaw should rotate local -X into (vx, vz) => yaw = atan2(vz, vx) + PI
-      const yaw = Math.atan2(smoothVz, smoothVx) + Math.PI;
-      const horizontalSpeed = Math.sqrt(smoothVx * smoothVx + smoothVz * smoothVz);
-      let pitch = -Math.atan2(smoothVy, horizontalSpeed);
-      pitch = Math.max(-0.52, Math.min(0.52, pitch));
-
-      let roll = 0;
-      if (instance.lastYaw !== undefined) {
-        let yawDelta = yaw - instance.lastYaw;
-        while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
-        while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
-        roll = -yawDelta * 3.0;
-        roll = Math.max(-0.6, Math.min(0.6, roll));
-      }
-      instance.lastYaw = yaw;
-
-      this.tempEuler.set(pitch, yaw, roll, 'YXZ');
-      this.tempQuaternion.setFromEuler(this.tempEuler);
-      instance.lastQuaternion.slerp(this.tempQuaternion, 0.15);
-      this.tempQuaternion.copy(instance.lastQuaternion);
+      const dt = world.time.delta;
+      const firstFrame = instance.lastYaw === undefined;
+      instance.lastYaw = this.swimOrientation(
+        smoothVx, smoothVy, smoothVz, instance.lastYaw, dt, false, this.tempQuaternion
+      );
+      if (firstFrame) instance.lastQuaternion.copy(this.tempQuaternion);
+      else instance.lastQuaternion.slerp(this.tempQuaternion, turnBlend(dt));
     }
+    // Always the fish's own heading: tempQuaternion is shared scratch and would otherwise
+    // still hold the previous fish's rotation whenever this one is (nearly) stationary.
+    this.tempQuaternion.copy(instance.lastQuaternion);
 
     this.tempScale.set(Scale.x[eid] || 1, Scale.y[eid] || 1, Scale.z[eid] || 1);
     this.tempMatrix.compose(this.tempPosition, this.tempQuaternion, this.tempScale);
@@ -629,10 +763,25 @@ diffuseColor.rgb = patterned;
     const variant = CreatureType.variant[eid];
 
     // Prefer a loaded GLTF model for this species if one is registered (else procedural).
-    if (this.creatureModels.size > 0) {
-      const modelKey = MODEL_KEY_BY_TYPE[type];
-      const model = modelKey ? this.creatureModels.get(modelKey) : undefined;
-      if (model) return model.clone();
+    const modelKey = MODEL_KEY_BY_TYPE[type];
+    const model = modelKey ? this.creatureModels.get(modelKey) : undefined;
+    if (model) {
+      // The outer group takes the per-frame transform; the inner clone carries the size.
+      const body = model.template.clone();
+      body.scale.setScalar(model.length);
+      body.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        if (m) {
+          this.enhanceBodyMaterial(m, {
+            textured: true,
+            swim: { style: model.swim, length: model.length },
+          });
+        }
+      });
+      const group = new THREE.Group();
+      group.add(body);
+      group.userData.fromModel = true;
+      return group;
     }
 
     switch (type) {
@@ -753,7 +902,7 @@ diffuseColor.rgb = patterned;
           transparent: true,
           opacity: 0.45,          // Very see-through
           emissive: new THREE.Color(0x6699cc),
-          emissiveIntensity: 2.4, // Strong bioluminescent glow for night look
+          emissiveIntensity: 0.9, // Soft self-glow; bloom carries it at night
 
           side: THREE.DoubleSide,
           depthWrite: false,      // Proper transparency sorting
@@ -867,13 +1016,21 @@ diffuseColor.rgb = patterned;
    *      the silhouette form against the murk.
    * Idempotent + safe to call on shared materials. Skips eyes (MeshBasicMaterial)
    * and translucent bodies (jellyfish) where countershading would look wrong.
+   *
+   * Scanned models (`textured`) already carry real skin colour, so they skip the painted
+   * countershading and denticle detail and keep only the rim and caustics. They have no
+   * skeleton, so `swim` moves their vertices in the shader instead.
    */
-  private enhanceBodyMaterial(mat: THREE.Material | THREE.Material[] | undefined): void {
+  private enhanceBodyMaterial(
+    mat: THREE.Material | THREE.Material[] | undefined,
+    options: { textured?: boolean; swim?: { style: SwimStyle; length: number } } = {}
+  ): void {
     if (!mat) return;
     if (Array.isArray(mat)) {
-      for (const m of mat) this.enhanceBodyMaterial(m);
+      for (const m of mat) this.enhanceBodyMaterial(m, options);
       return;
     }
+    const textured = options.textured === true;
     const isLit =
       (mat as THREE.MeshStandardMaterial).isMeshStandardMaterial === true ||
       (mat as THREE.MeshPhysicalMaterial).isMeshPhysicalMaterial === true;
@@ -884,6 +1041,11 @@ diffuseColor.rgb = patterned;
 
     const prev = mat.onBeforeCompile;
     const causticTime = this.causticTime;
+    // three.js keys compiled programs by onBeforeCompile's source text, which is the same
+    // for every species; the swim chunk differs per species, so it must be in the key.
+    const variant = `body:${textured ? 'scan' : 'paint'}:${options.swim ? `${options.swim.style}:${options.swim.length}` : 'still'}`;
+    const prevKey = mat.customProgramCacheKey.bind(mat);
+    mat.customProgramCacheKey = () => `${prevKey()}|${variant}`;
     mat.onBeforeCompile = (shader, renderer) => {
       if (prev) prev(shader, renderer);
       shader.uniforms.uCausticTime = causticTime;
@@ -900,6 +1062,13 @@ varying vec3 vBodyWPos;`
         `#include <beginnormal_vertex>
 vBodyWNormal = normalize(mat3(modelMatrix) * objectNormal);`
       );
+      if (options.swim) {
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', `#include <common>
+uniform float uCausticTime;`)
+          .replace('#include <begin_vertex>', `#include <begin_vertex>
+${swimVertexChunk(options.swim.style, options.swim.length)}`);
+      }
       shader.vertexShader = shader.vertexShader.replace(
         '#include <project_vertex>',
         `#include <project_vertex>
@@ -915,8 +1084,8 @@ varying vec3 vBodyWPos;
 uniform float uCausticTime;`
       );
 
-      // Countershading on the base diffuse color.
-      shader.fragmentShader = shader.fragmentShader.replace(
+      // Countershading on the base diffuse color (painted bodies only).
+      if (!textured) shader.fragmentShader = shader.fragmentShader.replace(
         'vec4 diffuseColor = vec4( diffuse, opacity );',
         `vec4 diffuseColor = vec4( diffuse, opacity );
 {
@@ -941,7 +1110,7 @@ uniform float uCausticTime;`
       );
 
       // Denticle bump + roughness variation — plastic → textured skin
-      shader.fragmentShader = shader.fragmentShader.replace(
+      if (!textured) shader.fragmentShader = shader.fragmentShader.replace(
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
 {
@@ -967,7 +1136,7 @@ uniform float uCausticTime;`
 `
       );
 
-      shader.fragmentShader = shader.fragmentShader.replace(
+      if (!textured) shader.fragmentShader = shader.fragmentShader.replace(
         '#include <roughnessmap_fragment>',
         `#include <roughnessmap_fragment>
 {
@@ -990,7 +1159,7 @@ uniform float uCausticTime;`
   vec3 rimV = normalize(vViewPosition);
   vec3 rimN = normalize(vNormal);
   float rim = pow(1.0 - clamp(dot(rimN, rimV), 0.0, 1.0), 2.8);
-  totalEmissiveRadiance += vec3(0.18, 0.48, 0.72) * rim * 0.55;
+  totalEmissiveRadiance += vec3(0.18, 0.48, 0.72) * rim * ${textured ? '0.3' : '0.55'};
 
   // Caustic dapples: animated refracted-sunlight patches on upward-facing surfaces,
   // tying the creature into the same light that pools on the seabed.
@@ -1020,13 +1189,29 @@ uniform float uCausticTime;`
 
       if (geometryOrGroup instanceof THREE.Group) {
         meshOrGroup = geometryOrGroup;
+        if (meshOrGroup.userData.fromModel) {
+          // Models are prepared nose toward -X with their materials already upgraded.
+        } else if (HEAD_PLUS_X_TYPES.has(CreatureType.type[eid])) {
+          // The swim orientation assumes the head at -X. Turn the model inside a wrapper
+          // so the per-frame rotation of the outer group does not overwrite the flip.
+          const wrapper = new THREE.Group();
+          meshOrGroup.rotation.y = Math.PI;
+          wrapper.add(meshOrGroup);
+          meshOrGroup = wrapper;
+        }
         // Multi-part creatures (whale/shark/dolphin/ray/turtle) bake their materials
         // in the geometry factory — upgrade each body part so it reads as a lit animal.
-        meshOrGroup.traverse((o) => {
-          const m = (o as THREE.Mesh).material;
-          if (m) this.enhanceBodyMaterial(m);
-        });
+        if (!meshOrGroup.userData.fromModel) {
+          meshOrGroup.traverse((o) => {
+            const m = (o as THREE.Mesh).material;
+            if (m) this.enhanceBodyMaterial(m);
+          });
+        }
       } else {
+        if (HEAD_PLUS_X_TYPES.has(CreatureType.type[eid])) {
+          // Merged single-mesh models (the ray) also face +X; flip the geometry once.
+          geometryOrGroup.rotateY(Math.PI);
+        }
         // Ensure geometry has normals (tangents are computed in shader)
         if (!geometryOrGroup.attributes.normal) {
           geometryOrGroup.computeVertexNormals();
@@ -1098,27 +1283,17 @@ uniform float uCausticTime;`
       smoothVy /= count;
       smoothVz /= count;
 
-      // Model forward axis: head is at -X, tail at +X
-      // yaw should rotate local -X into (vx, vz)
-      const yaw = Math.atan2(smoothVz, smoothVx) + Math.PI;
-      const horizontalSpeed = Math.sqrt(smoothVx * smoothVx + smoothVz * smoothVz);
-      // Clamp pitch to realistic angles (max ~30 degrees = 0.52 rad)
-      let pitch = -Math.atan2(smoothVy, horizontalSpeed); // Negative for correct pitch
-      pitch = Math.max(-0.52, Math.min(0.52, pitch)); // Limit to ±30 degrees
-
-      let roll = 0;
-      if (mesh.userData.lastYaw !== undefined) {
-        let yawDelta = yaw - mesh.userData.lastYaw;
-        while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
-        while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
-        roll = -yawDelta * 3.0;
-        roll = Math.max(-0.6, Math.min(0.6, roll));
+      const type = CreatureType.type[eid];
+      if (!STATIC_ORIENTATION_TYPES.has(type)) {
+        const dt = this.frameDelta;
+        const firstFrame = mesh.userData.lastYaw === undefined;
+        mesh.userData.lastYaw = this.swimOrientation(
+          smoothVx, smoothVy, smoothVz, mesh.userData.lastYaw, dt,
+          UPRIGHT_TYPES.has(type), this.tempQuaternion
+        );
+        if (firstFrame) mesh.quaternion.copy(this.tempQuaternion);
+        else mesh.quaternion.slerp(this.tempQuaternion, turnBlend(dt));
       }
-      mesh.userData.lastYaw = yaw;
-
-      this.tempEuler.set(pitch, yaw, roll, 'YXZ');
-      this.tempQuaternion.setFromEuler(this.tempEuler);
-      mesh.quaternion.slerp(this.tempQuaternion, 0.15);
     }
 
     // Biomechanical animation rewrites and re-uploads the whole vertex buffer, so it is
@@ -1159,6 +1334,7 @@ uniform float uCausticTime;`
   private readonly animationCandidates: Array<{ eid: number; distanceSq: number }> = [];
 
   public updateMeshes(world: OceanWorld): void {
+    this.frameDelta = world.time.delta;
     const entities = query(world, [Position, MeshComponent]);
 
     // Despawns are rare, so only reconcile mesh cleanup periodically instead of
@@ -1208,30 +1384,8 @@ uniform float uCausticTime;`
       const existingEntities = new Set<number>(entities);
 
       // Clean up individual meshes for entities that no longer exist
-      for (const [eid, mesh] of this.individualMeshes) {
-        if (!existingEntities.has(eid)) {
-          this.renderEngine.scene.remove(mesh);
-          if (mesh instanceof THREE.Mesh) {
-            mesh.geometry?.dispose();
-            if (Array.isArray(mesh.material)) {
-              mesh.material.forEach(m => m.dispose());
-            } else {
-              mesh.material?.dispose();
-            }
-          } else if (mesh instanceof THREE.Group) {
-            mesh.traverse((child) => {
-              if (child instanceof THREE.Mesh) {
-                child.geometry?.dispose();
-                if (Array.isArray(child.material)) {
-                  child.material.forEach(m => m.dispose());
-                } else {
-                  child.material?.dispose();
-                }
-              }
-            });
-          }
-          this.individualMeshes.delete(eid);
-        }
+      for (const eid of [...this.individualMeshes.keys()]) {
+        if (!existingEntities.has(eid)) this.releaseIndividualMesh(eid);
       }
 
       // Clean up fish instances (add freed slots to reuse pool)
@@ -1278,24 +1432,28 @@ uniform float uCausticTime;`
       mesh.dispose();
     }
 
-    // Dispose individual meshes
-    this.individualMeshes.forEach(mesh => {
-      this.renderEngine.scene.remove(mesh);
-      if (mesh instanceof THREE.Mesh) {
-        mesh.geometry?.dispose();
-        if (Array.isArray(mesh.material)) {
-          mesh.material.forEach(m => m.dispose());
-        } else {
-          mesh.material?.dispose();
+    // Dispose individual meshes, then the model resources their clones shared.
+    for (const eid of [...this.individualMeshes.keys()]) this.releaseIndividualMesh(eid);
+    for (const model of this.creatureModels.values()) {
+      model.template.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        child.geometry.dispose();
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const m of materials) {
+          (m as THREE.MeshStandardMaterial).map?.dispose();
+          m.dispose();
         }
-      }
-    });
+      });
+    }
+    this.creatureModels.clear();
 
     // Dispose shared resources
     for (const geometry of this.fishGeometries) {
       geometry.dispose();
     }
     for (const material of this.fishMaterials) {
+      // School scans own their photo texture; procedural fish have none.
+      (material as THREE.MeshStandardMaterial).map?.dispose();
       material.dispose();
     }
 

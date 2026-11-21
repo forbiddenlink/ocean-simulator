@@ -1,7 +1,158 @@
 import * as THREE from 'three';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+
+import { CAUSTIC_GLSL } from './WaterMedium';
+
+function hash2(ix: number, iz: number): number {
+  const h = Math.sin(ix * 127.1 + iz * 311.7) * 43758.5453;
+  return h - Math.floor(h);
+}
+
+function valueNoise(x: number, z: number): number {
+  const ix = Math.floor(x);
+  const iz = Math.floor(z);
+  const fx = x - ix;
+  const fz = z - iz;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uz = fz * fz * (3 - 2 * fz);
+  const a = hash2(ix, iz);
+  const b = hash2(ix + 1, iz);
+  const c = hash2(ix, iz + 1);
+  const d = hash2(ix + 1, iz + 1);
+  return a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz;
+}
+
+function fbm(x: number, z: number, octaves: number): number {
+  let sum = 0;
+  let amp = 0.5;
+  let norm = 0;
+  for (let o = 0; o < octaves; o++) {
+    sum += amp * valueNoise(x, z);
+    norm += amp;
+    // Rotate each octave so ridges do not line up on the grid.
+    const nx = x * 1.6 + z * 1.2;
+    z = -x * 1.2 + z * 1.6;
+    x = nx;
+    amp *= 0.5;
+  }
+  return sum / norm;
+}
+
+function smoothstep(e0: number, e1: number, x: number): number {
+  const t = Math.min(Math.max((x - e0) / (e1 - e0), 0), 1);
+  return t * t * (3 - 2 * t);
+}
+
+/** Rock pinnacles inside the basin: occluders and landmarks that give the scene scale. */
+const PINNACLES: ReadonlyArray<{ x: number; z: number; h: number; r: number }> = [
+  { x: 24, z: -30, h: 8, r: 5.5 },
+  { x: -31, z: -16, h: 10, r: 6.5 },
+  { x: 7, z: -52, h: 6, r: 7 },
+  { x: -18, z: 34, h: 5, r: 5 },
+];
+
+const BOULDER_NOISE = `
+varying vec3 vRockPos;
+varying vec3 vRockWorldNormal;
+
+float rockHash(vec3 p) {
+  p = fract(p * 0.3183099 + 0.1);
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+
+float rockNoise(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(mix(rockHash(i), rockHash(i + vec3(1, 0, 0)), f.x),
+        mix(rockHash(i + vec3(0, 1, 0)), rockHash(i + vec3(1, 1, 0)), f.x), f.y),
+    mix(mix(rockHash(i + vec3(0, 0, 1)), rockHash(i + vec3(1, 0, 1)), f.x),
+        mix(rockHash(i + vec3(0, 1, 1)), rockHash(i + vec3(1, 1, 1)), f.x), f.y),
+    f.z);
+}
+
+float rockFbm(vec3 p) {
+  float v = 0.0;
+  float a = 0.5;
+  for (int i = 0; i < 4; i++) {
+    v += a * rockNoise(p);
+    p = p * 2.07 + 13.1;
+    a *= 0.5;
+  }
+  return v;
+}
+`
 
 /**
- * Shared sand-mound height so rocks / coral / kelp sit on the same terrain.
+ * Stone surface for the scattered boulders, matching the rock on the floor itself:
+ * mottled and pitted stone, algae on the up-facing tops, sparse coralline crust, and
+ * a bumped normal so the light grazes the detail. Patterns are in object space, so
+ * each boulder keeps its own pattern as it is scaled and turned.
+ */
+function applyBoulderSurface(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  shader.vertexShader = shader.vertexShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+varying vec3 vRockPos;
+varying vec3 vRockWorldNormal;`
+    )
+    .replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+vRockPos = position;
+#ifdef USE_INSTANCING
+vRockWorldNormal = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * objectNormal);
+#else
+vRockWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
+#endif`
+    );
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>${BOULDER_NOISE}`)
+    .replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+float rockDetail = rockFbm(vRockPos * 2.4);
+float rockPits = smoothstep(0.6, 0.78, rockFbm(vRockPos * 7.0 + 5.0));
+diffuseColor.rgb *= mix(0.62, 1.3, rockDetail) * (1.0 - rockPits * 0.45);
+float rockAlgae = smoothstep(0.45, 0.85, vRockWorldNormal.y)
+  * smoothstep(0.38, 0.62, rockFbm(vRockPos * 1.4 + 9.0));
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.15, 0.2, 0.08), rockAlgae * 0.75);
+float rockCrust = smoothstep(0.66, 0.76, rockFbm(vRockPos * 0.9 + 21.0));
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.36, 0.2, 0.26), rockCrust * 0.55);`
+    )
+    .replace(
+      '#include <normal_fragment_maps>',
+      `#include <normal_fragment_maps>
+{
+  float rockH = rockFbm(vRockPos * 5.0) + rockPits * 0.35;
+  vec2 dH = vec2(dFdx(rockH), dFdy(rockH)) * 1.6;
+  vec3 sx = dFdx(-vViewPosition);
+  vec3 sy = dFdy(-vViewPosition);
+  vec3 r1 = cross(sy, normal);
+  vec3 r2 = cross(normal, sx);
+  float det = dot(sx, r1) * faceDirection;
+  vec3 rockGrad = sign(det) * (dH.x * r1 + dH.y * r2);
+  normal = normalize(abs(det) * normal - rockGrad);
+}`
+    );
+}
+
+/** World Y of the floor datum that sampleSandHeight is measured from. */
+export const FLOOR_DATUM = -30;
+
+/** World Y of the seabed surface at x, z, for anything that rests on the floor. */
+export function seabedY(x: number, z: number): number {
+  return FLOOR_DATUM + sampleSandHeight(x, z);
+}
+
+/**
+ * Seabed height above the -30 m floor datum, shared by the floor mesh and everything
+ * placed on it (rocks, coral, kelp, critters). A sandy basin around the swim area,
+ * rock pinnacles inside it, and terraced rock walls rising outside ~60 m so the world
+ * has an edge that dissolves into water instead of ending at a seam.
  */
 export function sampleSandHeight(x: number, z: number): number {
   let height =
@@ -18,6 +169,34 @@ export function sampleSandHeight(x: number, z: number): number {
       height += Math.cos((dist / moundRadius) * Math.PI * 0.5) * (1.0 + (m % 3) * 0.5);
     }
   }
+
+  // Broad dunes.
+  height += (fbm(x * 0.02, z * 0.02, 3) - 0.5) * 3.0;
+
+  // Ridged noise: sharp crests for rock.
+  const ridged = 1 - Math.abs(2 * fbm(x * 0.045 + 11.3, z * 0.045 - 4.1, 4) - 1);
+
+  // Basin walls. The rim distance wanders with direction so the edge is not a circle.
+  const r = Math.hypot(x, z);
+  const ang = Math.atan2(z, x);
+  const dirNoise = fbm(Math.cos(ang) * 2.2 + 7.0, Math.sin(ang) * 2.2 + 3.0, 3);
+  const rimStart = 56 + dirNoise * 22;
+  const t = smoothstep(rimStart, rimStart + 60, r);
+  let wall = t * (12 + dirNoise * 16) + t * ridged * 6;
+  // Terraces: rock breaks into ledges instead of a smooth ramp.
+  const step = 2.6;
+  const terraced = Math.floor(wall / step) * step + smoothstep(0.55, 1, (wall % step) / step) * step;
+  wall = wall + (terraced - wall) * 0.6 * t;
+  height += Math.min(wall, 23);
+
+  for (const p of PINNACLES) {
+    const d = Math.hypot(x - p.x, z - p.z) / p.r;
+    if (d < 3) {
+      const shape = Math.exp(-d * d * 0.9);
+      height += p.h * shape * (0.75 + 0.5 * ridged);
+    }
+  }
+
   return height;
 }
 
@@ -37,62 +216,50 @@ export class RealisticOceanFloor {
   }
 
   private static createSandyFloor(depth: number): THREE.Mesh {
-    const geometry = new THREE.PlaneGeometry(420, 420, 220, 220);
+    const geometry = new THREE.PlaneGeometry(440, 440, 300, 300);
+    // Rotate BEFORE displacing: displacing the unrotated plane's Y wrote heights into the
+    // in-plane axis and collapsed the floor into a 420 x 3 m strip.
+    geometry.rotateX(-Math.PI / 2);
 
     const positions = geometry.attributes.position;
     for (let i = 0; i < positions.count; i++) {
       const x = positions.getX(i);
       const z = positions.getZ(i);
-      // Bake micro-ripples into the sand mesh (replaces the old second ripple plane)
-      const ripple = Math.sin(x * 2.0) * 0.045 + Math.sin(z * 1.5 + x * 0.5) * 0.028;
-      positions.setY(i, sampleSandHeight(x, z) + ripple);
+      // Ripples are shaded in the fragment shader: the vertices are too far apart for them.
+      positions.setY(i, sampleSandHeight(x, z));
     }
     geometry.computeVertexNormals();
 
+    // Lit radiance only: the water (depth loss, distance haze) is applied once, in the
+    // WaterMedium post pass, the same way as for every other surface.
     const material = new THREE.ShaderMaterial({
       uniforms: {
         time: { value: 0 },
-        sandColor1: { value: new THREE.Color(0x8B7D6B) },
-        sandColor2: { value: new THREE.Color(0x7A6E5D) },
-        rockColor: { value: new THREE.Color(0x6B6860) },
-        detailScale: { value: 42.0 },
-        lightDirection: { value: new THREE.Vector3(0.1, 1.0, 0.1).normalize() },
-        absorptionCoeffs: { value: new THREE.Vector3(0.28, 0.09, 0.035) },
-        waterDepth: { value: 30.0 },
+        lightDirection: { value: new THREE.Vector3(0.3, 1.0, 0.2).normalize() },
+        sunIntensity: { value: 1.0 },
         causticIntensity: { value: 0.9 },
       },
       vertexShader: `
-        varying vec3 vNormal;
-        varying vec3 vPosition;
-        varying vec2 vUv;
-        varying float vHeight;
+        varying vec3 vWorldPos;
         varying vec3 vWorldNormal;
 
         void main() {
-          vUv = uv;
-          vNormal = normalize(normalMatrix * normal);
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorldPos = wp.xyz;
           vWorldNormal = normalize(mat3(modelMatrix) * normal);
-          vPosition = (modelMatrix * vec4(position, 1.0)).xyz;
-          vHeight = position.y;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * viewMatrix * wp;
         }
       `,
       fragmentShader: `
-        uniform vec3 sandColor1;
-        uniform vec3 sandColor2;
-        uniform vec3 rockColor;
-        uniform float detailScale;
-        uniform vec3 lightDirection;
         uniform float time;
-        uniform vec3 absorptionCoeffs;
-        uniform float waterDepth;
+        uniform vec3 lightDirection;
+        uniform float sunIntensity;
         uniform float causticIntensity;
 
-        varying vec3 vNormal;
-        varying vec3 vPosition;
-        varying vec2 vUv;
-        varying float vHeight;
+        varying vec3 vWorldPos;
         varying vec3 vWorldNormal;
+
+        ${CAUSTIC_GLSL}
 
         float hash(vec2 p) {
           p = fract(p * vec2(123.34, 456.21));
@@ -104,92 +271,120 @@ export class RealisticOceanFloor {
           vec2 i = floor(p);
           vec2 f = fract(p);
           f = f * f * (3.0 - 2.0 * f);
-          float a = hash(i);
-          float b = hash(i + vec2(1.0, 0.0));
-          float c = hash(i + vec2(0.0, 1.0));
-          float d = hash(i + vec2(1.0, 1.0));
-          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+          return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                     mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
         }
 
         float fbm(vec2 p) {
-          float value = 0.0;
-          float amplitude = 0.5;
+          float v = 0.0;
+          float a = 0.5;
           const mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
           for (int i = 0; i < 5; i++) {
-            value += amplitude * noise(p);
-            p = rot * p * 2.0;
-            amplitude *= 0.5;
+            v += a * noise(p);
+            p = rot * p * 2.03;
+            a *= 0.5;
           }
-          return value;
+          return v;
+        }
+
+        // Triplanar fbm so steep rock faces are not stretched.
+        float triFbm(vec3 p, vec3 n) {
+          vec3 w = pow(abs(n), vec3(4.0));
+          w /= (w.x + w.y + w.z);
+          return fbm(p.zy) * w.x + fbm(p.xz) * w.y + fbm(p.xy) * w.z;
         }
 
         void main() {
-          vec2 warp = vec2(fbm(vUv * 9.0), fbm(vUv * 9.0 + vec2(5.2, 1.3)));
-          float detail = fbm(vUv * detailScale + warp * 1.8);
-          float grain = fbm(vUv * detailScale * 2.7 + warp * 0.6);
-          detail = mix(detail, grain, 0.35);
+          vec3 p = vWorldPos;
+          vec3 geoN = normalize(vWorldNormal);
 
-          // Ripple ridges baked into albedo (directional sand waves)
-          float rippleAlbedo = sin(vPosition.x * 2.1 + vPosition.z * 0.4) * 0.5 + 0.5;
-          rippleAlbedo *= sin(vPosition.z * 1.7 - vPosition.x * 0.3) * 0.5 + 0.5;
+          // --- Material: sand on the flats, rock where it gets steep or high ---
+          float slope = 1.0 - geoN.y;
+          float rise = p.y + 30.0;
+          float rockMask = smoothstep(0.16, 0.34, slope + (fbm(p.xz * 0.15) - 0.5) * 0.18);
+          rockMask = max(rockMask, smoothstep(4.0, 9.0, rise + (fbm(p.xz * 0.08) - 0.5) * 6.0));
 
-          float patchMix = fbm(vUv * 3.2 + warp * 0.4);
-          vec3 sandColor = mix(sandColor1, sandColor2, detail * 0.5 + 0.25);
-          sandColor = mix(sandColor * 0.78, sandColor * 1.18, smoothstep(0.25, 0.75, patchMix));
-          sandColor = mix(sandColor, sandColor2, smoothstep(-0.5, 0.5, vHeight) * 0.3);
-          sandColor *= mix(0.92, 1.08, rippleAlbedo);
+          // Sand: fine grain + ripples + darker organic patches.
+          float grain = fbm(p.xz * 3.1);
+          float patches = fbm(p.xz * 0.09 + 3.7);
+          // Wave-formed ripples: crests about 0.7 m apart, wandering, with a gentle stoss
+          // side and a steep lee side. They are strongest on open flat sand, weaker in the
+          // organic patches, and fade out once a ripple is smaller than a pixel.
+          vec2 rippleDir = vec2(0.97, 0.24);
+          vec2 rippleWarp = vec2(fbm(p.xz * 0.12), fbm(p.xz * 0.12 + 5.2)) * 4.0;
+          float ripplePhase = dot(p.xz + rippleWarp, rippleDir) * (6.2831853 / 0.7);
+          float rippleFade = 1.0 - smoothstep(0.9, 2.6, fwidth(ripplePhase));
+          float rippleAmount = rippleFade * (1.0 - rockMask)
+            * mix(0.35, 1.0, smoothstep(0.25, 0.6, fbm(p.xz * 0.05 + 1.3)));
+          float ripple = (sin(ripplePhase) + 0.3 * sin(2.0 * ripplePhase)) * 0.5 + 0.5;
+          // Slope across the crests for the shading normal. Steeper than real ripples, so
+          // they still read through the water's haze.
+          float rippleSlope = (cos(ripplePhase) + 0.6 * cos(2.0 * ripplePhase)) * 1.0;
+          vec2 rippleGrad = rippleDir * rippleSlope * rippleAmount;
+          vec3 sand = mix(vec3(0.46, 0.42, 0.34), vec3(0.58, 0.53, 0.43), grain);
+          sand *= mix(0.72, 1.06, smoothstep(0.3, 0.7, patches));
+          // Fine dark grit settles in the troughs.
+          sand *= mix(1.0, mix(0.55, 1.12, ripple), rippleAmount);
+          // Scattered shell grit.
+          sand = mix(sand, vec3(0.7, 0.68, 0.62), step(0.965, noise(p.xz * 9.0)) * 0.6);
 
-          float rockNoise = noise(vUv * 15.0 + vec2(123.4, 567.8));
-          if (rockNoise > 0.9) {
-            sandColor = mix(sandColor, rockColor, (rockNoise - 0.9) * 8.0);
-          }
+          // Rock: dark, banded strata, pitted, with growth on up-facing ledges.
+          float strata = abs(fract(p.y * 0.42 + fbm(p.xz * 0.12) * 1.3) - 0.5) * 2.0;
+          float rockDetail = triFbm(p * 0.9, geoN);
+          float pits = smoothstep(0.62, 0.8, triFbm(p * 2.7 + 5.0, geoN));
+          vec3 rock = mix(vec3(0.11, 0.105, 0.095), vec3(0.24, 0.22, 0.19), rockDetail);
+          rock *= mix(0.78, 1.08, strata);
+          rock *= 1.0 - pits * 0.45;
+          float growth = smoothstep(0.55, 0.9, geoN.y) * smoothstep(0.35, 0.65, fbm(p.xz * 0.6 + 9.0));
+          rock = mix(rock, vec3(0.16, 0.2, 0.09), growth * 0.75);
+          // Encrusting coralline patches: dusty pink-purple, sparse.
+          float crust = smoothstep(0.68, 0.78, triFbm(p * 0.35 + 21.0, geoN));
+          rock = mix(rock, vec3(0.36, 0.2, 0.26), crust * 0.6);
 
-          // Shell / pebble flecks
-          float fleck = noise(vUv * 55.0 + vec2(9.1, 2.7));
-          if (fleck > 0.94) {
-            sandColor = mix(sandColor, vec3(0.75, 0.72, 0.65), (fleck - 0.94) * 12.0);
-          }
+          vec3 albedo = mix(sand, rock, rockMask);
 
-          vec3 nW = normalize(vWorldNormal);
-          float diffuse = max(dot(nW, normalize(lightDirection)), 0.0);
-          float ambient = 0.28;
-          vec3 litColor = sandColor * (ambient + 0.55 * diffuse);
+          // Cheap detail normal from the albedo-scale noise so light grazes texture.
+          float e = 0.08;
+          float h0 = triFbm(p * 1.6, geoN);
+          float hx = triFbm((p + vec3(e, 0.0, 0.0)) * 1.6, geoN);
+          float hz = triFbm((p + vec3(0.0, 0.0, e)) * 1.6, geoN);
+          float bump = mix(0.25, 1.1, rockMask);
+          vec3 n = normalize(geoN + vec3(h0 - hx, 0.0, h0 - hz) * bump * 4.0
+            - vec3(rippleGrad.x, 0.0, rippleGrad.y));
 
-          vec2 cw = vec2(fbm(vUv * 6.0 + time * 0.18), fbm(vUv * 6.0 - time * 0.14 + 9.1));
-          float caustic = fbm(vUv * 18.0 + cw * 2.4 + time * 0.22);
-          float caustic2 = fbm(vUv * 28.0 - cw * 1.6 - time * 0.17 + 3.7);
-          caustic = max(
-            pow(smoothstep(0.48, 0.95, caustic), 2.1),
-            pow(smoothstep(0.55, 0.98, caustic2), 2.4) * 0.65
-          );
-          float nUp = max(dot(nW, vec3(0.0, 1.0, 0.0)), 0.0);
-          litColor += vec3(0.55, 0.85, 0.78) * caustic * causticIntensity
-                    * (0.35 + 0.9 * diffuse) * (0.4 + 0.6 * nUp);
+          // --- Lighting ---
+          vec3 L = normalize(lightDirection);
+          float ndl = max(dot(n, L), 0.0);
 
-          vec3 absorption = exp(-absorptionCoeffs * waterDepth * 0.85);
-          litColor *= absorption;
+          // Focused sunlight. Projected along the sun through the surface, so caustics
+          // slide across slopes correctly; they blur out with depth.
+          vec2 entry = wm_surfaceEntry(p, L);
+          vec3 c = wm_causticRGB(entry, time);
+          // Contrast falls with depth (focus spreads), with patchy surface waves, and
+          // when a caustic cell shrinks below a few pixels (otherwise it aliases into a net).
+          float focus = exp(-max(-p.y - 4.0, 0.0) * 0.035);
+          float patchy = smoothstep(0.25, 0.75, fbm(entry * 0.035 + time * 0.02));
+          float footprint = length(fwidth(entry)) * 0.62;
+          float aa = 1.0 - smoothstep(0.08, 0.35, footprint);
+          float contrast = focus * mix(0.35, 1.0, patchy) * aa * causticIntensity;
+          vec3 sunLight = vec3(1.0, 0.97, 0.9) * sunIntensity * 1.6;
+          vec3 direct = sunLight * ndl * mix(vec3(1.0), 0.33 + c * 1.9, contrast);
 
-          vec3 viewDir = normalize(cameraPosition - vPosition);
-          vec3 halfDir = normalize(normalize(lightDirection) + viewDir);
-          float spec = pow(max(dot(nW, halfDir), 0.0), 20.0) * 0.035;
-          litColor += vec3(spec) * absorption;
+          // Sky light comes from above through the water; almost nothing from below.
+          float up = n.y * 0.5 + 0.5;
+          vec3 ambient = mix(vec3(0.01, 0.025, 0.03), vec3(0.16, 0.32, 0.4), up * up) * (0.35 + 0.65 * sunIntensity);
 
-          float ao = smoothstep(-1.0, 1.0, vHeight);
-          litColor *= 0.55 + 0.45 * ao;
-          litColor = min(litColor, vec3(0.88));
+          // Crevice darkening: concave rock (strata grooves, pits) gets less light.
+          float occl = mix(1.0, 0.55 + 0.45 * strata, rockMask) * (1.0 - pits * 0.3 * rockMask);
 
-          float camDist = length(cameraPosition - vPosition);
-          float fogF = 1.0 - exp(-camDist * 0.018);
-          litColor = mix(litColor, vec3(0.03, 0.09, 0.14), clamp(fogF, 0.0, 0.85));
-
-          gl_FragColor = vec4(litColor, 1.0);
+          vec3 col = albedo * (direct + ambient) * occl;
+          gl_FragColor = vec4(col, 1.0);
         }
       `,
     });
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = 'sandFloor';
-    mesh.rotation.x = -Math.PI / 2;
     mesh.position.y = depth;
     mesh.receiveShadow = true;
     return mesh;
@@ -199,27 +394,32 @@ export class RealisticOceanFloor {
     const group = new THREE.Group();
     group.name = 'rockyAreas';
 
-    const rockGeometry = new THREE.DodecahedronGeometry(1, 2);
-    // Subtle vertex irregularity so rocks aren't identical crystals
+    // Weathered boulder: merged so normals stay smooth across the old facets, then
+    // displaced by two noise octaves and a flattened, slightly undercut base so the
+    // rocks sit in the sand instead of reading as dark eggs.
+    const rockGeometry = mergeVertices(new THREE.DodecahedronGeometry(1, 4));
     const pos = rockGeometry.attributes.position;
     for (let i = 0; i < pos.count; i++) {
       const nx = pos.getX(i);
       const ny = pos.getY(i);
       const nz = pos.getZ(i);
-      const n = 1 + (Math.sin(nx * 7.1 + ny * 3.3) * 0.08 + Math.cos(nz * 5.7) * 0.06);
-      pos.setXYZ(i, nx * n, ny * n, nz * n);
+      const lumps = fbm(nx * 1.6 + ny * 0.7 + 11.0, nz * 1.6 - ny * 0.9 + 3.0, 4) - 0.5;
+      const chips = fbm(nx * 5.3 - nz * 1.1, ny * 5.3 + nz * 2.3, 2) - 0.5;
+      const n = 1 + lumps * 0.42 + chips * 0.1;
+      const flatBase = ny < -0.35 ? -0.35 + (ny + 0.35) * 0.3 : ny;
+      pos.setXYZ(i, nx * n, flatBase * n, nz * n);
     }
     rockGeometry.computeVertexNormals();
 
     const rockMaterial = new THREE.MeshPhysicalMaterial({
-      color: 0x7a7870,
+      color: 0xffffff,
       roughness: 0.88,
       metalness: 0.04,
       clearcoat: 0.08,
       clearcoatRoughness: 0.7,
-      emissive: new THREE.Color(0x10100e),
-      emissiveIntensity: 0.12,
     });
+    rockMaterial.onBeforeCompile = applyBoulderSurface;
+    rockMaterial.customProgramCacheKey = () => 'boulder-surface';
 
     const count = 180;
     const mesh = new THREE.InstancedMesh(rockGeometry, rockMaterial, count);
@@ -249,7 +449,7 @@ export class RealisticOceanFloor {
       matrix.compose(position, quat, scale);
       mesh.setMatrixAt(i, matrix);
 
-      color.setHSL(0.08 + Math.random() * 0.06, 0.08, 0.32 + Math.random() * 0.18);
+      color.setHSL(0.08 + Math.random() * 0.06, 0.12, 0.26 + Math.random() * 0.14);
       mesh.setColorAt(i, color);
     }
     mesh.instanceMatrix.needsUpdate = true;
@@ -260,13 +460,16 @@ export class RealisticOceanFloor {
   }
 
   /** Advance sand caustic clock + sun (call once per frame from RenderingEngine). */
-  static update(floor: THREE.Mesh, deltaTime: number, sunDirection?: THREE.Vector3): void {
+  static update(floor: THREE.Mesh, deltaTime: number, sunDirection?: THREE.Vector3, sunIntensity?: number): void {
     if (!(floor.material instanceof THREE.ShaderMaterial)) return;
     if (floor.material.uniforms.time) {
       floor.material.uniforms.time.value += deltaTime;
     }
     if (sunDirection && floor.material.uniforms.lightDirection) {
       floor.material.uniforms.lightDirection.value.copy(sunDirection).normalize();
+    }
+    if (sunIntensity !== undefined) {
+      floor.material.uniforms.sunIntensity.value = sunIntensity;
     }
   }
 }

@@ -1,4 +1,24 @@
 import * as THREE from 'three';
+import { seabedY } from './RealisticOceanFloor';
+
+/** Half-width of the area the camera can swim in. */
+const SWIM_BOUND = 60.0;
+/** Camera clearance above the seabed. */
+const SEABED_CLEARANCE = 2.0;
+/** Highest the camera can rise, just above the surface at y = 0. */
+const SURFACE_LIMIT = 2.0;
+
+/**
+ * Keeps a camera position inside the swim area and above the seabed. The floor has rock
+ * pinnacles and basin walls that rise far above the -30 m datum, so a fixed depth limit
+ * would let the camera pass into the rock.
+ */
+export function clampToSwimVolume(position: THREE.Vector3): void {
+  position.x = Math.max(-SWIM_BOUND, Math.min(SWIM_BOUND, position.x));
+  position.z = Math.max(-SWIM_BOUND, Math.min(SWIM_BOUND, position.z));
+  const floor = seabedY(position.x, position.z) + SEABED_CLEARANCE;
+  position.y = Math.max(floor, Math.min(SURFACE_LIMIT, position.y));
+}
 
 export class CameraController {
   private camera: THREE.PerspectiveCamera;
@@ -185,14 +205,7 @@ export class CameraController {
       this._velocity.normalize().multiplyScalar(this.moveSpeed * deltaTime);
       this.camera.position.add(this._velocity);
 
-      // Clamp camera to world bounds (Playable area is roughly +/- 50)
-      const bound = 60.0;
-      this.camera.position.x = Math.max(-bound, Math.min(bound, this.camera.position.x));
-      this.camera.position.z = Math.max(-bound, Math.min(bound, this.camera.position.z));
-
-      // Vertical bounds (Surface to Floor)
-      // Surface at 0, Floor at -30
-      this.camera.position.y = Math.max(-28.0, Math.min(2.0, this.camera.position.y));
+      clampToSwimVolume(this.camera.position);
     }
 
     // Update camera rotation (reusing pre-allocated target vector)

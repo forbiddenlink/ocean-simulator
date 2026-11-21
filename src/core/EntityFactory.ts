@@ -5,6 +5,7 @@ import { Health, Energy, Size, Species, CreatureType, SwimmingStyle } from '../c
 import { FIRA, Vision, Memory, Wander, SchoolLeader } from '../components/Behavior';
 import { Mesh, Color, Animation, DepthZone } from '../components/Rendering';
 import { initializeBurstGlideParams } from '../systems/BiomechanicalAnimationSystem';
+import { seabedY } from '../rendering/RealisticOceanFloor';
 // Note: TurtleGeometry, BottomDwellerGeometry, and WhaleGeometry are used by the rendering system,
 // not directly in the factory functions which only set up ECS components
 
@@ -732,7 +733,7 @@ export function createCrab(
   // Transform - constrained to floor
   addComponent(world, eid, Position);
   Position.x[eid] = x;
-  Position.y[eid] = -29.5; // On the ocean floor
+  Position.y[eid] = seabedY(x, z) + 0.5; // On the ocean floor
   Position.z[eid] = z;
 
   addComponent(world, eid, Velocity);
@@ -808,7 +809,7 @@ export function createStarfish(
   // Transform - stationary on floor
   addComponent(world, eid, Position);
   Position.x[eid] = x;
-  Position.y[eid] = -29.8; // Flat on the ocean floor
+  Position.y[eid] = seabedY(x, z) + 0.2; // Flat on the ocean floor
   Position.z[eid] = z;
 
   // No velocity - starfish are essentially stationary
@@ -885,7 +886,7 @@ export function createSeaUrchin(
   // Transform - stationary on floor
   addComponent(world, eid, Position);
   Position.x[eid] = x;
-  Position.y[eid] = -29.8; // On the ocean floor
+  Position.y[eid] = seabedY(x, z) + 0.2; // On the ocean floor
   Position.z[eid] = z;
 
   // No velocity - sea urchins are stationary

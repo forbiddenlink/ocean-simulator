@@ -91,14 +91,31 @@ export function dedupeMaterials(root: THREE.Object3D): number {
   return removed;
 }
 
-/** Strip to the shared attribute set so geometries from different builders can merge. */
-function normalizeGeometry(source: THREE.BufferGeometry): THREE.BufferGeometry | null {
+/**
+ * Strip to the shared attribute set so geometries from different builders can merge.
+ * With `keepColor` (the material uses vertex colours) the colour attribute is kept too,
+ * and parts without one get white so they render in the material colour.
+ */
+export function normalizeGeometry(
+  source: THREE.BufferGeometry,
+  keepColor = false
+): THREE.BufferGeometry | null {
   if (!source.attributes.position) return null;
 
   const geometry = new THREE.BufferGeometry();
   for (const name of MERGE_ATTRIBUTES) {
     const attribute = source.attributes[name];
     if (attribute) geometry.setAttribute(name, attribute.clone());
+  }
+  if (keepColor) {
+    const color = source.attributes.color;
+    const count = geometry.attributes.position.count;
+    geometry.setAttribute(
+      'color',
+      color && color.itemSize === 3
+        ? color.clone()
+        : new THREE.BufferAttribute(new Float32Array(count * 3).fill(1), 3)
+    );
   }
   if (!geometry.attributes.normal) geometry.computeVertexNormals();
   if (!geometry.attributes.uv) {
@@ -138,7 +155,7 @@ export function mergeStaticSubtree(root: THREE.Object3D): { before: number; afte
     if (!mesh.isMesh || Array.isArray(mesh.material) || !mesh.material) return;
     if ((mesh as unknown as THREE.InstancedMesh).isInstancedMesh) return;
 
-    const geometry = normalizeGeometry(mesh.geometry);
+    const geometry = normalizeGeometry(mesh.geometry, mesh.material.vertexColors);
     if (!geometry) return;
 
     relative.copy(inverseRoot).multiply(mesh.matrixWorld);

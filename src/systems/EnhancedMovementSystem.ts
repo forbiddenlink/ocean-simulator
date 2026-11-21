@@ -5,6 +5,7 @@ import { CreatureType } from '../components/Biology';
 import { FIRA } from '../components/Behavior';
 import type { OceanWorld } from '../core/World';
 import { BiomechanicalAnimationState } from './BiomechanicalAnimationSystem';
+import { seabedY } from '../rendering/RealisticOceanFloor';
 
 // Module-scope temp vector to avoid allocations in hot path
 const _thrustDirection = new THREE.Vector3();
@@ -54,7 +55,7 @@ export const enhancedMovementSystem = (world: OceanWorld) => {
         Velocity.x[eid] = 0;
         Velocity.y[eid] = 0;
         Velocity.z[eid] = 0;
-        Position.y[eid] = -29.8;
+        Position.y[eid] = seabedY(Position.x[eid], Position.z[eid]) + 0.2;
         Acceleration.x[eid] = 0;
         Acceleration.y[eid] = 0;
         Acceleration.z[eid] = 0;
@@ -62,7 +63,7 @@ export const enhancedMovementSystem = (world: OceanWorld) => {
       } else {
         // Crabs: zero vertical, pin to floor, heavy horizontal drag
         Velocity.y[eid] = 0;
-        Position.y[eid] = -29.8;
+        Position.y[eid] = seabedY(Position.x[eid], Position.z[eid]) + 0.2;
         Velocity.x[eid] *= 0.9;
         Velocity.z[eid] *= 0.9;
       }

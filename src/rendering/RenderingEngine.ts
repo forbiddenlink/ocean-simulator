@@ -2,13 +2,10 @@ import * as THREE from 'three';
 import { optimizeDecor } from './SceneOptimizer';
 import { HighFidelityWater } from './HighFidelityWater';
 import { FFTOcean } from './FFTOcean';
-import { WavelengthLighting } from './WavelengthLighting';
 import { PostProcessingPipeline } from './PostProcessingPipeline';
 import { RealisticOceanFloor } from './RealisticOceanFloor';
 import { UnderwaterParticles, BubbleSystem, CreatureBubbleTrails } from './UnderwaterParticles';
-import { CausticsEffect } from './Caustics';
 import { BioluminescenceSystem } from './Bioluminescence';
-import { VolumetricLightShafts } from './VolumetricLightShafts';
 import { CoralFormations } from './CoralFormations';
 import { SeaAnemones } from './SeaAnemones';
 import { MarineLife } from './MarineLife';
@@ -16,17 +13,23 @@ import { KelpForest } from './KelpForest';
 import { FoamSystem } from './FoamSystem';
 import { SprayParticles } from './SprayParticles';
 import { HDRIEnvironment } from './HDRIEnvironment';
-import { ExtraOceanLife } from './ExtraOceanLife';
+import { CRITTER_MODELS, ExtraOceanLife } from './ExtraOceanLife';
+import { CreatureModelLoader } from '../creatures/CreatureModelLoader';
+import { ReefProps } from './ReefProps';
 import { HuntVisualEvents } from '../systems/HuntVisualEvents';
+import { DynamicResolution } from './DynamicResolution';
 
 // Debug flag - set to true for development debugging
 const DEBUG = false;
+
+
+/** About 1080p worth of pixels; see budgetedPixelRatio. */
+const MAX_RENDER_PIXELS = 2_300_000;
 
 export class RenderingEngine {
   public scene: THREE.Scene;
   public camera: THREE.PerspectiveCamera;
   public renderer: THREE.WebGLRenderer;
-  public lightSystem: WavelengthLighting; // Exposed for other systems
   public postProcessing: PostProcessingPipeline; // Post-processing pipeline
   private canvas: HTMLCanvasElement;
   private highFidelityWater?: HighFidelityWater;
@@ -37,9 +40,7 @@ export class RenderingEngine {
   private fillLight!: THREE.DirectionalLight; // Floor-bounce fill, preset-controlled
   private particles?: UnderwaterParticles;
   private bubbles?: BubbleSystem;
-  private caustics?: CausticsEffect;
   private bioluminescence?: BioluminescenceSystem;
-  private lightShafts?: VolumetricLightShafts;
   private realisticFloor?: THREE.Group; // Returns a Group from static method
   private sandFloorMaterial?: THREE.ShaderMaterial;
   private anemones?: SeaAnemones;
@@ -51,9 +52,16 @@ export class RenderingEngine {
   private hdriEnvironment?: HDRIEnvironment;
   private creatureBubbles?: CreatureBubbleTrails;
   private extraOceanLife?: ExtraOceanLife;
+  private reefProps?: ReefProps;
+  private disposed = false;
   private elapsedTime: number = 0;
   private _viewDir = new THREE.Vector3();
   private _dofFocus = 16;
+  private _sunStrength = 1;
+  private _pixelRatioCap = 2;
+  private dynamicResolution = new DynamicResolution({ targetMs: 1000 / 60 });
+  private lastFrameAt = 0;
+  private renderedCssSize = '';
   private _sprayScratch = new THREE.Vector3();
   private _flashPos = new THREE.Vector3();
 
@@ -65,13 +73,8 @@ export class RenderingEngine {
 
     // Create scene
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x2a8aaa); // Bright tropical ocean blue
-
-    // Initialize depth-based fog for realistic underwater visibility (DISABLED - might cause white)
-    // new DepthBasedFog(this.scene);
-
-    // Initialize lighting system
-    this.lightSystem = new WavelengthLighting();
+    // Black: open water colour comes from the WaterMedium pass, not a painted backdrop.
+    this.scene.background = new THREE.Color(0x000000);
 
     // Create camera - positioned underwater to view fish
     this.camera = new THREE.PerspectiveCamera(
@@ -92,7 +95,8 @@ export class RenderingEngine {
       preserveDrawingBuffer: true, // Required for screenshots/toDataURL
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(this.budgetedPixelRatio());
+    this.renderedCssSize = `${window.innerWidth}x${window.innerHeight}`;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     
@@ -112,7 +116,16 @@ export class RenderingEngine {
     }
 
     // Coral first so kelp/anemones can nestle against reef patches
-    this.coralReef = CoralFormations.createCoralReef(this.scene, -30, 100);
+    this.coralReef = CoralFormations.createCoralReef(this.scene);
+
+    // Scanned corals and sponges on the same reef patches. Loads in the background and
+    // never blocks startup; a missing file just leaves the procedural reef.
+    ReefProps.load(this.scene, -30)
+      .then((props) => {
+        if (this.disposed) props.dispose();
+        else this.reefProps = props;
+      })
+      .catch((err) => console.warn('[reef-props] load failed', err));
 
     // Kelp forests (GPU sway) near origin + reef edges
     this.kelpForest = new KelpForest(this.scene, -30, 75);
@@ -125,21 +138,23 @@ export class RenderingEngine {
 
     // Ambient mid-water / floor critters
     this.extraOceanLife = new ExtraOceanLife(this.scene, -30);
+    // Scanned critter bodies replace the procedural ones once loaded. This resolves after
+    // the décor merge below, so it swaps already-merged bodies; a failed file keeps the
+    // procedural one.
+    const critterUrls: Record<string, string> = {};
+    for (const [kind, spec] of Object.entries(CRITTER_MODELS)) critterUrls[kind] = spec.url;
+    CreatureModelLoader.loadTemplates(critterUrls)
+      .then((templates) => {
+        if (!this.disposed) this.extraOceanLife?.applyModels(templates);
+      })
+      .catch((err) => console.warn('[critter-models] load failed', err));
 
     // Add Water Surface - choose between FFT ocean (photorealistic) or basic water
     if (this.useFFTOcean) {
-      this.fftOcean = new FFTOcean(
-        256, // Large cascade resolution (detail cascade is 128)
-        1000, // Slightly tighter patch = higher spatial frequency in the swell band
-        30,
-        new THREE.Vector2(1, 0.35),
-        2.8
-      );
-      this.fftOcean.mesh.position.y = 0; // Sea level
-      this.scene.add(this.fftOcean.mesh);
+      this.fftOcean = this.createFFTOcean();
 
       // Add foam and spray for FFT ocean
-      this.foamSystem = new FoamSystem(this.scene, 1500);
+      this.foamSystem = new FoamSystem(this.scene, this.fftOcean.getOceanSize());
       this.sprayParticles = new SprayParticles(this.scene, 2000);
     } else {
       this.highFidelityWater = new HighFidelityWater(this.scene, this.sunLight);
@@ -151,12 +166,6 @@ export class RenderingEngine {
     this.bubbles = new BubbleSystem(this.scene);
     this.creatureBubbles = new CreatureBubbleTrails(this.scene);
 
-    // Add caustics
-    this.caustics = new CausticsEffect(this.scene, this.renderer);
-
-    // Add volumetric god-ray light shafts (hero effect of the Cinematic Deep look)
-    this.lightShafts = new VolumetricLightShafts(this.scene);
-
     // Add bioluminescence
     this.bioluminescence = new BioluminescenceSystem(this.scene);
 
@@ -165,9 +174,6 @@ export class RenderingEngine {
 
     // Wave-linked caustics + foam once FFT height exists
     this.bindWaveHeightConsumers();
-
-    // Apply initial lighting state
-    this.lightSystem.applyToSceneFog(this.scene, this.camera.position.y);
 
     // Collapse the procedural décor into a few draw calls. The builders above create one
     // mesh and one material per coral polyp and per starfish arm, which cost thousands of
@@ -213,7 +219,7 @@ export class RenderingEngine {
     this.scene.add(this.sunLight);
 
     // Ambient light — kept low so depth/contrast can read; presets tune intensity.
-    const ambientLight = new THREE.AmbientLight(0x4d84b0, 0.6);
+    const ambientLight = new THREE.AmbientLight(0x4d84b0, 0.2);
     this.scene.add(ambientLight);
 
     // Hemisphere light — surface-vs-depth gradient. Low baseline for cinematic contrast;
@@ -231,7 +237,7 @@ export class RenderingEngine {
     this.scene.add(this.fillLight);
 
     // Camera-attached fill light — subtle blue tint reveals nearby creatures
-    const cameraFillLight = new THREE.PointLight(0x5580aa, 0.6);
+    const cameraFillLight = new THREE.PointLight(0x5580aa, 0.15);
     cameraFillLight.distance = 35; // Slightly wider range
     cameraFillLight.decay = 2;
     this.camera.add(cameraFillLight);
@@ -240,9 +246,41 @@ export class RenderingEngine {
     if (DEBUG) console.log('💡 Underwater lighting configured - blue-tinted for 30m depth');
   }
 
+  /**
+   * Pixel ratio that keeps the drawing buffer under MAX_RENDER_PIXELS. Every
+   * post pass is a full-screen read and write, so on a large window at native
+   * resolution the GPU spent most of each frame on bandwidth, not on the image.
+   * The dynamic resolution scale then lowers it further on GPUs that still miss
+   * the frame budget.
+   */
+  private budgetedPixelRatio(): number {
+    const cssPixels = Math.max(1, window.innerWidth * window.innerHeight);
+    const budget = Math.sqrt(MAX_RENDER_PIXELS / cssPixels);
+    return Math.min(window.devicePixelRatio, this._pixelRatioCap, budget) * this.dynamicResolution.scale;
+  }
+
+  private applyRenderScale(): void {
+    this.renderer.setPixelRatio(this.budgetedPixelRatio());
+    this.postProcessing.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  /** Quality presets set an upper bound; the pixel budget can still lower it. */
+  public setPixelRatioCap(cap: number): void {
+    this._pixelRatioCap = cap;
+    this.dynamicResolution.reset();
+    this.applyRenderScale();
+  }
+
   private onWindowResize(): void {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
+    // A new pixel count invalidates what the controller learned about the old one.
+    // Resize events also fire without a size change, and resetting on those would let
+    // the controller probe a scale it already knows misses the refresh.
+    const cssSize = `${window.innerWidth}x${window.innerHeight}`;
+    if (cssSize !== this.renderedCssSize) this.dynamicResolution.reset();
+    this.renderedCssSize = cssSize;
+    this.renderer.setPixelRatio(this.budgetedPixelRatio());
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.postProcessing.setSize(window.innerWidth, window.innerHeight);
   }
@@ -250,6 +288,17 @@ export class RenderingEngine {
   public render(deltaTime?: number): void {
     // Use post-processing for bloom and effects (pass deltaTime for distortion animation)
     this.postProcessing.render(deltaTime);
+  }
+
+  /**
+   * Feeds the animation-frame timestamp to the dynamic resolution and applies any
+   * change. It needs the rAF timestamp, not performance.now() inside the frame:
+   * script time varies from frame to frame and hid most of the late frames.
+   */
+  public trackFrame(timestamp: number): void {
+    const changed = this.lastFrameAt > 0 && this.dynamicResolution.addFrameDelta(timestamp - this.lastFrameAt);
+    this.lastFrameAt = timestamp;
+    if (changed) this.applyRenderScale();
   }
 
   public update(deltaTime: number): void {
@@ -276,11 +325,6 @@ export class RenderingEngine {
       this.creatureBubbles.update(deltaTime);
     }
     
-    // Update advanced visual effects (if enabled)
-    if (this.caustics) {
-      this.caustics.update(deltaTime, this.camera);
-    }
-
     // Keep seabed sand lit by the same sun (time advanced once via RealisticOceanFloor.update below)
     if (this.sandFloorMaterial && this.sunLight) {
       this.sandFloorMaterial.uniforms.lightDirection.value.copy(this.sunLight.position).normalize();
@@ -340,6 +384,7 @@ export class RenderingEngine {
     // Update HDRI environment and day/night cycle
     if (this.hdriEnvironment) {
       this.hdriEnvironment.update(deltaTime);
+      this.hdriEnvironment.followCamera(this.camera.position);
 
       // Get time of day for lighting adjustments
       const timeOfDay = this.hdriEnvironment.getTimeOfDay();
@@ -349,20 +394,23 @@ export class RenderingEngine {
       if (this.fftOcean) {
         this.fftOcean.updateSunDirection(sunDir);
       }
-      if (this.caustics) {
-        this.caustics.setSunDirection(sunDir);
-      }
       if (this.particles) {
         const day = Math.max(0, Math.sin(timeOfDay * Math.PI));
         this.particles.setLighting(sunDir, day);
       }
 
-      // Sync god rays sun mesh position with actual sun direction
-      this.postProcessing.updateSunPosition(sunDir.clone().multiplyScalar(40));
-
       // Day/night lighting: sun intensity and color
       // timeOfDay: 0 = midnight, 0.5 = noon, 1.0 = midnight
       const sunAngle = Math.sin(timeOfDay * Math.PI); // 0 at night, 1 at noon
+      this._sunStrength = Math.max(0, sunAngle);
+      this.postProcessing.water.setSun(sunDir, this._sunStrength);
+      this.fftOcean?.setDaylight(this._sunStrength);
+      this.extraOceanLife?.setDaylight(this._sunStrength);
+      this.kelpForest?.setDaylight(this._sunStrength);
+      this.anemones?.setDaylight(this._sunStrength);
+      // Image-based light is the water column's own glow, so it fades with the sun;
+      // at full strength it lit every fish like open air and kept the night bright.
+      this.scene.environmentIntensity = 0.08 + 0.5 * this._sunStrength;
       const sunIntensity = Math.max(0.1, sunAngle * 2.2); // Dim at night, bright at noon
 
       // Sun color: warm at dawn/dusk, cool at noon
@@ -382,6 +430,7 @@ export class RenderingEngine {
         const nightFactor = 1.0 - sunAngle; // 0 at noon, 1 at midnight
         const bioIntensity = 0.25 + nightFactor * 3.6; // ~0.25 noon → ~3.85 midnight
         this.bioluminescence.setIntensity(bioIntensity);
+        this.bioluminescence.setNightFactor(nightFactor);
       }
     }
     
@@ -393,7 +442,7 @@ export class RenderingEngine {
       
       if (sandFloor) {
         const sunDir = this.hdriEnvironment?.getSunDirection();
-        RealisticOceanFloor.update(sandFloor, deltaTime, sunDir);
+        RealisticOceanFloor.update(sandFloor, deltaTime, sunDir, this._sunStrength);
       }
     }
 
@@ -418,31 +467,8 @@ export class RenderingEngine {
       this.postProcessing.setDofBokeh(bokeh);
     }
 
-    // Apply wavelength-dependent lighting based on depth
-    this.lightSystem.applyToSceneFog(this.scene, this.camera.position.y);
-
-    // Update underwater color grading based on camera depth
-    this.postProcessing.updateCameraDepth(this.camera.position.y);
-    this.postProcessing.updateSunScreen(this.camera);
-    // Update camera parameters for spectral absorption depth buffer reading
-    this.postProcessing.updateCamera(this.camera);
-
-    // Update god rays based on camera depth (stronger near surface)
-    this.postProcessing.updateGodRayDepth(this.camera.position.y);
-
-    // Update god ray color based on time of day
-    if (this.hdriEnvironment) {
-      this.postProcessing.updateGodRayTimeOfDay(this.hdriEnvironment.getTimeOfDay());
-    }
-
-    // Volumetric light shafts: billboard + shimmer, fade with time of day.
-    if (this.lightShafts) {
-      this.lightShafts.update(deltaTime, this.camera);
-      if (this.hdriEnvironment) {
-        const day = Math.sin(this.hdriEnvironment.getTimeOfDay() * Math.PI);
-        this.lightShafts.setDayFactor(day);
-      }
-    }
+    // Water medium reconstructs world position from depth with this camera.
+    this.postProcessing.water.updateCamera(this.camera, deltaTime);
   }
 
   /**
@@ -452,7 +478,6 @@ export class RenderingEngine {
     if (!this.fftOcean) return;
     const heightTex = this.fftOcean.getHeightTexture();
     const oceanSize = this.fftOcean.getOceanSize();
-    this.caustics?.setWaterHeightMap(heightTex, oceanSize);
     this.foamSystem?.setWaterHeightMap(heightTex, oceanSize);
   }
 
@@ -486,17 +511,18 @@ export class RenderingEngine {
           if (this.sprayParticles) this.sprayParticles.setDensity(value as number);
           break;
         case 'causticsIntensity':
-          if (this.caustics) this.caustics.setIntensity(value as number);
           if (this.sandFloorMaterial?.uniforms.causticIntensity) {
             this.sandFloorMaterial.uniforms.causticIntensity.value = value as number;
           }
           break;
         case 'causticsScale':
-          if (this.caustics) this.caustics.setScale(value as number);
+          // Caustic scale is physical now (projected from the surface); nothing to set.
           break;
         case 'fogDensity':
-          this.lightSystem.sceneFogBaseDensity = value as number;
-          this.lightSystem.applyToSceneFog(this.scene, this.camera.position.y);
+          // Legacy fog-density knob (old FogExp2 base 0.03) maps onto water turbidity.
+          this.postProcessing.water.setDensity(
+            THREE.MathUtils.clamp((value as number) / 0.03, 0.4, 3)
+          );
           break;
         case 'lightIntensity':
           this.sunLight.intensity = value as number;
@@ -528,6 +554,20 @@ export class RenderingEngine {
     }
   }
 
+  /** The one FFT surface configuration, shared by startup and the debug toggle. */
+  private createFFTOcean(): FFTOcean {
+    const ocean = new FFTOcean(
+      256, // Large cascade resolution (detail cascade is 128)
+      1000, // Slightly tighter patch = higher spatial frequency in the swell band
+      30,
+      new THREE.Vector2(1, 0.35),
+      2.8
+    );
+    ocean.mesh.position.y = 0; // Sea level
+    this.scene.add(ocean.mesh);
+    return ocean;
+  }
+
   /**
    * Toggle between FFT ocean and basic water
    */
@@ -539,9 +579,7 @@ export class RenderingEngine {
         this.highFidelityWater = undefined;
       }
       
-      this.fftOcean = new FFTOcean(256, 1000, 30, new THREE.Vector2(1, 0.35), 2.8);
-      this.fftOcean.mesh.position.y = 0;
-      this.scene.add(this.fftOcean.mesh);
+      this.fftOcean = this.createFFTOcean();
       
       this.foamSystem = new FoamSystem(this.scene, 1000);
       this.sprayParticles = new SprayParticles(this.scene, 2000);
@@ -552,6 +590,8 @@ export class RenderingEngine {
       // Switch to basic water
       if (this.fftOcean) {
         this.scene.remove(this.fftOcean.mesh);
+        // Also terminates the wave worker and frees the cascade textures.
+        this.fftOcean.dispose();
         this.fftOcean = undefined;
       }
       
@@ -676,6 +716,7 @@ export class RenderingEngine {
   }
 
   public dispose(): void {
+    this.disposed = true;
     // Remove event listener using stored bound reference
     window.removeEventListener('resize', this.boundOnWindowResize);
 
@@ -683,12 +724,11 @@ export class RenderingEngine {
     if (this.fftOcean) this.fftOcean.dispose();
     if (this.particles) this.particles.dispose();
     if (this.bubbles) this.bubbles.dispose();
-    if (this.caustics && 'dispose' in this.caustics) (this.caustics as { dispose: () => void }).dispose();
     if (this.bioluminescence && 'dispose' in this.bioluminescence) (this.bioluminescence as { dispose: () => void }).dispose();
-    if (this.lightShafts) this.lightShafts.dispose();
     if (this.kelpForest && 'dispose' in this.kelpForest) (this.kelpForest as { dispose: () => void }).dispose();
     if (this.anemones) this.anemones.dispose();
     if (this.extraOceanLife) this.extraOceanLife.dispose();
+    this.reefProps?.dispose();
     if (this.foamSystem && 'dispose' in this.foamSystem) (this.foamSystem as { dispose: () => void }).dispose();
     if (this.sprayParticles) this.sprayParticles.dispose();
     if (this.hdriEnvironment && 'dispose' in this.hdriEnvironment) (this.hdriEnvironment as { dispose: () => void }).dispose();

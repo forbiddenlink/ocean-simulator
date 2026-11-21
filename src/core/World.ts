@@ -53,9 +53,14 @@ export function createOceanWorld(): OceanWorld {
 /**
  * Updates world time
  */
+// Longest step the simulation takes in one frame. A hidden tab pauses
+// requestAnimationFrame, and without a cap the first frame back integrates the
+// whole absence at once: creatures teleport, starve and die in a single step.
+const MAX_FRAME_DELTA = 1 / 15;
+
 export function updateWorldTime(world: OceanWorld): void {
   const now = performance.now();
-  world.time.delta = (now - world.time.then) / 1000; // Convert to seconds
+  world.time.delta = Math.min((now - world.time.then) / 1000, MAX_FRAME_DELTA); // seconds
   world.time.elapsed += world.time.delta;
   world.time.then = now;
 }

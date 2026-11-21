@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 
+/** Most hunt flashes alive at once; extra events in a busy frame are dropped. */
+const MAX_FLASHES = 24;
+
 /**
  * Bioluminescence particle system
  * Creates glowing particles for deep-sea creatures and ambient bioluminescence
@@ -11,7 +14,23 @@ export class BioluminescenceSystem {
   private time: number = 0;
   private particleCount: number = 3200;
   private scene: THREE.Scene;
-  
+
+  // Hunt flashes share one instanced mesh. Each used to be its own mesh, geometry,
+  // material and requestAnimationFrame loop, so a feeding frenzy put over a thousand
+  // growing additive spheres on screen and kept animating them while paused.
+  private flashMesh: THREE.InstancedMesh;
+  private flashPos: THREE.Vector3[] = [];
+  private flashColor: THREE.Color[] = [];
+  private flashAge = new Float32Array(MAX_FLASHES);
+  private flashLife = new Float32Array(MAX_FLASHES);
+  private flashGain = new Float32Array(MAX_FLASHES);
+  private flashCount = 0;
+  private nightFactor = 0;
+  private _matrix = new THREE.Matrix4();
+  private _quat = new THREE.Quaternion();
+  private _scale = new THREE.Vector3();
+  private _color = new THREE.Color();
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.geometry = this.createBiolumGeometry();
@@ -19,6 +38,25 @@ export class BioluminescenceSystem {
     this.particleSystem = new THREE.Points(this.geometry, this.material);
     
     scene.add(this.particleSystem);
+
+    this.flashMesh = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(1, 12, 8),
+      new THREE.MeshBasicMaterial({
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+      MAX_FLASHES
+    );
+    // Create the colour attribute before the first render so the shader includes it.
+    this.flashMesh.setColorAt(0, new THREE.Color(0, 0, 0));
+    this.flashMesh.count = 0;
+    this.flashMesh.frustumCulled = false;
+    for (let i = 0; i < MAX_FLASHES; i++) {
+      this.flashPos.push(new THREE.Vector3());
+      this.flashColor.push(new THREE.Color());
+    }
+    scene.add(this.flashMesh);
   }
   
   private createBiolumGeometry(): THREE.BufferGeometry {
@@ -98,16 +136,21 @@ export class BioluminescenceSystem {
           pos.z += cos(time * speed * 0.35 + phase) * 0.3;
           pos.y += sin(time * speed * 0.15) * 0.15;
           
-          // Pulsing effect
-          vPulse = 0.5 + 0.5 * sin(time * 0.8 + phase);
-          vPulse = pow(vPulse, 2.0); // More pronounced pulse
+          // Plankton glow in brief sparks, not a steady light: each particle stays dark
+          // for most of its 3 to 9 second cycle, flashes in a few hundredths of a second,
+          // and fades over about a second.
+          float period = 3.0 + speed * 15.0;
+          float cycle = fract(time / period + phase * 0.159);
+          vPulse = smoothstep(0.0, 0.015, cycle) * exp(-cycle * 14.0);
           
           // Distance fade
           float dist = length(pos - cameraPosition);
           vDistanceFade = 1.0 - smoothstep(35.0, 75.0, dist);
           
           vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-          gl_PointSize = size * (480.0 / -mvPosition.z) * (0.55 + vPulse * 0.55);
+          // A spark is a point of light with a small halo. Capped so a particle drifting past
+          // the lens stays a speck, not a disc.
+          gl_PointSize = clamp(size * (200.0 / -mvPosition.z) * (0.6 + vPulse * 0.6), 1.5, 9.0);
           gl_Position = projectionMatrix * mvPosition;
         }
       `,
@@ -125,12 +168,12 @@ export class BioluminescenceSystem {
 
           if (dist > 0.5) discard;
 
-          // Soft glow
+          // Bright core, thin halo.
           float alpha = 1.0 - smoothstep(0.0, 0.5, dist);
-          alpha = pow(alpha, 1.5);
+          alpha = pow(alpha, 3.0);
 
-          // Apply pulse
-          alpha *= (0.4 + vPulse * 0.6);
+          // A faint ember between flashes, so the water is not empty between sparks.
+          alpha *= 0.06 + vPulse;
 
           // Apply distance fade
           alpha *= vDistanceFade;
@@ -139,7 +182,7 @@ export class BioluminescenceSystem {
           alpha *= intensity;
 
           // Brighten the color
-          vec3 glowColor = vColor * (1.75 + vPulse * 0.55) * intensity;
+          vec3 glowColor = vColor * (1.0 + vPulse * 1.5) * intensity;
 
           gl_FragColor = vec4(glowColor, alpha);
         }
@@ -158,6 +201,45 @@ export class BioluminescenceSystem {
     this.time += deltaTime;
     this.material.uniforms.time.value = this.time;
     // cameraPosition is a built-in Three.js uniform, no need to set manually
+    this.updateFlashes(deltaTime);
+  }
+
+  /** 0 at noon, 1 at midnight. Disturbed plankton only show against a dark sea. */
+  public setNightFactor(nightFactor: number): void {
+    this.nightFactor = THREE.MathUtils.clamp(nightFactor, 0, 1);
+  }
+
+  private updateFlashes(deltaTime: number): void {
+    let live = 0;
+    for (let i = 0; i < this.flashCount; i++) {
+      const age = this.flashAge[i] + deltaTime;
+      const life = this.flashLife[i];
+      if (age >= life) continue;
+
+      // Compact live flashes to the front so the instance count stays exact.
+      if (live !== i) {
+        this.flashPos[live].copy(this.flashPos[i]);
+        this.flashColor[live].copy(this.flashColor[i]);
+        this.flashLife[live] = life;
+        this.flashGain[live] = this.flashGain[i];
+      }
+      this.flashAge[live] = age;
+
+      const progress = age / life;
+      const fade = (1 - progress) * (1 - progress) * this.flashGain[live];
+      const radius = 0.12 + 0.3 * Math.sqrt(progress);
+      this._scale.setScalar(radius);
+      this._matrix.compose(this.flashPos[live], this._quat, this._scale);
+      this.flashMesh.setMatrixAt(live, this._matrix);
+      // Additive blending: scaling the colour is the same as fading the opacity.
+      this.flashMesh.setColorAt(live, this._color.copy(this.flashColor[live]).multiplyScalar(fade));
+      live++;
+    }
+
+    this.flashCount = live;
+    this.flashMesh.count = live;
+    this.flashMesh.instanceMatrix.needsUpdate = true;
+    if (this.flashMesh.instanceColor) this.flashMesh.instanceColor.needsUpdate = true;
   }
 
   /**
@@ -172,41 +254,15 @@ export class BioluminescenceSystem {
    * Useful for creature interactions
    */
   public addFlash(position: THREE.Vector3, color: THREE.Color, intensity: number = 1.0): void {
-    const flashGeometry = new THREE.SphereGeometry(0.55, 10, 10);
-    const flashMaterial = new THREE.MeshBasicMaterial({
-      color: color,
-      transparent: true,
-      opacity: Math.min(1, intensity),
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    
-    const flash = new THREE.Mesh(flashGeometry, flashMaterial);
-    flash.position.copy(position);
-    this.scene.add(flash);
-    
-    const startTime = performance.now();
-    const duration = 420 + intensity * 180;
-    
-    const animate = () => {
-      const elapsed = performance.now() - startTime;
-      const progress = elapsed / duration;
-      
-      if (progress >= 1.0) {
-        this.scene.remove(flash);
-        flashGeometry.dispose();
-        flashMaterial.dispose();
-        return;
-      }
-      
-      flashMaterial.opacity = intensity * (1 - progress) * (1 - progress);
-      const scale = 1 + progress * (2.8 + intensity);
-      flash.scale.set(scale, scale, scale);
-      
-      requestAnimationFrame(animate);
-    };
-    
-    animate();
+    const gain = intensity * this.nightFactor * this.nightFactor;
+    if (gain < 0.05 || this.flashCount >= MAX_FLASHES) return;
+
+    const i = this.flashCount++;
+    this.flashPos[i].copy(position);
+    this.flashColor[i].copy(color);
+    this.flashGain[i] = gain;
+    this.flashAge[i] = 0;
+    this.flashLife[i] = 0.35 + intensity * 0.12;
   }
   
   /**
@@ -216,5 +272,8 @@ export class BioluminescenceSystem {
     this.geometry.dispose();
     this.material.dispose();
     this.scene.remove(this.particleSystem);
+    this.scene.remove(this.flashMesh);
+    this.flashMesh.geometry.dispose();
+    (this.flashMesh.material as THREE.Material).dispose();
   }
 }

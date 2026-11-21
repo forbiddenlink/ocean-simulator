@@ -1,5 +1,6 @@
 import { pipe, getAllEntities, query } from 'bitecs';
 import * as THREE from 'three';
+import type { CreatureModel } from './creatures/CreatureModelLoader';
 import { createOceanWorld, updateWorldTime } from './core/World';
 import type { OceanWorld } from './core/World';
 import { createFish, createShark, createDolphin, createJellyfish, createRay, createTurtle, createWhale, createCrab, createStarfish, createSeaUrchin } from './core/EntityFactory';
@@ -55,12 +56,12 @@ export class OceanSimulator {
     // Cinematic / Post
     bloomIntensity: 0.8,
     bloomThreshold: 0.45,
-    absorptionScale: 0.05,
-    turbidity: 0.25,
+    waterDensity: 1.0,
+    shaftStrength: 1.2,
     vignetteOffset: 0.35,
     vignetteDarkness: 0.35,
-    chromaX: 0.001,
-    chromaY: 0.0006,
+    chromaX: 0,
+    chromaY: 0,
 
     // Lighting
     ambientIntensity: 1.2,
@@ -169,9 +170,14 @@ export class OceanSimulator {
     this.cameraController.playCinematic(this.introKeyframes, 15, false);
   }
 
-  /** Register optional GLTF creature models; large creatures spawned after this use them. */
-  public setCreatureModels(models: Map<string, THREE.BufferGeometry>): void {
+  /** Register loaded GLTF creature models; modelled species switch to them on the next frame. */
+  public setCreatureModels(models: Map<string, CreatureModel>): void {
     this.meshPool.setCreatureModels(models);
+  }
+
+  /** Swap school-fish body types for loaded scan templates (see BatchedMeshPool). */
+  public setSchoolFishModels(templates: Map<string, THREE.Group>): void {
+    this.meshPool.setSchoolFishModels(templates);
   }
 
   /** Cycle the look: Cinematic Deep -> Bioluminescent -> Clean Tropical -> ... Returns the new preset. */
@@ -186,58 +192,49 @@ export class OceanSimulator {
 
   private applyLookPreset(preset: LookPresetName): void {
     // Full art-direction preset: every knob that controls the look lives here so a
-    // preset switch is a single cohesive move (post FX + all lights + scene fog + exposure
-    // + time of day). timeOfDay is also frozen per preset, which stops the scene silently
+    // preset switch is a single cohesive move (water + post FX + lights + exposure +
+    // time of day). timeOfDay is frozen per preset, which stops the scene silently
     // drifting through the ~50s day/night cycle and makes each look reproducible.
+    // The water itself is physical (WaterMedium); presets only choose how clear it is,
+    // how strong the shafts are and what colour the sunlit water column scatters.
     type LookPreset = {
+      // Water medium
+      waterDensity: number; shaftStrength: number; mediumHex: number;
       // Post FX
-      bloomIntensity: number; bloomThreshold: number; absorptionScale: number; turbidity: number;
+      bloomIntensity: number; bloomThreshold: number; exposure: number;
       vignetteOffset: number; vignetteDarkness: number; chromaX: number; chromaY: number;
-      exposure: number; scatterStrength: number; depthDesat: number; scatterHex: number;
-      inscatterStrength: number; inscatterHex: number;
       // Lighting
       ambientIntensity: number; sunIntensity: number; hemiIntensity: number; fillIntensity: number;
-      // Scene fog + background
-      fogBaseDensity: number; fogDepthFactor: number; fogShallowHex: number; fogDeepHex: number;
-      backgroundHex: number;
       // Time of day (0 = midnight, 0.5 = noon) — frozen so the look holds.
       timeOfDay: number;
     };
 
     const presets: Record<typeof preset, LookPreset> = {
-      // Bright, clear tropical water — approachable "before" reference.
+      // Bright, clear tropical water: long visibility, turquoise column.
       'tropical-clear': {
-        bloomIntensity: 0.75, bloomThreshold: 0.52, absorptionScale: 0.045, turbidity: 0.22,
-        vignetteOffset: 0.4, vignetteDarkness: 0.28, chromaX: 0.001, chromaY: 0.0006,
-        exposure: 1.08, scatterStrength: 0.38, depthDesat: 0.18, scatterHex: 0x1f6f86,
-        inscatterStrength: 0.85, inscatterHex: 0xa8d4e8,
-        ambientIntensity: 1.0, sunIntensity: 3.1, hemiIntensity: 1.0, fillIntensity: 0.5,
-        fogBaseDensity: 0.012, fogDepthFactor: 0.0002, fogShallowHex: 0x3f93a8, fogDeepHex: 0x14536b,
-        backgroundHex: 0x2a8aaa, timeOfDay: 0.5,
+        waterDensity: 0.6, shaftStrength: 0.9, mediumHex: 0x2fa6c4,
+        bloomIntensity: 0.6, bloomThreshold: 0.8, exposure: 1.1,
+        vignetteOffset: 0.4, vignetteDarkness: 0.28, chromaX: 0, chromaY: 0,
+        ambientIntensity: 0.25, sunIntensity: 2.6, hemiIntensity: 0.45, fillIntensity: 0.1,
+        timeOfDay: 0.5,
       },
-      // CINEMATIC DEEP — signature look: moody blue-green depth, strong contrast,
-      // distance dissolving into navy murk, highlights reserved for light shafts.
+      // CINEMATIC DEEP — signature look: blue-green depth, strong contrast, distance
+      // dissolving into navy, highlights reserved for shafts and caustics.
       'inky-cinematic': {
-        bloomIntensity: 1.0, bloomThreshold: 0.55, absorptionScale: 0.08, turbidity: 0.46,
-        vignetteOffset: 0.22, vignetteDarkness: 0.66, chromaX: 0.0015, chromaY: 0.001,
-        exposure: 1.26, scatterStrength: 0.68, depthDesat: 0.4, scatterHex: 0x0a2c3c,
-        inscatterStrength: 1.05, inscatterHex: 0x8ec4d4,
-        ambientIntensity: 0.48, sunIntensity: 2.95, hemiIntensity: 0.4, fillIntensity: 0.26,
-        fogBaseDensity: 0.034, fogDepthFactor: 0.00026, fogShallowHex: 0x1a5468, fogDeepHex: 0x0c2c3c,
-        backgroundHex: 0x0a2230, timeOfDay: 0.5,
+        waterDensity: 1.0, shaftStrength: 1.2, mediumHex: 0x1a6a8c,
+        bloomIntensity: 0.75, bloomThreshold: 0.85, exposure: 1.0,
+        vignetteOffset: 0.25, vignetteDarkness: 0.6, chromaX: 0, chromaY: 0,
+        ambientIntensity: 0.15, sunIntensity: 2.4, hemiIntensity: 0.3, fillIntensity: 0.06,
+        timeOfDay: 0.5,
       },
-      // BIOLUMINESCENT — midnight dive: the water goes near-black and the only light is
-      // living. Freezing time at midnight drops the sun and drives the bioluminescence +
-      // jelly self-glow to full via the day/night loop; the preset kills ambient/hemi so
-      // those glows are the whole scene, and lifts bloom so they bleed like real biolume.
+      // BIOLUMINESCENT — midnight dive: the sun is gone, so the medium scatters almost
+      // nothing and the only light is living. Bloom lifts so glows bleed like biolume.
       'bioluminescent': {
-        bloomIntensity: 1.85, bloomThreshold: 0.2, absorptionScale: 0.1, turbidity: 0.4,
-        vignetteOffset: 0.16, vignetteDarkness: 0.82, chromaX: 0.0018, chromaY: 0.0012,
-        exposure: 1.18, scatterStrength: 0.8, depthDesat: 0.45, scatterHex: 0x03121c,
-        inscatterStrength: 0.12, inscatterHex: 0x1a3a48,
-        ambientIntensity: 0.05, sunIntensity: 0.08, hemiIntensity: 0.04, fillIntensity: 0.82,
-        fogBaseDensity: 0.052, fogDepthFactor: 0.00042, fogShallowHex: 0x04141e, fogDeepHex: 0x01060c,
-        backgroundHex: 0x01050a, timeOfDay: 0.02,
+        waterDensity: 1.4, shaftStrength: 0.0, mediumHex: 0x0a3550,
+        bloomIntensity: 1.6, bloomThreshold: 0.25, exposure: 1.15,
+        vignetteOffset: 0.16, vignetteDarkness: 0.82, chromaX: 0, chromaY: 0,
+        ambientIntensity: 0.03, sunIntensity: 0.08, hemiIntensity: 0.03, fillIntensity: 0.12,
+        timeOfDay: 0.02,
       },
     };
 
@@ -247,25 +244,21 @@ export class OceanSimulator {
     // Keep GUI-backed params in sync so the debug panel reflects the preset.
     Object.assign(this.debugParams, {
       bloomIntensity: p.bloomIntensity, bloomThreshold: p.bloomThreshold,
-      absorptionScale: p.absorptionScale, turbidity: p.turbidity,
+      waterDensity: p.waterDensity, shaftStrength: p.shaftStrength,
       vignetteOffset: p.vignetteOffset, vignetteDarkness: p.vignetteDarkness,
       chromaX: p.chromaX, chromaY: p.chromaY,
       ambientIntensity: p.ambientIntensity, sunIntensity: p.sunIntensity,
     });
 
-    // Post FX
+    // Water + post FX
+    pp.water.setDensity(p.waterDensity);
+    pp.water.setShaftStrength(p.shaftStrength);
+    pp.water.setMediumColor(p.mediumHex);
     pp.setBloomIntensity(p.bloomIntensity);
     pp.setBloomThreshold(p.bloomThreshold, 0.7);
-    pp.setAbsorptionScale(p.absorptionScale);
-    pp.setTurbidity(p.turbidity);
     pp.setVignette(p.vignetteOffset, p.vignetteDarkness);
     pp.setChromaticAberration(p.chromaX, p.chromaY);
     pp.setExposure(p.exposure);
-    pp.setScatterStrength(p.scatterStrength);
-    pp.setDepthDesat(p.depthDesat);
-    pp.setScatterColor(p.scatterHex);
-    pp.setInscatterStrength(p.inscatterStrength);
-    pp.setInscatterColor(p.inscatterHex);
 
     // Lighting — all four lights, so the preset actually controls contrast.
     const ambientLight = this.renderEngine.scene.children.find(
@@ -275,16 +268,6 @@ export class OceanSimulator {
     this.renderEngine.getSunLight().intensity = p.sunIntensity;
     this.renderEngine.getHemiLight().intensity = p.hemiIntensity;
     this.renderEngine.getFillLight().intensity = p.fillIntensity;
-
-    // Scene fog (applied every frame by WavelengthLighting; set its knobs here).
-    const ls = this.renderEngine.lightSystem;
-    ls.sceneFogBaseDensity = p.fogBaseDensity;
-    ls.sceneFogDepthFactor = p.fogDepthFactor;
-    ls.sceneFogShallow.setHex(p.fogShallowHex);
-    ls.sceneFogDeep.setHex(p.fogDeepHex);
-
-    // Background
-    this.renderEngine.scene.background = new THREE.Color(p.backgroundHex);
 
     // Freeze time of day for this look (also stops the auto day/night drift). Midnight
     // in the bioluminescent preset makes the day/night loop dim the sun and drive the
@@ -333,11 +316,11 @@ export class OceanSimulator {
     cineFolder.add(this.debugParams, 'bloomThreshold', 0, 1).name('Bloom Threshold').onChange((v: number) => {
       this.renderEngine.postProcessing.setBloomThreshold(v, 0.8);
     });
-    cineFolder.add(this.debugParams, 'absorptionScale', 0.02, 0.12).name('Absorption').onChange((v: number) => {
-      this.renderEngine.postProcessing.setAbsorptionScale(v);
+    cineFolder.add(this.debugParams, 'waterDensity', 0.4, 3.0).name('Water Density').onChange((v: number) => {
+      this.renderEngine.postProcessing.water.setDensity(v);
     });
-    cineFolder.add(this.debugParams, 'turbidity', 0.0, 1.0).name('Turbidity').onChange((v: number) => {
-      this.renderEngine.postProcessing.setTurbidity(v);
+    cineFolder.add(this.debugParams, 'shaftStrength', 0.0, 2.5).name('Light Shafts').onChange((v: number) => {
+      this.renderEngine.postProcessing.water.setShaftStrength(v);
     });
     cineFolder.add(this.debugParams, 'vignetteOffset', 0.0, 1.0).name('Vignette Offset').onChange((v: number) => {
       this.renderEngine.postProcessing.setVignette(v, this.debugParams.vignetteDarkness);
@@ -606,8 +589,10 @@ export class OceanSimulator {
   /**
    * Main game loop
    */
-  private loop = (): void => {
+  private loop = (timestamp?: number): void => {
     this.animationFrameId = requestAnimationFrame(this.loop);
+    // The first call comes from start(), not from rAF, and has no frame timestamp.
+    if (timestamp !== undefined) this.renderEngine.trackFrame(timestamp);
     
     // Update world time (scaled by time scale)
     updateWorldTime(this.world);
@@ -770,7 +755,7 @@ export class OceanSimulator {
         choppiness: 2.0,
         amplitude: 2.0,
         pixelRatio: Math.min(window.devicePixelRatio, 1.5),
-        dof: true,
+        dof: false,
       },
       'high': {
         message: 'High quality (better visuals)',
@@ -806,7 +791,7 @@ export class OceanSimulator {
       this.renderEngine.setOceanParam('amplitude', config.amplitude);
 
       // Adjust renderer pixel ratio
-      this.renderEngine.renderer.setPixelRatio(config.pixelRatio);
+      this.renderEngine.setPixelRatioCap(config.pixelRatio);
 
       // Gate the expensive depth-of-field pass by preset.
       this.renderEngine.postProcessing.setDofEnabled(config.dof);

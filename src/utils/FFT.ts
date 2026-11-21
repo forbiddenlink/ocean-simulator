@@ -1,157 +1,105 @@
 /**
- * Fast Fourier Transform (FFT) implementation
- * Cooley-Tukey algorithm for 2D FFT
- * 
- * Note: In production, this should be replaced with:
- * - WebGPU compute shader for GPU acceleration
- * - fft.js or similar library for optimized CPU FFT
- * 
- * This is a simplified implementation for initial functionality.
+ * Radix-2 Cooley-Tukey FFT for square power-of-two complex fields stored as
+ * interleaved [re, im] pairs in a Float32Array.
+ *
+ * Twiddle factors and the bit-reversal permutation are computed once per size,
+ * and rows and columns are transformed in place with a stride, so a transform
+ * allocates nothing and calls no trig. The ocean runs six of these at 256² and
+ * 128² every wave update, which is why this has to stay cheap.
  */
-
 export class FFT {
-  private resolution: number;
-  
+  private readonly resolution: number;
+  private readonly cosTable: Float64Array;
+  private readonly sinTable: Float64Array;
+  private readonly bitReverse: Uint32Array;
+
   constructor(resolution: number) {
-    if ((resolution & (resolution - 1)) !== 0) {
+    if (resolution < 1 || (resolution & (resolution - 1)) !== 0) {
       throw new Error('FFT resolution must be a power of 2');
     }
     this.resolution = resolution;
+
+    const half = resolution >> 1;
+    this.cosTable = new Float64Array(half);
+    this.sinTable = new Float64Array(half);
+    for (let i = 0; i < half; i++) {
+      const angle = (-2 * Math.PI * i) / resolution;
+      this.cosTable[i] = Math.cos(angle);
+      this.sinTable[i] = Math.sin(angle);
+    }
+
+    const bits = Math.log2(resolution);
+    this.bitReverse = new Uint32Array(resolution);
+    for (let i = 0; i < resolution; i++) {
+      let r = 0;
+      for (let b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b);
+      this.bitReverse[i] = r;
+    }
   }
 
   /**
-   * 1D FFT (Cooley-Tukey algorithm)
+   * In-place 1D transform of `resolution` complex values starting at float index
+   * `offset`, with consecutive values `stride` complex elements apart.
    */
-  private fft1D(data: Float32Array, inverse: boolean = false): void {
-    const n = data.length / 2; // Complex pairs
-    
-    if (n <= 1) return;
-    
-    // Bit-reversal permutation
-    this.bitReversal(data);
-    
-    // Cooley-Tukey FFT
-    const sign = inverse ? 1 : -1;
-    
-    for (let size = 2; size <= n; size *= 2) {
-      const halfSize = size / 2;
-      const step = Math.PI / halfSize;
-      
-      for (let i = 0; i < n; i += size) {
-        for (let j = 0; j < halfSize; j++) {
-          const angle = sign * step * j;
-          const twiddle_real = Math.cos(angle);
-          const twiddle_imag = Math.sin(angle);
-          
-          const idx1 = (i + j) * 2;
-          const idx2 = (i + j + halfSize) * 2;
-          
-          const real1 = data[idx1];
-          const imag1 = data[idx1 + 1];
-          const real2 = data[idx2];
-          const imag2 = data[idx2 + 1];
-          
-          // Complex multiplication: twiddle * data[idx2]
-          const temp_real = twiddle_real * real2 - twiddle_imag * imag2;
-          const temp_imag = twiddle_real * imag2 + twiddle_imag * real2;
-          
-          // Butterfly operation
-          data[idx1] = real1 + temp_real;
-          data[idx1 + 1] = imag1 + temp_imag;
-          data[idx2] = real1 - temp_real;
-          data[idx2 + 1] = imag1 - temp_imag;
+  private transform1D(data: Float32Array, offset: number, stride: number, inverse: boolean): void {
+    const n = this.resolution;
+    const step2 = stride * 2;
+    const rev = this.bitReverse;
+
+    for (let i = 0; i < n; i++) {
+      const j = rev[i];
+      if (j > i) {
+        const a = offset + i * step2;
+        const b = offset + j * step2;
+        const re = data[a];
+        const im = data[a + 1];
+        data[a] = data[b];
+        data[a + 1] = data[b + 1];
+        data[b] = re;
+        data[b + 1] = im;
+      }
+    }
+
+    const cosT = this.cosTable;
+    const sinT = this.sinTable;
+    const sign = inverse ? -1 : 1;
+
+    for (let size = 2; size <= n; size <<= 1) {
+      const half = size >> 1;
+      const tableStep = n / size;
+      for (let start = 0; start < n; start += size) {
+        for (let k = 0; k < half; k++) {
+          const wr = cosT[k * tableStep];
+          const wi = sign * sinT[k * tableStep];
+          const a = offset + (start + k) * step2;
+          const b = a + half * step2;
+          const br = data[b];
+          const bi = data[b + 1];
+          const tr = wr * br - wi * bi;
+          const ti = wr * bi + wi * br;
+          const ar = data[a];
+          const ai = data[a + 1];
+          data[a] = ar + tr;
+          data[a + 1] = ai + ti;
+          data[b] = ar - tr;
+          data[b + 1] = ai - ti;
         }
       }
     }
-    
-    // Normalize inverse FFT
+  }
+
+  /** 2D transform: every row, then every column. Inverse scales by 1/N². */
+  public fft2D(data: Float32Array, inverse = false): void {
+    const n = this.resolution;
+    for (let y = 0; y < n; y++) this.transform1D(data, y * n * 2, 1, inverse);
+    for (let x = 0; x < n; x++) this.transform1D(data, x * 2, n, inverse);
+
     if (inverse) {
-      for (let i = 0; i < data.length; i++) {
-        data[i] /= n;
-      }
+      const scale = 1 / (n * n);
+      for (let i = 0; i < data.length; i++) data[i] *= scale;
     }
   }
 
-  /**
-   * Bit-reversal permutation
-   */
-  private bitReversal(data: Float32Array): void {
-    const n = data.length / 2;
-    let j = 0;
-    
-    for (let i = 0; i < n; i++) {
-      if (j > i) {
-        // Swap complex pairs
-        const temp_real = data[i * 2];
-        const temp_imag = data[i * 2 + 1];
-        data[i * 2] = data[j * 2];
-        data[i * 2 + 1] = data[j * 2 + 1];
-        data[j * 2] = temp_real;
-        data[j * 2 + 1] = temp_imag;
-      }
-      
-      // Compute next j
-      let k = n / 2;
-      while (k <= j) {
-        j -= k;
-        k /= 2;
-      }
-      j += k;
-    }
-  }
-
-  /**
-   * 2D FFT (separable approach: rows then columns)
-   */
-  public fft2D(data: Float32Array, inverse: boolean = false): void {
-    const N = this.resolution;
-    
-    // FFT on rows
-    const rowData = new Float32Array(N * 2);
-    for (let y = 0; y < N; y++) {
-      // Extract row
-      for (let x = 0; x < N; x++) {
-        const srcIdx = (y * N + x) * 2;
-        rowData[x * 2] = data[srcIdx];
-        rowData[x * 2 + 1] = data[srcIdx + 1];
-      }
-      
-      // FFT
-      this.fft1D(rowData, inverse);
-      
-      // Write back
-      for (let x = 0; x < N; x++) {
-        const dstIdx = (y * N + x) * 2;
-        data[dstIdx] = rowData[x * 2];
-        data[dstIdx + 1] = rowData[x * 2 + 1];
-      }
-    }
-    
-    // FFT on columns
-    const colData = new Float32Array(N * 2);
-    for (let x = 0; x < N; x++) {
-      // Extract column
-      for (let y = 0; y < N; y++) {
-        const srcIdx = (y * N + x) * 2;
-        colData[y * 2] = data[srcIdx];
-        colData[y * 2 + 1] = data[srcIdx + 1];
-      }
-      
-      // FFT
-      this.fft1D(colData, inverse);
-      
-      // Write back
-      for (let y = 0; y < N; y++) {
-        const dstIdx = (y * N + x) * 2;
-        data[dstIdx] = colData[y * 2];
-        data[dstIdx + 1] = colData[y * 2 + 1];
-      }
-    }
-  }
-
-  /**
-   * Inverse 2D FFT
-   */
   public ifft2D(data: Float32Array): void {
     this.fft2D(data, true);
   }
