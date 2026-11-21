@@ -78,6 +78,17 @@ describe('ExtraOceanLife', () => {
     expect(swaying).toBeGreaterThan(0);
   });
 
+  it('keeps vertex colours through the draw-call merge on banded and ringed bodies', () => {
+    for (const kind of ['seasnake', 'seahorse']) {
+      const creature = life.group.children.find((c) => c.userData.kind === kind)!;
+      const coloured = creature.children.filter(
+        (m) => ((m as THREE.Mesh).material as THREE.Material).vertexColors
+      ) as THREE.Mesh[];
+      expect(coloured.length).toBeGreaterThan(0);
+      for (const mesh of coloured) expect(mesh.geometry.getAttribute('color')).toBeDefined();
+    }
+  });
+
   it('builds every creature from real mesh geometry', () => {
     let meshes = 0;
     life.group.traverse((o) => {

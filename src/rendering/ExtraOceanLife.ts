@@ -3,6 +3,7 @@ import { mergeBufferGeometries } from 'three-stdlib';
 import { sampleSandHeight } from './RealisticOceanFloor';
 import { normalizeGeometry } from './SceneOptimizer';
 import { CoralFormations } from './CoralFormations';
+import { taperedTube } from './TaperedTube';
 
 /**
  * Extra ocean critters: octopuses, seahorses, moray eels, lobsters, nudibranchs.
@@ -81,7 +82,7 @@ export class ExtraOceanLife {
             continue;
           }
           // Uniform attribute set so same-material parts merge cleanly.
-          const geo = normalizeGeometry(mesh.geometry);
+          const geo = normalizeGeometry(mesh.geometry, mat.vertexColors);
           if (!geo) {
             kept.push(child);
             continue;
@@ -237,8 +238,19 @@ export class ExtraOceanLife {
    * physical material, so it takes the sun, caustics, depth colour and night like the rest
    * of the scene, with a sway that grows away from the body's base along local Y.
    */
-  private makeWaveMaterial(color: THREE.Color, amplitude: number, freq: number): THREE.MeshStandardMaterial {
-    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0 });
+  private makeWaveMaterial(
+    color: THREE.Color,
+    amplitude: number,
+    freq: number,
+    opts: { axis?: 'y' | 'x'; vertexColors?: boolean } = {}
+  ): THREE.MeshStandardMaterial {
+    const axis = opts.axis ?? 'y';
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.55,
+      metalness: 0,
+      vertexColors: opts.vertexColors ?? false,
+    });
     const uniforms = {
       time: { value: 0 },
       amplitude: { value: amplitude },
@@ -259,9 +271,14 @@ export class ExtraOceanLife {
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
-          float sway = sin(transformed.y * freq + time * 1.6) * amplitude * smoothstep(0.0, 1.5, abs(transformed.y));
+          ${
+            axis === 'x'
+              ? `// Travelling wave from head (+X) to tail: the body swims, not just sways.
+          transformed.z += sin(transformed.x * freq + time * 2.4) * amplitude;`
+              : `float sway = sin(transformed.y * freq + time * 1.6) * amplitude * smoothstep(0.0, 1.5, abs(transformed.y));
           transformed.x += sway * 0.5;
-          transformed.z += sway * 0.4;
+          transformed.z += sway * 0.4;`
+          }
           // Mantle mottling, fixed to the body so it moves with the skin.
           vMottle = smoothstep(-0.2, 0.55, sin(position.x * 4.2) * sin(position.z * 3.6 + position.y * 2.0));`
         );
@@ -273,7 +290,7 @@ export class ExtraOceanLife {
           diffuseColor.rgb *= mix(0.8, 1.15, vMottle);`
         );
     };
-    mat.customProgramCacheKey = () => 'extraOceanLife-sway';
+    mat.customProgramCacheKey = () => `extraOceanLife-sway-${axis}`;
     this.animatedMaterials.push(uniforms);
     return mat;
   }
@@ -761,33 +778,31 @@ export class ExtraOceanLife {
     }
   }
 
-  // === SEA SNAKES — sinuous banded body, undulating along the seabed ===
+  // === SEA SNAKES — banded sea kraits swimming over the reef with a travelling body wave ===
   private spawnSeaSnakes(floorY: number, count: number): void {
+    const dark = new THREE.Color(0x15171c);
     for (let i = 0; i < count; i++) {
-      const snake = new THREE.Group();
-      const baseHue = 0.12 + Math.random() * 0.5;
-      const bandA = new THREE.Color().setHSL(baseHue, 0.5, 0.5);
-      const bandB = new THREE.Color(0x1a1a22);
-      const matA = this.wetMat(bandA, { roughness: 0.38, clearcoat: 0.5, metalness: 0.12 });
-      const matB = this.wetMat(bandB, { roughness: 0.38, clearcoat: 0.5, metalness: 0.12 });
-
-      const segCount = 16;
-      for (let s = 0; s < segCount; s++) {
-        const t = s / (segCount - 1);
-        const r = 0.16 * (1 - 0.5 * Math.abs(t - 0.5) * 2) + 0.03; // fatter middle
-        const seg = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), s % 2 === 0 ? matA : matB);
-        seg.position.set(t * 4.5 - 2.25, Math.sin(t * Math.PI * 3) * 0.4, Math.cos(t * Math.PI * 3) * 0.2);
-        snake.add(seg);
+      // Blue-grey body with ~30 black rings, like a banded sea krait.
+      const pale = new THREE.Color().setHSL(0.56 + Math.random() * 0.05, 0.25, 0.62);
+      const mat = this.makeWaveMaterial(new THREE.Color(0xffffff), 0.16, 2.6, { axis: 'x', vertexColors: true });
+      // Gentle lateral S along X, head at +X.
+      const spine: THREE.Vector3[] = [];
+      for (let k = 0; k <= 8; k++) {
+        const t = k / 8;
+        spine.push(new THREE.Vector3(-2.3 + t * 4.6, 0, Math.sin(t * Math.PI * 2.2) * 0.25));
       }
-      // Head slightly larger with eyes.
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 10), matA);
-      head.position.set(2.4, Math.sin(Math.PI * 3) * 0.4, 0);
-      head.scale.set(1.3, 0.9, 0.9);
-      snake.add(head);
-      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xf6d060 });
+      const body = taperedTube(
+        spine,
+        (t) => 0.035 + 0.075 * Math.sin(Math.PI * Math.min(1, t * 1.15)) ** 0.6,
+        { segments: 96, radial: 10, color: (t) => (Math.sin(t * Math.PI * 60) > 0.35 ? dark : pale) }
+      );
+      const snake = new THREE.Group();
+      snake.add(new THREE.Mesh(body, mat));
+      const eyeMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.2 });
+      const head = spine[spine.length - 1];
       for (const sgn of [-1, 1]) {
-        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), eyeMat);
-        eye.position.set(2.5, 0.05, sgn * 0.12);
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), eyeMat);
+        eye.position.set(head.x - 0.09, 0.03, head.z + sgn * 0.045);
         snake.add(eye);
       }
 
@@ -799,63 +814,64 @@ export class ExtraOceanLife {
     }
   }
 
-  // === SEAHORSES — vertical posture, slow bob ===
+  // === SEAHORSES — upright S-shaped body, curled prehensile tail, tube snout; slow bob ===
   private spawnSeahorses(floorY: number, count: number): void {
-    const seahorseColors = [0xf5a430, 0xc94a78, 0xfff080, 0x82c850];
+    const seahorseColors = [0xd99a3a, 0xb8506e, 0xe6d27a, 0x8aa65a];
+    // Spine from tail tip up to the crown, in the XY plane with the snout pointing +X.
+    const spine = [
+      [0.12, 0.3],
+      [0.2, 0.14],
+      [0.08, 0.02],
+      [-0.07, 0.12],
+      [-0.02, 0.38],
+      [0.04, 0.72],
+      [0.12, 1.08],
+      [0.1, 1.42],
+      [-0.02, 1.7],
+      [0.02, 1.92],
+      [0.1, 2.02],
+    ].map(([x, y]) => new THREE.Vector3(x, y, 0));
+    const radius = (t: number): number => {
+      if (t < 0.35) return 0.02 + t * 0.2; // thin curled tail
+      if (t < 0.75) return 0.09 + Math.sin(((t - 0.35) / 0.4) * Math.PI) * 0.1; // belly
+      if (t < 0.92) return 0.08; // neck
+      return 0.08 + Math.sin(((t - 0.92) / 0.08) * Math.PI * 0.5) * 0.04; // crown
+    };
+    const bodyGeo = taperedTube(spine, radius, {
+      segments: 80,
+      radial: 10,
+      squash: 0.8,
+      squashAxis: new THREE.Vector3(0, 0, 1),
+      // Bony body rings: a faint light/dark stripe every few rings.
+      color: (t) => new THREE.Color().setScalar(Math.sin(t * Math.PI * 46) > 0.5 ? 0.78 : 1),
+    });
+    const crown = spine[spine.length - 1];
+    const snoutGeo = taperedTube(
+      [new THREE.Vector3(crown.x, crown.y - 0.06, 0), new THREE.Vector3(crown.x + 0.22, crown.y - 0.12, 0), new THREE.Vector3(crown.x + 0.42, crown.y - 0.14, 0)],
+      (t) => (t > 0.85 ? 0.045 : 0.06 - t * 0.03),
+      { segments: 12, radial: 8 }
+    );
+
     for (let i = 0; i < count; i++) {
       const sh = new THREE.Group();
       const color = new THREE.Color(seahorseColors[i % seahorseColors.length]);
-      const mat = this.wetMat(color, { roughness: 0.4, metalness: 0.18, clearcoat: 0.55, iridescence: 0.2 });
-
-      // Body — curved cylinder approximated with several stacked spheres
-      const segCount = 6;
-      for (let s = 0; s < segCount; s++) {
-        const t = s / (segCount - 1);
-        const r = 0.20 - t * 0.10;
-        const segGeo = new THREE.SphereGeometry(r, 12, 10);
-        const seg = new THREE.Mesh(segGeo, mat);
-        const curve = Math.sin(t * 1.5) * 0.35;
-        seg.position.set(curve, 0.8 + t * 1.2, 0);
-        sh.add(seg);
-      }
-
-      // Head + snout
-      const headGeo = new THREE.SphereGeometry(0.22, 12, 10);
-      const head = new THREE.Mesh(headGeo, mat);
-      head.position.set(0.35 + Math.sin(1.5) * 0.35, 2.0, 0);
-      sh.add(head);
-
-      const snoutGeo = new THREE.CylinderGeometry(0.05, 0.10, 0.35, 8);
-      const snout = new THREE.Mesh(snoutGeo, mat);
-      snout.position.set(0.65, 2.05, 0);
-      snout.rotation.z = -Math.PI / 2;
-      sh.add(snout);
-
-      // Curled tail tip
-      const tailGeo = new THREE.TorusGeometry(0.15, 0.08, 8, 14, Math.PI * 1.4);
-      const tail = new THREE.Mesh(tailGeo, mat);
-      tail.position.set(-0.1, 0.6, 0);
-      tail.rotation.set(Math.PI / 2, 0, Math.PI / 4);
-      sh.add(tail);
-
-      // Eye
+      const mat = this.wetMat(color, { roughness: 0.5, metalness: 0.05, clearcoat: 0.4 });
+      mat.vertexColors = true;
+      sh.add(new THREE.Mesh(bodyGeo, mat));
+      sh.add(new THREE.Mesh(snoutGeo, mat));
       const eye = new THREE.Mesh(
-        new THREE.SphereGeometry(0.06, 8, 6),
-        new THREE.MeshBasicMaterial({ color: 0x1c1c1c })
+        new THREE.SphereGeometry(0.03, 8, 6),
+        new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.2 })
       );
-      eye.position.set(0.42, 2.05, 0.18);
+      eye.position.set(crown.x + 0.05, crown.y - 0.05, 0.07);
       sh.add(eye);
 
-      // Position — near kelp/floor, mid-water height
-      const baseY = floorY + 1.5 + Math.random() * 4;
-      sh.position.set(
-        (Math.random() - 0.5) * 70,
-        baseY,
-        (Math.random() - 0.5) * 70
-      );
+      // Near the reef and kelp, a little above the floor.
+      const spot = this.floorSpot(floorY);
+      const baseY = spot.y + 0.6 + Math.random() * 2.5;
+      sh.position.set(spot.x, baseY, spot.z);
       sh.rotation.y = Math.random() * Math.PI * 2;
-      const scale = 0.7 + Math.random() * 0.5;
-      sh.scale.setScalar(scale);
+      sh.scale.setScalar(0.35 + Math.random() * 0.2);
       sh.userData.kind = 'seahorse';
       sh.userData.baseY = baseY;
       sh.userData.phase = Math.random() * Math.PI * 2;
@@ -863,54 +879,50 @@ export class ExtraOceanLife {
     }
   }
 
-  // === MORAY EELS — sinuous body poking out from rocks ===
+  // === MORAY EELS — thick, sideways-flattened body rising out of a reef crevice ===
   private spawnMorayEels(floorY: number, count: number): void {
-    const eelColors = [0x5a6a3a, 0x4a5a4a, 0x6a5a3a, 0x3a4a5a];
+    const eelColors = [0x5a6a3a, 0x4a5a40, 0x6a5a3a, 0x52583a];
     for (let i = 0; i < count; i++) {
       const eelColor = new THREE.Color(eelColors[i % eelColors.length]);
-      const mat = this.makeWaveMaterial(eelColor, 0.22, 1.8);
+      const mat = this.makeWaveMaterial(eelColor, 0.12, 1.8);
 
-      // Long tapered body — 12 segments along Y
+      // Base below the sand, rising in a lazy S, head angled forward (+X).
+      const lean = 0.2 + Math.random() * 0.25;
+      const spine = [
+        new THREE.Vector3(0, -0.6, 0),
+        new THREE.Vector3(0.05, 0.3, 0),
+        new THREE.Vector3(-0.12, 1.1, 0),
+        new THREE.Vector3(0.08, 1.8, 0),
+        new THREE.Vector3(0.3 + lean, 2.3, 0),
+        new THREE.Vector3(0.65 + lean, 2.45, 0),
+      ];
+      const body = taperedTube(
+        spine,
+        (t) => {
+          if (t < 0.8) return 0.2;
+          const u = (t - 0.8) / 0.2; // blunt head tapering to the snout
+          return 0.2 * Math.sqrt(Math.max(0, 1 - u * u)) * (1 - 0.3 * u) + 0.01;
+        },
+        { segments: 64, radial: 12, squash: 0.72, squashAxis: new THREE.Vector3(0, 0, 1) }
+      );
       const eel = new THREE.Group();
-      const segCount = 14;
-      for (let s = 0; s < segCount; s++) {
-        const t = s / (segCount - 1);
-        const r = 0.22 - t * 0.12;
-        const segGeo = new THREE.SphereGeometry(r, 10, 8);
-        const seg = new THREE.Mesh(segGeo, mat);
-        seg.position.set(0, s * 0.32, 0);
-        // gentle curve
-        seg.position.x = Math.sin(t * 3.0) * 0.15;
-        eel.add(seg);
-      }
+      eel.add(new THREE.Mesh(body, mat));
 
-      // Head with mouth
-      const headGeo = new THREE.SphereGeometry(0.28, 12, 10);
-      const head = new THREE.Mesh(headGeo, mat);
-      head.position.set(Math.sin(3.0) * 0.15, segCount * 0.32, 0);
-      head.scale.set(1.0, 0.85, 1.0);
-      eel.add(head);
-
-      // Eyes (small white)
-      for (const ex of [-0.18, 0.18]) {
-        const eye = new THREE.Mesh(
-          new THREE.SphereGeometry(0.05, 8, 6),
-          new THREE.MeshBasicMaterial({ color: 0xfff080 })
-        );
-        eye.position.set(ex, segCount * 0.32 + 0.05, 0.22);
+      // Eyes on the sides of the head, set back from the snout.
+      const eyeMat = new THREE.MeshStandardMaterial({ color: 0xd8c860, roughness: 0.2 });
+      const curve = new THREE.CatmullRomCurve3(spine, false, 'centripetal');
+      const eyeAt = curve.getPointAt(0.9);
+      for (const sgn of [-1, 1]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), eyeMat);
+        eye.position.set(eyeAt.x, eyeAt.y + 0.08, sgn * 0.13);
         eel.add(eye);
       }
 
-      // Position near rocks
-      eel.position.set(
-        (Math.random() - 0.5) * 75,
-        floorY + 0.5,
-        (Math.random() - 0.5) * 75
-      );
+      // Out of a crevice on a reef patch; the base is hidden in the sand.
+      eel.position.copy(this.floorSpot(floorY));
       eel.rotation.y = Math.random() * Math.PI * 2;
-      eel.rotation.z = (Math.random() - 0.5) * 0.4;
-      const scale = 0.6 + Math.random() * 0.5;
-      eel.scale.setScalar(scale);
+      eel.rotation.z = (Math.random() - 0.5) * 0.3;
+      eel.scale.setScalar(0.55 + Math.random() * 0.35);
       eel.userData.kind = 'eel';
       this.group.add(eel);
     }
