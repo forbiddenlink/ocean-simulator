@@ -128,9 +128,8 @@ export class RealisticOceanFloor {
     for (let i = 0; i < positions.count; i++) {
       const x = positions.getX(i);
       const z = positions.getZ(i);
-      // Bake micro-ripples into the sand mesh (replaces the old second ripple plane)
-      const ripple = Math.sin(x * 2.0) * 0.045 + Math.sin(z * 1.5 + x * 0.5) * 0.028;
-      positions.setY(i, sampleSandHeight(x, z) + ripple);
+      // Ripples are shaded in the fragment shader: the vertices are too far apart for them.
+      positions.setY(i, sampleSandHeight(x, z));
     }
     geometry.computeVertexNormals();
 
@@ -211,10 +210,24 @@ export class RealisticOceanFloor {
           // Sand: fine grain + ripples + darker organic patches.
           float grain = fbm(p.xz * 3.1);
           float patches = fbm(p.xz * 0.09 + 3.7);
-          float ripple = sin(p.x * 2.1 + p.z * 0.4 + fbm(p.xz * 0.5) * 3.0) * 0.5 + 0.5;
+          // Wave-formed ripples: crests about 0.7 m apart, wandering, with a gentle stoss
+          // side and a steep lee side. They are strongest on open flat sand, weaker in the
+          // organic patches, and fade out once a ripple is smaller than a pixel.
+          vec2 rippleDir = vec2(0.97, 0.24);
+          vec2 rippleWarp = vec2(fbm(p.xz * 0.12), fbm(p.xz * 0.12 + 5.2)) * 4.0;
+          float ripplePhase = dot(p.xz + rippleWarp, rippleDir) * (6.2831853 / 0.7);
+          float rippleFade = 1.0 - smoothstep(0.9, 2.6, fwidth(ripplePhase));
+          float rippleAmount = rippleFade * (1.0 - rockMask)
+            * mix(0.35, 1.0, smoothstep(0.25, 0.6, fbm(p.xz * 0.05 + 1.3)));
+          float ripple = (sin(ripplePhase) + 0.3 * sin(2.0 * ripplePhase)) * 0.5 + 0.5;
+          // Slope across the crests for the shading normal. Steeper than real ripples, so
+          // they still read through the water's haze.
+          float rippleSlope = (cos(ripplePhase) + 0.6 * cos(2.0 * ripplePhase)) * 1.0;
+          vec2 rippleGrad = rippleDir * rippleSlope * rippleAmount;
           vec3 sand = mix(vec3(0.46, 0.42, 0.34), vec3(0.58, 0.53, 0.43), grain);
           sand *= mix(0.72, 1.06, smoothstep(0.3, 0.7, patches));
-          sand *= mix(0.9, 1.05, ripple);
+          // Fine dark grit settles in the troughs.
+          sand *= mix(1.0, mix(0.55, 1.12, ripple), rippleAmount);
           // Scattered shell grit.
           sand = mix(sand, vec3(0.7, 0.68, 0.62), step(0.965, noise(p.xz * 9.0)) * 0.6);
 
@@ -239,7 +252,8 @@ export class RealisticOceanFloor {
           float hx = triFbm((p + vec3(e, 0.0, 0.0)) * 1.6, geoN);
           float hz = triFbm((p + vec3(0.0, 0.0, e)) * 1.6, geoN);
           float bump = mix(0.25, 1.1, rockMask);
-          vec3 n = normalize(geoN + vec3(h0 - hx, 0.0, h0 - hz) * bump * 4.0);
+          vec3 n = normalize(geoN + vec3(h0 - hx, 0.0, h0 - hz) * bump * 4.0
+            - vec3(rippleGrad.x, 0.0, rippleGrad.y));
 
           // --- Lighting ---
           vec3 L = normalize(lightDirection);
