@@ -422,16 +422,17 @@ export class FFTOcean {
 
         vec3 finalColor = diffuse + specColor + sss + reflection * 0.72 + foamColor;
 
+        // Aerial haze: far water fades into the sky at the horizon behind it.
         float distance = length(vWorldPosition - cameraPosition);
         float fogFactor = exp(-distance * 0.0012);
-        vec3 fogColor = mix(vec3(0.08, 0.22, 0.38), vec3(0.4, 0.6, 0.8), 0.3);
+        vec3 fogColor = sampleSky(normalize(vec3(-V.x, 0.02, -V.z)));
         finalColor = mix(fogColor, finalColor, fogFactor);
 
-        float alpha = mix(0.85, 0.99, fresnel);
-        alpha = mix(alpha, 0.96, smoothstep(0.0, 5.0, depth));
-        alpha = mix(alpha, 1.0, foamAmount * 0.5);
+        // Sky reflection and lit water both come from daylight; moonlight is the floor.
+        finalColor *= mix(0.04, 1.0, daylight);
 
-        gl_FragColor = vec4(finalColor, alpha);
+        // Opaque: the sea here is 30 m deep, too deep to see the floor through.
+        gl_FragColor = vec4(finalColor, 1.0);
       }
     `;
   }

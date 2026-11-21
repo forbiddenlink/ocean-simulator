@@ -30,4 +30,24 @@ describe('FFTOcean daylight', () => {
     const underside = shader.slice(shader.indexOf('if (!gl_FrontFacing)'))
     expect(underside).toMatch(/belowColor \*= [^;]*daylight/)
   })
+
+  describe('seen from above', () => {
+    // From the surface the sea is 30 m deep. Real water that deep hides the floor, so the
+    // top face is opaque; before, blending let the floor and fish show as if through glass.
+    const shader = oceanMaterial(ocean).fragmentShader
+    const top = shader.slice(shader.lastIndexOf('vec3 R = reflect(-V, N);'))
+
+    it('is opaque', () => {
+      expect(top).toMatch(/gl_FragColor = vec4\([^,]+, 1\.0\)/)
+    })
+
+    it('hazes toward the horizon sky, not the underwater blue', () => {
+      expect(top).toMatch(/fogColor = sampleSky\(/)
+    })
+
+    it('dims with the daylight', () => {
+      expect(top).toMatch(/finalColor \*= [^;]*daylight/)
+    })
+  })
 })
+
