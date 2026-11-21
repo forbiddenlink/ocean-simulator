@@ -102,6 +102,8 @@ const waterMediumShader = /* glsl */ `
   const float SKY_DISTANCE = 600.0;
   const int SHAFT_STEPS = 22;
   const float SHAFT_RANGE = 55.0;
+  // Share of the sunlight the surface redistributes into shafts (1 = gaps fully dark).
+  const float SHAFT_CONTRAST = 0.55;
 
   // Low-frequency focusing pattern for the shafts: from a distance, caustic
   // filaments integrate into streaks rather than a fine net. Mean 1 over the
@@ -184,8 +186,10 @@ const waterMediumShader = /* glsl */ `
         if (p.y > -0.2) continue;
         float depthP = -p.y;
         vec2 q = p.xz + uSunDir.xz * (depthP / max(uSunDir.y, 0.15));
-        // Focus is sharpest a few metres down and smears out with depth.
-        float focus = (shaftPattern(q, uTime) - 1.0) * exp(-max(depthP - 2.0, 0.0) * 0.035);
+        // Focus is sharpest a few metres down and smears out with depth. Scattered skylight
+        // and the surface's own blur keep real gaps between shafts from going fully dark,
+        // so only part of the light is redistributed (still mean zero).
+        float focus = SHAFT_CONTRAST * (shaftPattern(q, uTime) - 1.0) * exp(-max(depthP - 2.0, 0.0) * 0.035);
         acc += focus * exp(-kd * depthP) * exp(-sigma * t) * dt;
       }
       // Shafts are seen mostly looking toward the sun: extra forward lobe.
