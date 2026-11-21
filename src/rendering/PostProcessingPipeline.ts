@@ -105,7 +105,11 @@ export class PostProcessingPipeline {
       preset: SMAAPreset.HIGH,
     });
 
-    // Main effect pass: scene shading + look
+    // Main effect pass: scene shading + look.
+    // Bloom extracts its highlights from this pass's input, so it sees the scene before
+    // the water attenuates it. Giving the water its own earlier pass fixes that, but on an
+    // M4 Pro at 1512x900 it took frames from 0% late at a 0.85 render scale to about 12%
+    // late at the 0.5 minimum. Measure before splitting this pass again.
     this.mainPass = new EffectPass(
       camera,
       this.water,
