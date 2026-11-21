@@ -84,6 +84,16 @@ export const CAUSTIC_GLSL = /* glsl */ `
   }
 `;
 
+/**
+ * Depth-buffer value at or above which a pixel is open water (the cleared background, with
+ * only additive sprites drawn over it). Geometry must stay below it, because open water
+ * adds the pixel's colour unfogged. The old 0.99999 classed everything past about 910 m of
+ * the 1000 m far plane as open water, so far geometry such as the 10 km basic-water
+ * surface showed through unfogged. The depth texture is 32-bit float, so this catches only
+ * the last metre or so before the far plane.
+ */
+export const SKY_DEPTH = 0.9999999;
+
 const waterMediumShader = /* glsl */ `
   uniform mat4 uInvProjection;
   uniform mat4 uCameraWorld;
@@ -128,7 +138,7 @@ const waterMediumShader = /* glsl */ `
   }
 
   void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
-    bool isSky = depth >= 0.99999;
+    bool isSky = depth >= ${SKY_DEPTH.toFixed(7)};
     vec4 ndc = vec4(uv * 2.0 - 1.0, (isSky ? 1.0 : depth) * 2.0 - 1.0, 1.0);
     vec4 viewPos = uInvProjection * ndc;
     viewPos /= viewPos.w;
