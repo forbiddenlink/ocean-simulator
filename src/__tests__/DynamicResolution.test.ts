@@ -59,6 +59,14 @@ describe('DynamicResolution', () => {
     expect(res.scale).toBe(1)
   })
 
+  it('lowers the scale when every visible frame takes longer than a paused-tab gap', () => {
+    // A GPU far too slow for the scale gives a run of 150 ms frames. A paused tab gives a
+    // single long gap between normal frames, so a run of long gaps is slow rendering.
+    const res = new DynamicResolution(opts)
+    for (let i = 0; i < 2000; i++) res.addFrameDelta(150)
+    expect(res.scale).toBeLessThan(1)
+  })
+
   it('settles just under the scale where frames start to miss', () => {
     const res = new DynamicResolution(opts)
     feed(res, opts.warmupFrames)

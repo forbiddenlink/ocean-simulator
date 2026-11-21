@@ -45,8 +45,13 @@ const STEP_UP = 1.05;
 const CEILING_MARGIN = 0.95;
 /** Each late window doubles the clean time needed before the next probe, up to this. */
 const MAX_PROBE_BACKOFF = 8;
-/** Gaps longer than this are a paused or hidden tab, not slow rendering. */
+/** A gap longer than this between normal frames is a paused or hidden tab. */
 const PAUSE_MS = 100;
+/**
+ * A pause shows as one long gap. This many long gaps in a row are a GPU far too slow for
+ * the scale, and they count as slow frames so the scale can still come down.
+ */
+const SUSTAINED_LONG_FRAMES = 3;
 
 export class DynamicResolution {
   public scale = 1;
@@ -60,6 +65,8 @@ export class DynamicResolution {
   private frames = 0;
   private lateFrames = 0;
   private slowFrames = 0;
+  /** Long gaps in a row; one alone is a pause, a run is slow rendering. */
+  private longRun = 0;
   private cleanWindows = 0;
   private probeBackoff = 1;
   /** Scale before the current probe; a failed probe returns here. */
@@ -77,7 +84,12 @@ export class DynamicResolution {
 
   /** Feeds the time between two animation frames. Returns true when the scale changed. */
   public addFrameDelta(ms: number): boolean {
-    if (ms > PAUSE_MS) return false;
+    if (ms > PAUSE_MS) {
+      this.longRun++;
+      if (this.longRun < SUSTAINED_LONG_FRAMES) return false;
+    } else {
+      this.longRun = 0;
+    }
     this.seen++;
     if (this.seen <= this.warmupFrames) return false;
     this.frames++;
@@ -121,6 +133,7 @@ export class DynamicResolution {
     this.frames = 0;
     this.lateFrames = 0;
     this.slowFrames = 0;
+    this.longRun = 0;
     this.cleanWindows = 0;
     this.beforeProbe = null;
     this.ceiling = Infinity;
