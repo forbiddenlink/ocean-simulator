@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { ExtraOceanLife } from '../rendering/ExtraOceanLife';
+import { ExtraOceanLife, FLOOR_CLEARANCE } from '../rendering/ExtraOceanLife';
 
 /**
  * Structural smoke test for the ambient ocean-life layer. This verifies each species
@@ -132,12 +132,16 @@ describe('ExtraOceanLife.applyModels', () => {
     let meshes = 0;
     crab.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes++; });
     expect(meshes).toBe(1);
-    // Same footprint: longest side matches, and a floor dweller keeps its bottom on the sand.
+    // Same footprint: longest side matches.
     const after = localBox(crab, () => true);
     const size = (b: THREE.Box3) => b.getSize(new THREE.Vector3());
     const longest = (v: THREE.Vector3) => Math.max(v.x, v.y, v.z);
     expect(longest(size(after))).toBeCloseTo(longest(size(before)), 5);
-    expect(after.min.y).toBeCloseTo(before.min.y, 5);
+    // A floor dweller rests on the sand surface, which lies FLOOR_CLEARANCE below the
+    // creature's origin, not on the procedural body's underside (sunk into the sand).
+    crab.updateMatrixWorld(true);
+    const world = new THREE.Box3().setFromObject(scan!);
+    expect(world.min.y).toBeCloseTo(crab.position.y - FLOOR_CLEARANCE, 5);
     expect(life.group.children.filter((c) => c.userData.kind === 'octopus').length).toBe(octopusCount);
   });
 

@@ -59,7 +59,7 @@ export class ExtraOceanLife {
       x = (Math.random() - 0.5) * spread;
       z = (Math.random() - 0.5) * spread;
     }
-    return new THREE.Vector3(x, floorY + sampleSandHeight(x, z) + 0.15, z);
+    return new THREE.Vector3(x, floorY + sampleSandHeight(x, z) + FLOOR_CLEARANCE, z);
   }
 
   /**
@@ -207,7 +207,10 @@ export class ExtraOceanLife {
 
       const scan = ExtraOceanLife.copyTemplate(template, `${kind}Scan`, spec.upright);
       const size = body.getSize(new THREE.Vector3());
-      ExtraOceanLife.fit(scan, body, Math.max(size.x, size.y, size.z), spec.floor);
+      // The sand surface in the creature's own space: `floorSpot` puts the origin
+      // FLOOR_CLEARANCE above it.
+      const sand = spec.floor ? -FLOOR_CLEARANCE / creature.scale.y : undefined;
+      ExtraOceanLife.fit(scan, body, Math.max(size.x, size.y, size.z), sand);
       if (spec.lift) scan.position.y += spec.lift * size.y;
       creature.add(scan);
     }
@@ -240,8 +243,11 @@ export class ExtraOceanLife {
     return scan;
   }
 
-  /** Scale `scan` so its longest side is `length`, then centre it in `target` (or sit it on its bottom). */
-  private static fit(scan: THREE.Group, target: THREE.Box3, length: number, floor = false): void {
+  /**
+   * Scale `scan` so its longest side is `length` and centre it on `target`. With `floorY`,
+   * its underside goes to that height instead of the target's centre height.
+   */
+  private static fit(scan: THREE.Group, target: THREE.Box3, length: number, floorY?: number): void {
     scan.scale.setScalar(1);
     scan.position.set(0, 0, 0);
     scan.updateMatrixWorld(true);
@@ -251,7 +257,7 @@ export class ExtraOceanLife {
     scan.updateMatrixWorld(true);
     own.setFromObject(scan);
     const shift = target.getCenter(new THREE.Vector3()).sub(own.getCenter(new THREE.Vector3()));
-    if (floor) shift.y = target.min.y - own.min.y;
+    if (floorY !== undefined) shift.y = floorY - own.min.y;
     scan.position.copy(shift);
   }
 
@@ -1181,8 +1187,14 @@ export class ExtraOceanLife {
   }
 }
 
+/**
+ * Height of a floor creature's origin above the sand. Procedural floor bodies are built
+ * around the origin, so their lower half sinks into the sand.
+ */
+export const FLOOR_CLEARANCE = 0.15;
+
 export interface CritterModelSpec {
-  /** Sits on the sand: the scan keeps the procedural body's underside. */
+  /** Sits on the sand: the scan's underside rests on the sand surface. */
   floor?: boolean;
   /** Stands head-up (seahorses) rather than lying along its length. */
   upright?: boolean;
