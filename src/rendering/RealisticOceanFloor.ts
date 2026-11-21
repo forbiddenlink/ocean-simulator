@@ -140,6 +140,14 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.36, 0.2, 0.26), rockCrust * 0.55
     );
 }
 
+/** World Y of the floor datum that sampleSandHeight is measured from. */
+export const FLOOR_DATUM = -30;
+
+/** World Y of the seabed surface at x, z, for anything that rests on the floor. */
+export function seabedY(x: number, z: number): number {
+  return FLOOR_DATUM + sampleSandHeight(x, z);
+}
+
 /**
  * Seabed height above the -30 m floor datum, shared by the floor mesh and everything
  * placed on it (rocks, coral, kelp, critters). A sandy basin around the swim area,
