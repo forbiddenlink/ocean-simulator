@@ -15,7 +15,7 @@ import {
   DepthOfFieldEffect,
   BlendFunction,
 } from 'postprocessing';
-import { WaterMediumEffect } from './WaterMedium';
+import { UnderwaterBloomEffect, WaterMediumEffect } from './WaterMedium';
 
 /**
  * Cinematic underwater post-processing pipeline.
@@ -63,16 +63,16 @@ export class PostProcessingPipeline {
     this.dofPass.enabled = false;
     this.composer.addPass(this.dofPass);
 
-    this.bloomEffect = new BloomEffect({
+    // Physical water medium: depth attenuation, extinction, in-scatter, light shafts.
+    this.water = new WaterMediumEffect();
+
+    this.bloomEffect = new UnderwaterBloomEffect(this.water, {
       intensity: 0.9,
       luminanceThreshold: 0.55,
       luminanceSmoothing: 0.4,
       mipmapBlur: true,
       kernelSize: KernelSize.LARGE,
     });
-
-    // Physical water medium: depth attenuation, extinction, in-scatter, light shafts.
-    this.water = new WaterMediumEffect();
 
     // Fixed Khronos PBR Neutral curve. An adaptive curve re-exposes the frame as the
     // camera turns, which reads as the whole image pumping. The library's REINHARD2
@@ -105,11 +105,8 @@ export class PostProcessingPipeline {
       preset: SMAAPreset.HIGH,
     });
 
-    // Main effect pass: scene shading + look.
-    // Bloom extracts its highlights from this pass's input, so it sees the scene before
-    // the water attenuates it. Giving the water its own earlier pass fixes that, but on an
-    // M4 Pro at 1512x900 it took frames from 0% late at a 0.85 render scale to about 12%
-    // late at the 0.5 minimum. Measure before splitting this pass again.
+    // Main effect pass: scene shading + look. Bloom reads this pass's input, the scene
+    // before the water, so UnderwaterBloomEffect applies the water attenuation itself.
     this.mainPass = new EffectPass(
       camera,
       this.water,

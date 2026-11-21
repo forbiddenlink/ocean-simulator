@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BlendFunction, Effect, EffectAttribute } from 'postprocessing';
+import { BlendFunction, BloomEffect, Effect, EffectAttribute } from 'postprocessing';
 
 /**
  * One physical model of the water, used by every pass that needs it.
@@ -321,5 +321,77 @@ export class WaterMediumEffect extends Effect {
 
   setExposure(exposure: number): void {
     this.u<number>('uExposure').value = exposure;
+  }
+}
+
+/** Water uniforms the bloom extraction reads; shared objects, so values stay in step. */
+const BLOOM_WATER_UNIFORMS = [
+  'uInvProjection',
+  'uCameraWorld',
+  'uCameraPos',
+  'uExtinction',
+  'uDownwelling',
+  'uDensity',
+  'uExposure',
+] as const;
+
+/** Where the library's luminance shader reads the pixel it extracts highlights from. */
+const LUMINANCE_TEXEL = 'vec4 texel=texture2D(inputBuffer,vUv);';
+
+const bloomSourceChunk = /* glsl */ `
+  #include <packing>
+  uniform highp sampler2D depthBuffer;
+  ${waterRayChunk}
+
+  float waterReadDepth(vec2 uv) {
+    #if DEPTH_PACKING == 3201
+      return unpackRGBAToDepth(texture2D(depthBuffer, uv));
+    #else
+      return texture2D(depthBuffer, uv).r;
+    #endif
+  }
+
+  // The pixel as the water medium shows it, before in-scatter and shafts are added.
+  vec3 waterBloomSource(vec3 color, vec2 uv) {
+    if (uCameraPos.y > ${SURFACE_Y.toFixed(1)}) return color * uExposure;
+    return waterSurfaceLight(color, waterRay(uv, waterReadDepth(uv))) * uExposure;
+  }
+`;
+
+/**
+ * Bloom that extracts its highlights from the scene as the water shows it.
+ *
+ * Bloom extracts highlights from its pass input, which is the scene before the water
+ * medium runs, so a bright surface the water hides still left a halo. Running the water
+ * in its own earlier pass fixes that but costs a full-screen pass (on an M4 Pro at
+ * 1512x900, 0% late frames at a 0.85 render scale became about 12% late at 0.5). Instead
+ * the extraction applies the same surface attenuation as the water, in the pass it
+ * already runs. In-scatter and shafts are left out: they are dim and costly.
+ */
+export class UnderwaterBloomEffect extends BloomEffect {
+  constructor(water: WaterMediumEffect, options: ConstructorParameters<typeof BloomEffect>[0]) {
+    super(options);
+    const material = this.luminanceMaterial;
+    if (!material.fragmentShader.includes(LUMINANCE_TEXEL)) {
+      throw new Error('UnderwaterBloomEffect: luminance shader changed; update LUMINANCE_TEXEL');
+    }
+    material.fragmentShader = material.fragmentShader
+      .replace('varying vec2 vUv;', `varying vec2 vUv;\n${bloomSourceChunk}\n`)
+      .replace(LUMINANCE_TEXEL, `${LUMINANCE_TEXEL}texel.rgb=waterBloomSource(texel.rgb,vUv);`);
+    material.uniforms.depthBuffer = new THREE.Uniform<THREE.Texture | null>(null);
+    for (const name of BLOOM_WATER_UNIFORMS) {
+      material.uniforms[name] = water.uniforms.get(name) as THREE.Uniform;
+    }
+    material.defines.DEPTH_PACKING = String(THREE.BasicDepthPacking);
+  }
+
+  override setDepthTexture(
+    depthTexture: THREE.Texture,
+    depthPacking: THREE.DepthPackingStrategies = THREE.BasicDepthPacking,
+  ): void {
+    const material = this.luminanceMaterial;
+    material.uniforms.depthBuffer.value = depthTexture;
+    material.defines.DEPTH_PACKING = String(depthPacking);
+    material.needsUpdate = true;
   }
 }
