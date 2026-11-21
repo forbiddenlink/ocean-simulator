@@ -70,7 +70,7 @@ describe('décor draw-call budget', () => {
   it('keeps transmission off the décor materials', () => {
     new KelpForest(scene, -30, 20);
     new SeaAnemones(scene, -30, 20);
-    CoralFormations.createCoralReef(scene, -30, 20);
+    CoralFormations.createCoralReef(scene);
 
     for (const material of collectMaterials(scene)) {
       const transmission = (material as THREE.MeshPhysicalMaterial).transmission;

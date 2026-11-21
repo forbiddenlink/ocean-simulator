@@ -41,3 +41,23 @@ The raw downloads are kept outside the repo. A headless Blender script prepares 
 Use photogrammetry or sculpted models with real proportions and a license that allows
 reuse (CC0 or CC BY). Stylized low-poly packs clash with the water shading. Keep the
 nose at -X, add the file to `CREATURE_MODEL_PATHS`, and add a row above with credit.
+
+# Reef props
+
+Scanned corals and sponges in `reef/`, placed by `ReefProps` on the reef patches. Each
+file is up +Y, base at y = 0, largest dimension 1. Many are dried museum skeletons, so
+`REEF_PROP_PATHS` tints them toward the colour of living coral.
+
+| File | Species | Source | Author | License |
+|------|---------|--------|--------|---------|
+| `reef/brain_rose.glb` | Rose brain coral (*Manicina areolata*) | [Sketchfab](https://sketchfab.com/3d-models/rose-brain-coral-26f4071ad44a41eeb7b179045135522d) | RISD Nature Lab | CC BY 4.0 |
+| `reef/brain_platygyra.glb` | Lesser valley brain coral (*Platygyra daedalea*) | [Sketchfab](https://sketchfab.com/3d-models/brain-coral-platygyra-daedalea-0e9aa3ac05034dba8ebd3d0b8f24357a) | jordanmakesmaps | CC BY 4.0 |
+| `reef/staghorn.glb` | Staghorn coral (*Acropora cervicornis*) | [Sketchfab](https://sketchfab.com/3d-models/staghorn-coral-8c14ba2dddcb48cb9650e84fb60260e5) | RISD Nature Lab | CC BY 4.0 |
+| `reef/elkhorn.glb` | Elkhorn coral (*Acropora palmata*) | [Sketchfab](https://sketchfab.com/3d-models/elkhorn-coral-acropora-palmata-ce0fdf05ab8c4a0e94015cf3798cbc45) | Patric Lengacher | CC BY 4.0 |
+| `reef/organpipe.glb` | Red organ pipe coral (*Tubipora musica*) | [Sketchfab](https://sketchfab.com/3d-models/red-organ-pipe-coral-eaaaffad58a14c52b36c3d6550c54167) | RISD Nature Lab | CC BY 4.0 |
+| `reef/barrel_sponge.glb` | Giant barrel sponge (*Xestospongia testudinaria*) | [Sketchfab](https://sketchfab.com/3d-models/barrel-sponge-xestospongia-testudinaria-6e42a8bd6a5245a3a3fe6a1248045e4d) | jordanmakesmaps | CC BY 4.0 |
+| `reef/tube_sponge.glb` | Yellow tube sponge | [Sketchfab](https://sketchfab.com/3d-models/yellow-tube-sea-sponge-820da7fd539549a0a6274048116eeeb3) | RISD Nature Lab | CC BY 4.0 |
+| `reef/tridacna.glb` | Boring clam (*Tridacna crocea*) | [Sketchfab](https://sketchfab.com/3d-models/cc0-boring-clam-tridacna-crocea-af688a0ed6044ab99d0ec20c57fd3b18) | ffish.asia / floraZia.com | CC0 |
+| `reef/pocillopora.glb` | Cauliflower coral (*Pocillopora damicornis*) | [Sketchfab](https://sketchfab.com/3d-models/pocillopora-damicornis-caespitosa-662c5b9144334e678b871f1960c03392) | Smithsonian Institution | CC0 |
+
+The CC BY files were modified: decimated, re-oriented, rescaled, and textures downsized.

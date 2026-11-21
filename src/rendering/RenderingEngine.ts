@@ -14,6 +14,7 @@ import { FoamSystem } from './FoamSystem';
 import { SprayParticles } from './SprayParticles';
 import { HDRIEnvironment } from './HDRIEnvironment';
 import { ExtraOceanLife } from './ExtraOceanLife';
+import { ReefProps } from './ReefProps';
 import { HuntVisualEvents } from '../systems/HuntVisualEvents';
 
 // Debug flag - set to true for development debugging
@@ -49,6 +50,8 @@ export class RenderingEngine {
   private hdriEnvironment?: HDRIEnvironment;
   private creatureBubbles?: CreatureBubbleTrails;
   private extraOceanLife?: ExtraOceanLife;
+  private reefProps?: ReefProps;
+  private disposed = false;
   private elapsedTime: number = 0;
   private _viewDir = new THREE.Vector3();
   private _dofFocus = 16;
@@ -107,7 +110,16 @@ export class RenderingEngine {
     }
 
     // Coral first so kelp/anemones can nestle against reef patches
-    this.coralReef = CoralFormations.createCoralReef(this.scene, -30, 100);
+    this.coralReef = CoralFormations.createCoralReef(this.scene);
+
+    // Scanned corals and sponges on the same reef patches. Loads in the background and
+    // never blocks startup; a missing file just leaves the procedural reef.
+    ReefProps.load(this.scene, -30)
+      .then((props) => {
+        if (this.disposed) props.dispose();
+        else this.reefProps = props;
+      })
+      .catch((err) => console.warn('[reef-props] load failed', err));
 
     // Kelp forests (GPU sway) near origin + reef edges
     this.kelpForest = new KelpForest(this.scene, -30, 75);
@@ -659,6 +671,7 @@ export class RenderingEngine {
   }
 
   public dispose(): void {
+    this.disposed = true;
     // Remove event listener using stored bound reference
     window.removeEventListener('resize', this.boundOnWindowResize);
 
@@ -670,6 +683,7 @@ export class RenderingEngine {
     if (this.kelpForest && 'dispose' in this.kelpForest) (this.kelpForest as { dispose: () => void }).dispose();
     if (this.anemones) this.anemones.dispose();
     if (this.extraOceanLife) this.extraOceanLife.dispose();
+    this.reefProps?.dispose();
     if (this.foamSystem && 'dispose' in this.foamSystem) (this.foamSystem as { dispose: () => void }).dispose();
     if (this.sprayParticles) this.sprayParticles.dispose();
     if (this.hdriEnvironment && 'dispose' in this.hdriEnvironment) (this.hdriEnvironment as { dispose: () => void }).dispose();
