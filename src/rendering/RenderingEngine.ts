@@ -374,6 +374,7 @@ export class RenderingEngine {
       const sunAngle = Math.sin(timeOfDay * Math.PI); // 0 at night, 1 at noon
       this._sunStrength = Math.max(0, sunAngle);
       this.postProcessing.water.setSun(sunDir, this._sunStrength);
+      this.fftOcean?.setDaylight(this._sunStrength);
       // Image-based light is the water column's own glow, so it fades with the sun;
       // at full strength it lit every fish like open air and kept the night bright.
       this.scene.environmentIntensity = 0.08 + 0.5 * this._sunStrength;

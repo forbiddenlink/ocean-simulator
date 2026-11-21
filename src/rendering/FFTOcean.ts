@@ -133,6 +133,8 @@ export class FFTOcean {
 
         envMap: { value: null },
         envMapIntensity: { value: 1.15 },
+        // 1 = noon, 0 = night. Scales the light that reaches the underside from the sky.
+        daylight: { value: 1 },
 
         oceanSize: { value: this.size },
         choppiness: { value: this.choppiness },
@@ -239,6 +241,7 @@ export class FFTOcean {
       uniform float fresnelPower;
       uniform float time;
       uniform float envMapIntensity;
+      uniform float daylight;
       uniform sampler2D heightMap;
       uniform sampler2D displacementMap;
       uniform float choppiness;
@@ -369,6 +372,10 @@ export class FFTOcean {
           float fogF = exp(-dist * 0.0018);
           vec3 underwaterFog = vec3(0.035, 0.09, 0.16);
           belowColor = mix(underwaterFog, belowColor, fogF);
+          // Every term above is skylight through or reflected under the surface, so it
+          // fades with the sun like the water column below it. The floor stands in for
+          // moonlight.
+          belowColor *= mix(0.03, 1.0, daylight);
 
           gl_FragColor = vec4(belowColor, 0.96);
           return;
@@ -472,6 +479,11 @@ export class FFTOcean {
 
   public getOceanSize(): number {
     return this.size;
+  }
+
+  /** Sun strength, 1 = noon and 0 = night. Dims the underside seen from below. */
+  public setDaylight(strength: number): void {
+    this.material.uniforms.daylight.value = THREE.MathUtils.clamp(strength, 0, 1);
   }
 
   public setEnvMapIntensity(intensity: number): void {
