@@ -83,3 +83,19 @@ appear only when their scan loads.
 The CC BY files were modified: decimated, re-oriented, rescaled, and textures downsized.
 A lobster scan was tried and dropped: it was fused to its display tray and could not be
 separated cleanly, so lobsters stay procedural.
+
+# School fish
+
+Scanned reef fish in `fish/` replace the four procedural body types of the instanced
+schools (`SCHOOL_FISH_MODEL_PATHS`, swapped in by `BatchedMeshPool.setSchoolFishModels`).
+Each scan keeps its photo texture; the per-fish colour (panic flash, night glow) only tints
+it. A vertex-shader wave drives the swim from the same per-instance phase and speed as the
+procedural bodies. Prepared like the creature models, at about 3.5k to 4.5k triangles and
+512 px textures, since a school draws hundreds of each.
+
+| File | Body type | Species | Source | Author | License |
+|------|-----------|---------|--------|--------|---------|
+| `fish/parrotfish.glb` | standard | Knobsnout parrotfish (*Scarus ovifrons*) | [Sketchfab](https://sketchfab.com/3d-models/cc0-knobsnout-parrotfish-s-ovifrons-dac672386dd741af8485fcab811b9db4) | ffish.asia / floraZia.com | CC0 |
+| `fish/wrasse.glb` | slender | Snooty wrasse (*Bodianus oxycephalus*) | [Sketchfab](https://sketchfab.com/3d-models/cc0-snooty-wrasse-bodianus-oxycephalus-a1fa2be4f363454baadf35fafa403e6b) | ffish.asia / floraZia.com | CC0 |
+| `fish/angelfish.glb` | disc | Blue-striped angelfish | [Sketchfab](https://sketchfab.com/3d-models/cc0-blue-striped-angelfish-a5c0bb6877184e698c1992e5ce1a69d0) | ffish.asia / floraZia.com | CC0 |
+| `fish/grouper.glb` | chunky | Neptune grouper (*Cephalopholis igarashiensis*) | [Sketchfab](https://sketchfab.com/3d-models/cc0-neptune-grouper-c-igarashiensis-777d773273f343c6b11e647474fb1c0e) | ffish.asia / floraZia.com | CC0 |

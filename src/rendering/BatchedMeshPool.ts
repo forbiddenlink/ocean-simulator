@@ -15,6 +15,7 @@ import { WhaleGeometry } from '../creatures/WhaleGeometry';
 import { applyBiomechanicalAnimationToMesh } from '../systems/BiomechanicalAnimationSystem';
 import { TargetMemory } from '../systems/HuntingSystem';
 import type { CreatureModel, SwimStyle } from '../creatures/CreatureModelLoader';
+import { schoolFishBody } from '../creatures/SchoolFishModel';
 
 // Debug flag - set to true for development debugging
 const DEBUG = false;
@@ -138,6 +139,32 @@ export class BatchedMeshPool {
       const key = MODEL_KEY_BY_TYPE[CreatureType.type[eid]];
       if (key && models.has(key)) this.releaseIndividualMesh(eid);
     }
+  }
+
+  /**
+   * Swap procedural school-fish bodies for scanned reef fish, keyed by body type name
+   * (BODY_TYPE_NAMES). Each scan replaces its type's geometry and material in place, so
+   * existing instances keep their slots, matrices, colours and swim phases. Types without
+   * a scan stay procedural.
+   */
+  public setSchoolFishModels(templates: Map<string, THREE.Group>): void {
+    BODY_TYPE_NAMES.forEach((name, i) => {
+      const template = templates.get(name);
+      const mesh = this.fishInstancedMeshes[i];
+      const body = template && mesh ? schoolFishBody(template) : null;
+      if (!body) return;
+      body.geometry.setAttribute('animPhase', this.animPhaseAttributes[i]);
+      body.geometry.setAttribute('animSpeed', this.animSpeedAttributes[i]);
+      const procedural = mesh.material as THREE.Material;
+      mesh.geometry.dispose();
+      procedural.dispose();
+      this.fishGeometries[i] = body.geometry;
+      this.fishMaterials.splice(this.fishMaterials.indexOf(procedural), 1, ...body.materials);
+      mesh.geometry = body.geometry;
+      mesh.material = body.materials;
+      mesh.boundingSphere = null;
+      mesh.boundingBox = null;
+    });
   }
 
   /** Remove a creature's mesh from the scene and free GPU resources it owns alone. */
@@ -1425,6 +1452,8 @@ uniform float uCausticTime;`
       geometry.dispose();
     }
     for (const material of this.fishMaterials) {
+      // School scans own their photo texture; procedural fish have none.
+      (material as THREE.MeshStandardMaterial).map?.dispose();
       material.dispose();
     }
 

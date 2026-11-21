@@ -1,7 +1,11 @@
 import './style.css';
 import posthog from 'posthog-js';
 import { OceanSimulator } from './OceanSimulator';
-import { CreatureModelLoader, CREATURE_MODEL_PATHS } from './creatures/CreatureModelLoader';
+import {
+  CreatureModelLoader,
+  CREATURE_MODEL_PATHS,
+  SCHOOL_FISH_MODEL_PATHS,
+} from './creatures/CreatureModelLoader';
 
 // Initialize PostHog
 if (import.meta.env.VITE_POSTHOG_KEY) {
@@ -36,6 +40,13 @@ try {
     })
     .catch(() => {
       /* fully procedural fallback */
+    });
+  CreatureModelLoader.loadTemplates(SCHOOL_FISH_MODEL_PATHS)
+    .then((templates) => {
+      if (templates.size > 0) simulator.setSchoolFishModels(templates);
+    })
+    .catch(() => {
+      /* procedural school fish */
     });
 
   // Fade the loading/title card once the scene has painted a couple of frames.

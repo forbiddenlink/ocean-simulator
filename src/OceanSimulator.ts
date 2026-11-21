@@ -175,6 +175,11 @@ export class OceanSimulator {
     this.meshPool.setCreatureModels(models);
   }
 
+  /** Swap school-fish body types for loaded scan templates (see BatchedMeshPool). */
+  public setSchoolFishModels(templates: Map<string, THREE.Group>): void {
+    this.meshPool.setSchoolFishModels(templates);
+  }
+
   /** Cycle the look: Cinematic Deep -> Bioluminescent -> Clean Tropical -> ... Returns the new preset. */
   public toggleLookPreset(): LookPresetName {
     const order: LookPresetName[] = ['inky-cinematic', 'bioluminescent', 'tropical-clear'];

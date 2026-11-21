@@ -147,3 +147,15 @@ export const CREATURE_MODEL_PATHS: Record<string, CreatureModelEntry> = {
   turtle: { url: '/models/turtle.glb', length: 1.15, swim: 'paddle' },
   whale: { url: '/models/whale.glb', length: 5.0, swim: 'vertical' },
 };
+
+/**
+ * Scanned reef fish for the instanced school body types, keyed by body type name in
+ * BatchedMeshPool. Each file replaces that type's procedural body; a missing one leaves it
+ * procedural. Same model-space convention as above.
+ */
+export const SCHOOL_FISH_MODEL_PATHS: Record<string, string> = {
+  standard: '/models/fish/parrotfish.glb',
+  slender: '/models/fish/wrasse.glb',
+  disc: '/models/fish/angelfish.glb',
+  chunky: '/models/fish/grouper.glb',
+};
