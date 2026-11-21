@@ -275,12 +275,14 @@ uniform float uCausticTime;
         `#include <normal_fragment_maps>
 {
   if (vFinType < 3.5) {
-    vec2 scN = vLocalPosition.xz * vec2(38.0, 54.0);
+    // Scales tile the flank, which spans local x (length) and y (height). Using z here
+    // stretched every scale into a long line across the body.
+    vec2 scN = vLocalPosition.xy * vec2(46.0, 52.0);
     scN.x += step(0.5, fract(scN.y * 0.5)) * 0.5;
     vec2 sfN = abs(fract(scN) - 0.5);
-    float scaleH = 1.0 - smoothstep(0.12, 0.42, max(sfN.x * 1.2, sfN.y));
-    // Soft secondary micro-ridges between scales
-    scaleH += 0.25 * (1.0 - smoothstep(0.28, 0.45, max(sfN.x, sfN.y)));
+    // Fade out once a scale is under ~2 px, where it would only alias into moire.
+    float scaleVis = 1.0 - smoothstep(0.25, 0.5, max(fwidth(scN.x), fwidth(scN.y)));
+    float scaleH = (1.0 - smoothstep(0.12, 0.42, max(sfN.x * 1.2, sfN.y))) * scaleVis;
     if (vFinType > 0.5) {
       // Fin rays: longitudinal height ridges
       float ray = abs(sin(vLocalPosition.y * 48.0 + vLocalPosition.x * 6.0));
@@ -296,7 +298,7 @@ uniform float uCausticTime;
     float det = dot(dp1, r1);
     float invDet = (abs(det) > 1e-8) ? (1.0 / det) : 0.0;
     vec3 surfGrad = (r1 * hx + r2 * hy) * invDet;
-    float bumpAmt = (vFinType > 0.5 && vFinType < 3.5) ? 0.55 : 0.85;
+    float bumpAmt = (vFinType > 0.5 && vFinType < 3.5) ? 0.4 : 0.3;
     normal = normalize(nRef - surfGrad * bumpAmt);
   }
 }
@@ -428,22 +430,29 @@ if (patternType < 1.0) {
 patterned = mix(patterned, vec3(dot(patterned, vec3(0.299, 0.587, 0.114))), 0.06);
 patterned *= vec3(0.88, 0.97, 1.05);
 
-// Apply soft countershade on every fish
-patterned = mix(patterned * 0.82, patterned * 1.18, belly);
-
-// Scale lattice + lateral line — denser + higher contrast so bump + clearcoat read at distance
+// Countershading on every fish: a dark, slightly green back that vanishes against the
+// deep water seen from above, and a pale silvery belly that vanishes against the bright
+// surface seen from below. This is the strongest "real fish" cue at schooling distance.
 {
-  vec2 sc = vLocalPosition.xz * vec2(38.0, 54.0);
+  vec3 back = patterned * vec3(0.38, 0.46, 0.44);
+  vec3 flank = patterned;
+  vec3 silver = mix(patterned, vec3(0.86, 0.9, 0.92), 0.55);
+  float up = smoothstep(-0.02, 0.16, vLocalPosition.y);
+  patterned = mix(flank, back, up);
+  patterned = mix(patterned, silver, belly * 0.8);
+}
+
+// Scale lattice + lateral line: subtle, and only where a scale is big enough on screen.
+{
+  vec2 sc = vLocalPosition.xy * vec2(46.0, 52.0);
   sc.x += step(0.5, fract(sc.y * 0.5)) * 0.5;
   vec2 sf = abs(fract(sc) - 0.5);
+  float vis = 1.0 - smoothstep(0.25, 0.5, max(fwidth(sc.x), fwidth(sc.y)));
   float cell = 1.0 - smoothstep(0.12, 0.38, max(sf.x * 1.2, sf.y));
-  patterned *= mix(0.72, 1.22, cell);
-  float ridge = smoothstep(0.28, 0.4, max(sf.x, sf.y));
-  patterned += vec3(0.1, 0.15, 0.18) * ridge * 0.7;
-  // Mid-body lateral line with pore dashes
-  float lat = 1.0 - smoothstep(0.01, 0.04, abs(vLocalPosition.y));
-  float pores = step(0.55, fract(vLocalPosition.x * 28.0));
-  patterned *= mix(1.0, 0.52, lat * mix(0.55, 0.95, pores));
+  patterned *= mix(1.0, mix(0.9, 1.05, cell), vis);
+  // Mid-body lateral line
+  float lat = 1.0 - smoothstep(0.008, 0.025, abs(vLocalPosition.y - 0.02));
+  patterned *= mix(1.0, 0.8, lat * vis);
 }
 
 // Fin membrane: ray striping + cooler tint
