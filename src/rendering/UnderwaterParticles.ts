@@ -138,6 +138,8 @@ export class UnderwaterParticles {
           caus = smoothstep(0.25, 0.95, caus * 0.5 + 0.5);
           float sunLit = max(0.0, sunDirection.y);
           vAlpha *= 0.75 + 0.55 * caus * dayFactor * sunLit;
+          // Snow only shows by the daylight it scatters; at night it all but disappears.
+          vAlpha *= mix(0.08, 1.0, dayFactor);
 
           float perspectiveScale = 350.0 / max(-mvPosition.z, 1.0);
           gl_PointSize = scale * 6.5 * perspectiveScale * (1.0 + caus * 0.35 * dayFactor);

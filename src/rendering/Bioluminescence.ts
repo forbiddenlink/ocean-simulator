@@ -136,17 +136,21 @@ export class BioluminescenceSystem {
           pos.z += cos(time * speed * 0.35 + phase) * 0.3;
           pos.y += sin(time * speed * 0.15) * 0.15;
           
-          // Pulsing effect
-          vPulse = 0.5 + 0.5 * sin(time * 0.8 + phase);
-          vPulse = pow(vPulse, 2.0); // More pronounced pulse
+          // Plankton glow in brief sparks, not a steady light: each particle stays dark
+          // for most of its 3 to 9 second cycle, flashes in a few hundredths of a second,
+          // and fades over about a second.
+          float period = 3.0 + speed * 15.0;
+          float cycle = fract(time / period + phase * 0.159);
+          vPulse = smoothstep(0.0, 0.015, cycle) * exp(-cycle * 14.0);
           
           // Distance fade
           float dist = length(pos - cameraPosition);
           vDistanceFade = 1.0 - smoothstep(35.0, 75.0, dist);
           
           vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-          // Capped so a particle drifting past the lens stays a speck, not a screen-sized disc.
-          gl_PointSize = min(size * (480.0 / -mvPosition.z) * (0.55 + vPulse * 0.55), 24.0);
+          // A spark is a point of light with a small halo. Capped so a particle drifting past
+          // the lens stays a speck, not a disc.
+          gl_PointSize = clamp(size * (200.0 / -mvPosition.z) * (0.6 + vPulse * 0.6), 1.5, 9.0);
           gl_Position = projectionMatrix * mvPosition;
         }
       `,
@@ -164,12 +168,12 @@ export class BioluminescenceSystem {
 
           if (dist > 0.5) discard;
 
-          // Soft glow
+          // Bright core, thin halo.
           float alpha = 1.0 - smoothstep(0.0, 0.5, dist);
-          alpha = pow(alpha, 1.5);
+          alpha = pow(alpha, 3.0);
 
-          // Apply pulse
-          alpha *= (0.4 + vPulse * 0.6);
+          // A faint ember between flashes, so the water is not empty between sparks.
+          alpha *= 0.06 + vPulse;
 
           // Apply distance fade
           alpha *= vDistanceFade;
@@ -178,7 +182,7 @@ export class BioluminescenceSystem {
           alpha *= intensity;
 
           // Brighten the color
-          vec3 glowColor = vColor * (1.75 + vPulse * 0.55) * intensity;
+          vec3 glowColor = vColor * (1.0 + vPulse * 1.5) * intensity;
 
           gl_FragColor = vec4(glowColor, alpha);
         }
