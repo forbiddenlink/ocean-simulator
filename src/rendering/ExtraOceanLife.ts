@@ -9,7 +9,8 @@ import { CoralFormations } from './CoralFormations';
  */
 export class ExtraOceanLife {
   public group: THREE.Group;
-  private animatedMaterials: THREE.ShaderMaterial[] = [];
+  /** Time uniforms of every animated material, advanced once per frame. */
+  private animatedMaterials: Array<{ time: { value: number } }> = [];
 
   constructor(scene: THREE.Scene, floorDepth: number) {
     this.group = new THREE.Group();
@@ -115,8 +116,8 @@ export class ExtraOceanLife {
   }
 
   update(deltaTime: number, elapsed: number): void {
-    for (const mat of this.animatedMaterials) {
-      mat.uniforms.time.value = elapsed;
+    for (const uniforms of this.animatedMaterials) {
+      uniforms.time.value = elapsed;
     }
     // Subtle bobbing of seahorses
     for (const child of this.group.children) {
@@ -234,56 +235,49 @@ export class ExtraOceanLife {
     }
   }
 
-  private makeWaveMaterial(color: THREE.Color, amplitude: number, freq: number): THREE.ShaderMaterial {
-    const mat = new THREE.ShaderMaterial({
-      uniforms: {
-        time: { value: 0 },
-        baseColor: { value: color },
-        amplitude: { value: amplitude },
-        freq: { value: freq },
-      },
-      vertexShader: /* glsl */ `
-        uniform float time;
-        uniform float amplitude;
-        uniform float freq;
-        varying vec3 vNormal;
-        varying vec3 vWorldPos;
-        varying float vY;
-        void main() {
-          vec3 p = position;
-          float wave = sin(p.y * freq + time * 1.6) * amplitude * smoothstep(0.0, 1.5, abs(p.y));
-          p.x += wave * 0.5;
-          p.z += wave * 0.4;
-          vNormal = normalize(normalMatrix * normal);
-          vWorldPos = (modelMatrix * vec4(p, 1.0)).xyz;
-          vY = p.y;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-        }
-      `,
-      fragmentShader: /* glsl */ `
-        uniform vec3 baseColor;
-        varying vec3 vNormal;
-        varying vec3 vWorldPos;
-        varying float vY;
-        void main() {
-          vec3 light = normalize(vec3(0.25, 1.0, 0.35));
-          float d = max(dot(vNormal, light), 0.0);
-          float rim = pow(1.0 - max(dot(vNormal, vec3(0.0, 0.0, 1.0)), 0.0), 2.4);
-          // Mantle mottling
-          float mott = sin(vWorldPos.x * 4.2) * sin(vWorldPos.z * 3.6 + vY * 2.0);
-          mott = smoothstep(-0.2, 0.55, mott);
-          vec3 col = baseColor * (0.38 + 0.78 * d);
-          col = mix(col * 0.78, col * 1.18, mott);
-          col += vec3(0.12, 0.28, 0.36) * rim * 0.55;
-          col += vec3(0.08) * smoothstep(0.0, 1.5, vY);
-          // Wet specular kick
-          float spec = pow(max(dot(reflect(-light, vNormal), vec3(0.0, 0.2, 1.0)), 0.0), 48.0);
-          col += vec3(0.55, 0.72, 0.85) * spec * 0.45;
-          gl_FragColor = vec4(col, 1.0);
-        }
-      `,
-    });
-    this.animatedMaterials.push(mat);
+  /**
+   * Skin for the soft-bodied species (octopus, squid, cuttlefish, eels, anglerfish): a lit
+   * physical material, so it takes the sun, caustics, depth colour and night like the rest
+   * of the scene, with a sway that grows away from the body's base along local Y.
+   */
+  private makeWaveMaterial(color: THREE.Color, amplitude: number, freq: number): THREE.MeshStandardMaterial {
+    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0 });
+    const uniforms = {
+      time: { value: 0 },
+      amplitude: { value: amplitude },
+      freq: { value: freq },
+    };
+    mat.userData.swayUniforms = uniforms;
+    mat.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, uniforms);
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          uniform float time;
+          uniform float amplitude;
+          uniform float freq;
+          varying float vMottle;`
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          float sway = sin(transformed.y * freq + time * 1.6) * amplitude * smoothstep(0.0, 1.5, abs(transformed.y));
+          transformed.x += sway * 0.5;
+          transformed.z += sway * 0.4;
+          // Mantle mottling, fixed to the body so it moves with the skin.
+          vMottle = smoothstep(-0.2, 0.55, sin(position.x * 4.2) * sin(position.z * 3.6 + position.y * 2.0));`
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\n          varying float vMottle;')
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+          diffuseColor.rgb *= mix(0.8, 1.15, vMottle);`
+        );
+    };
+    mat.customProgramCacheKey = () => 'extraOceanLife-sway';
+    this.animatedMaterials.push(uniforms);
     return mat;
   }
 
@@ -467,7 +461,7 @@ export class ExtraOceanLife {
           }
         `,
       });
-      this.animatedMaterials.push(rowMat);
+      this.animatedMaterials.push(rowMat.uniforms as { time: { value: number } });
 
       for (let r = 0; r < 8; r++) {
         const ang = (r / 8) * Math.PI * 2;

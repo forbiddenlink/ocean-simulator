@@ -48,6 +48,36 @@ describe('ExtraOceanLife', () => {
     expect(() => life.update(0.016, 1.5)).not.toThrow();
   });
 
+  it('lights opaque bodies with the scene lights instead of a fixed fake light', () => {
+    // Only the comb-jelly glow rows may use a custom shader: they are emissive light, not skin.
+    const unlit: string[] = [];
+    life.group.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) {
+        if ((m as THREE.ShaderMaterial).isShaderMaterial && !m.transparent) {
+          unlit.push(String(o.parent?.userData.kind ?? o.userData.kind));
+        }
+      }
+    });
+    expect(unlit).toEqual([]);
+  });
+
+  it('drives the body sway from elapsed time', () => {
+    life.update(0.016, 7.25);
+    let swaying = 0;
+    life.group.traverse((o) => {
+      const mat = (o as THREE.Mesh).material as THREE.Material | undefined;
+      const time = mat?.userData?.swayUniforms?.time;
+      if (time) {
+        expect(time.value).toBe(7.25);
+        swaying++;
+      }
+    });
+    expect(swaying).toBeGreaterThan(0);
+  });
+
   it('builds every creature from real mesh geometry', () => {
     let meshes = 0;
     life.group.traverse((o) => {
