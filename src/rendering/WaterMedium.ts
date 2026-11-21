@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BlendFunction, Effect, EffectAttribute } from 'postprocessing';
+import { BlendFunction, BloomEffect, Effect, EffectAttribute } from 'postprocessing';
 
 /**
  * One physical model of the water, used by every pass that needs it.
@@ -100,22 +100,61 @@ export const SKY_DEPTH = 0.9999999;
  */
 export const SURFACE_Y = 0;
 
-const waterMediumShader = /* glsl */ `
+/**
+ * View ray and surface attenuation, shared by every shader that needs to see the scene
+ * through the water. Expects the uniforms declared here to share values with the water
+ * medium effect.
+ */
+const waterRayChunk = /* glsl */ `
   uniform mat4 uInvProjection;
   uniform mat4 uCameraWorld;
   uniform vec3 uCameraPos;
-  uniform vec3 uSunDir;
-  uniform float uSunStrength;
   uniform vec3 uExtinction;
   uniform vec3 uDownwelling;
-  uniform vec3 uMediumColor;
-  uniform vec3 uShaftColor;
   uniform float uDensity;
-  uniform float uShaftStrength;
   uniform float uExposure;
-  uniform float uTime;
 
   const float SKY_DISTANCE = 600.0;
+
+  struct WaterRay {
+    vec3 worldPos;
+    vec3 rd;
+    float dist;
+    bool isSky;
+  };
+
+  WaterRay waterRay(vec2 uv, float depth) {
+    WaterRay r;
+    r.isSky = depth >= ${SKY_DEPTH.toFixed(7)};
+    vec4 ndc = vec4(uv * 2.0 - 1.0, (r.isSky ? 1.0 : depth) * 2.0 - 1.0, 1.0);
+    vec4 viewPos = uInvProjection * ndc;
+    viewPos /= viewPos.w;
+    r.worldPos = (uCameraWorld * vec4(viewPos.xyz, 1.0)).xyz;
+    vec3 toP = r.worldPos - uCameraPos;
+    r.dist = r.isSky ? SKY_DISTANCE : length(toP);
+    r.rd = normalize(toP);
+    return r;
+  }
+
+  // Light from the surface behind the pixel as the camera sees it: sunlight lost on the
+  // way down to the surface, then light lost along the view ray. Open water has no
+  // surface behind the ray; additive sprites (marine snow, bubbles) drawn over the black
+  // background stay unfogged.
+  vec3 waterSurfaceLight(vec3 color, WaterRay r) {
+    if (r.isSky) return color;
+    vec3 sigma = uExtinction * uDensity;
+    return color * exp(-uDownwelling * max(-r.worldPos.y, 0.0)) * exp(-sigma * r.dist);
+  }
+`;
+
+const waterMediumShader = /* glsl */ `
+  ${waterRayChunk}
+  uniform vec3 uSunDir;
+  uniform float uSunStrength;
+  uniform vec3 uMediumColor;
+  uniform vec3 uShaftColor;
+  uniform float uShaftStrength;
+  uniform float uTime;
   const int SHAFT_STEPS = 22;
   const float SHAFT_RANGE = 55.0;
   // Share of the sunlight the surface redistributes into shafts (1 = gaps fully dark).
@@ -144,16 +183,10 @@ const waterMediumShader = /* glsl */ `
   }
 
   void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
-    bool isSky = depth >= ${SKY_DEPTH.toFixed(7)};
-    vec4 ndc = vec4(uv * 2.0 - 1.0, (isSky ? 1.0 : depth) * 2.0 - 1.0, 1.0);
-    vec4 viewPos = uInvProjection * ndc;
-    viewPos /= viewPos.w;
-    vec3 worldPos = (uCameraWorld * vec4(viewPos.xyz, 1.0)).xyz;
-
+    WaterRay ray = waterRay(uv, depth);
     vec3 ro = uCameraPos;
-    vec3 toP = worldPos - ro;
-    float dist = isSky ? SKY_DISTANCE : length(toP);
-    vec3 rd = normalize(toP);
+    float dist = ray.dist;
+    vec3 rd = ray.rd;
 
     vec3 sigma = uExtinction * uDensity;
     vec3 kd = uDownwelling;
@@ -165,15 +198,8 @@ const waterMediumShader = /* glsl */ `
       return;
     }
 
-    // 1. Sunlight that actually reached the surface we are looking at.
-    vec3 surface = inputColor.rgb;
-    if (!isSky) {
-      float pDepth = max(-worldPos.y, 0.0);
-      surface *= exp(-kd * pDepth);
-    }
-
-    // 2. Extinction along the view ray.
-    vec3 transmittance = exp(-sigma * dist);
+    // 1-2. Sunlight that reached the surface we are looking at, seen through the water.
+    vec3 surface = waterSurfaceLight(inputColor.rgb, ray);
 
     // 3. Single-scattered sunlight along the ray, closed form. Light at ray point t is
     //    exp(-kd * depth(t)); depth changes linearly with t, so the integral is analytic.
@@ -220,14 +246,7 @@ const waterMediumShader = /* glsl */ `
       shafts = uMediumColor * uShaftColor * sigma * acc * shaftPhase * uShaftStrength * uSunStrength;
     }
 
-    vec3 color;
-    if (isSky) {
-      // Open water: no surface behind the ray. Keep additive sprites (marine snow,
-      // bubbles) that were drawn over the black background.
-      color = inscatter + shafts + inputColor.rgb;
-    } else {
-      color = surface * transmittance + inscatter + shafts;
-    }
+    vec3 color = surface + inscatter + shafts;
     // Dark streaks between shafts subtract light; never below black.
     color = max(color, vec3(0.0));
 
@@ -302,5 +321,77 @@ export class WaterMediumEffect extends Effect {
 
   setExposure(exposure: number): void {
     this.u<number>('uExposure').value = exposure;
+  }
+}
+
+/** Water uniforms the bloom extraction reads; shared objects, so values stay in step. */
+const BLOOM_WATER_UNIFORMS = [
+  'uInvProjection',
+  'uCameraWorld',
+  'uCameraPos',
+  'uExtinction',
+  'uDownwelling',
+  'uDensity',
+  'uExposure',
+] as const;
+
+/** Where the library's luminance shader reads the pixel it extracts highlights from. */
+const LUMINANCE_TEXEL = 'vec4 texel=texture2D(inputBuffer,vUv);';
+
+const bloomSourceChunk = /* glsl */ `
+  #include <packing>
+  uniform highp sampler2D depthBuffer;
+  ${waterRayChunk}
+
+  float waterReadDepth(vec2 uv) {
+    #if DEPTH_PACKING == 3201
+      return unpackRGBAToDepth(texture2D(depthBuffer, uv));
+    #else
+      return texture2D(depthBuffer, uv).r;
+    #endif
+  }
+
+  // The pixel as the water medium shows it, before in-scatter and shafts are added.
+  vec3 waterBloomSource(vec3 color, vec2 uv) {
+    if (uCameraPos.y > ${SURFACE_Y.toFixed(1)}) return color * uExposure;
+    return waterSurfaceLight(color, waterRay(uv, waterReadDepth(uv))) * uExposure;
+  }
+`;
+
+/**
+ * Bloom that extracts its highlights from the scene as the water shows it.
+ *
+ * Bloom extracts highlights from its pass input, which is the scene before the water
+ * medium runs, so a bright surface the water hides still left a halo. Running the water
+ * in its own earlier pass fixes that but costs a full-screen pass (on an M4 Pro at
+ * 1512x900, 0% late frames at a 0.85 render scale became about 12% late at 0.5). Instead
+ * the extraction applies the same surface attenuation as the water, in the pass it
+ * already runs. In-scatter and shafts are left out: they are dim and costly.
+ */
+export class UnderwaterBloomEffect extends BloomEffect {
+  constructor(water: WaterMediumEffect, options: ConstructorParameters<typeof BloomEffect>[0]) {
+    super(options);
+    const material = this.luminanceMaterial;
+    if (!material.fragmentShader.includes(LUMINANCE_TEXEL)) {
+      throw new Error('UnderwaterBloomEffect: luminance shader changed; update LUMINANCE_TEXEL');
+    }
+    material.fragmentShader = material.fragmentShader
+      .replace('varying vec2 vUv;', `varying vec2 vUv;\n${bloomSourceChunk}\n`)
+      .replace(LUMINANCE_TEXEL, `${LUMINANCE_TEXEL}texel.rgb=waterBloomSource(texel.rgb,vUv);`);
+    material.uniforms.depthBuffer = new THREE.Uniform<THREE.Texture | null>(null);
+    for (const name of BLOOM_WATER_UNIFORMS) {
+      material.uniforms[name] = water.uniforms.get(name) as THREE.Uniform;
+    }
+    material.defines.DEPTH_PACKING = String(THREE.BasicDepthPacking);
+  }
+
+  override setDepthTexture(
+    depthTexture: THREE.Texture,
+    depthPacking: THREE.DepthPackingStrategies = THREE.BasicDepthPacking,
+  ): void {
+    const material = this.luminanceMaterial;
+    material.uniforms.depthBuffer.value = depthTexture;
+    material.defines.DEPTH_PACKING = String(depthPacking);
+    material.needsUpdate = true;
   }
 }
