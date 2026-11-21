@@ -40,8 +40,9 @@ export class PostProcessingPipeline {
     camera: THREE.Camera
   ) {
     this.composer = new EffectComposer(renderer, {
-      // 8-bit: a HalfFloat buffer rendered solid black here (cause not yet found).
-      frameBufferType: THREE.UnsignedByteType,
+      // HalfFloat keeps headroom above 1.0 until tone mapping and avoids banding in the
+      // dark blue gradients of deep water.
+      frameBufferType: THREE.HalfFloatType,
     });
 
     const renderPass = new RenderPass(scene, camera);
