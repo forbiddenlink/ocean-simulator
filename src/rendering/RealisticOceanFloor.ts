@@ -51,6 +51,95 @@ const PINNACLES: ReadonlyArray<{ x: number; z: number; h: number; r: number }> =
   { x: -18, z: 34, h: 5, r: 5 },
 ];
 
+const BOULDER_NOISE = `
+varying vec3 vRockPos;
+varying vec3 vRockWorldNormal;
+
+float rockHash(vec3 p) {
+  p = fract(p * 0.3183099 + 0.1);
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+
+float rockNoise(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(mix(rockHash(i), rockHash(i + vec3(1, 0, 0)), f.x),
+        mix(rockHash(i + vec3(0, 1, 0)), rockHash(i + vec3(1, 1, 0)), f.x), f.y),
+    mix(mix(rockHash(i + vec3(0, 0, 1)), rockHash(i + vec3(1, 0, 1)), f.x),
+        mix(rockHash(i + vec3(0, 1, 1)), rockHash(i + vec3(1, 1, 1)), f.x), f.y),
+    f.z);
+}
+
+float rockFbm(vec3 p) {
+  float v = 0.0;
+  float a = 0.5;
+  for (int i = 0; i < 4; i++) {
+    v += a * rockNoise(p);
+    p = p * 2.07 + 13.1;
+    a *= 0.5;
+  }
+  return v;
+}
+`
+
+/**
+ * Stone surface for the scattered boulders, matching the rock on the floor itself:
+ * mottled and pitted stone, algae on the up-facing tops, sparse coralline crust, and
+ * a bumped normal so the light grazes the detail. Patterns are in object space, so
+ * each boulder keeps its own pattern as it is scaled and turned.
+ */
+function applyBoulderSurface(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  shader.vertexShader = shader.vertexShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+varying vec3 vRockPos;
+varying vec3 vRockWorldNormal;`
+    )
+    .replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+vRockPos = position;
+#ifdef USE_INSTANCING
+vRockWorldNormal = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * objectNormal);
+#else
+vRockWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
+#endif`
+    );
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>${BOULDER_NOISE}`)
+    .replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+float rockDetail = rockFbm(vRockPos * 2.4);
+float rockPits = smoothstep(0.6, 0.78, rockFbm(vRockPos * 7.0 + 5.0));
+diffuseColor.rgb *= mix(0.62, 1.3, rockDetail) * (1.0 - rockPits * 0.45);
+float rockAlgae = smoothstep(0.45, 0.85, vRockWorldNormal.y)
+  * smoothstep(0.38, 0.62, rockFbm(vRockPos * 1.4 + 9.0));
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.15, 0.2, 0.08), rockAlgae * 0.75);
+float rockCrust = smoothstep(0.66, 0.76, rockFbm(vRockPos * 0.9 + 21.0));
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.36, 0.2, 0.26), rockCrust * 0.55);`
+    )
+    .replace(
+      '#include <normal_fragment_maps>',
+      `#include <normal_fragment_maps>
+{
+  float rockH = rockFbm(vRockPos * 5.0) + rockPits * 0.35;
+  vec2 dH = vec2(dFdx(rockH), dFdy(rockH)) * 1.6;
+  vec3 sx = dFdx(-vViewPosition);
+  vec3 sy = dFdy(-vViewPosition);
+  vec3 r1 = cross(sy, normal);
+  vec3 r2 = cross(normal, sx);
+  float det = dot(sx, r1) * faceDirection;
+  vec3 rockGrad = sign(det) * (dH.x * r1 + dH.y * r2);
+  normal = normalize(abs(det) * normal - rockGrad);
+}`
+    );
+}
+
 /**
  * Seabed height above the -30 m floor datum, shared by the floor mesh and everything
  * placed on it (rocks, coral, kelp, critters). A sandy basin around the swim area,
@@ -321,6 +410,8 @@ export class RealisticOceanFloor {
       clearcoat: 0.08,
       clearcoatRoughness: 0.7,
     });
+    rockMaterial.onBeforeCompile = applyBoulderSurface;
+    rockMaterial.customProgramCacheKey = () => 'boulder-surface';
 
     const count = 180;
     const mesh = new THREE.InstancedMesh(rockGeometry, rockMaterial, count);
