@@ -97,3 +97,67 @@ describe('ExtraOceanLife', () => {
     expect(meshes).toBeGreaterThan(100);
   });
 });
+
+describe('ExtraOceanLife.applyModels', () => {
+  /** A stand-in scan: one box, unit length along X, centred like a loaded template. */
+  const template = () => {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(1, 0.3, 0.4), new THREE.MeshStandardMaterial()));
+    return g;
+  };
+  const localBox = (creature: THREE.Object3D, filter: (o: THREE.Object3D) => boolean) => {
+    creature.updateMatrixWorld(true);
+    const inv = creature.matrixWorld.clone().invert();
+    const box = new THREE.Box3();
+    creature.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || !filter(o)) return;
+      mesh.geometry.computeBoundingBox();
+      box.union(mesh.geometry.boundingBox!.clone().applyMatrix4(inv.clone().multiply(mesh.matrixWorld)));
+    });
+    return box;
+  };
+
+  it('swaps each loaded kind for its scan, fitted to the procedural body', () => {
+    const life = new ExtraOceanLife(new THREE.Scene(), -30);
+    const crab = life.group.children.find((c) => c.userData.kind === 'hermitcrab')!;
+    const before = localBox(crab, () => true);
+    const octopusCount = life.group.children.filter((c) => c.userData.kind === 'octopus').length;
+
+    life.applyModels(new Map([['hermitcrab', template()], ['octopus', template()]]));
+
+    const scan = crab.getObjectByName('hermitcrabScan');
+    expect(scan).toBeDefined();
+    // Only the scan is left: the procedural meshes are gone.
+    let meshes = 0;
+    crab.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes++; });
+    expect(meshes).toBe(1);
+    // Same footprint: longest side matches, and a floor dweller keeps its bottom on the sand.
+    const after = localBox(crab, () => true);
+    const size = (b: THREE.Box3) => b.getSize(new THREE.Vector3());
+    const longest = (v: THREE.Vector3) => Math.max(v.x, v.y, v.z);
+    expect(longest(size(after))).toBeCloseTo(longest(size(before)), 5);
+    expect(after.min.y).toBeCloseTo(before.min.y, 5);
+    expect(life.group.children.filter((c) => c.userData.kind === 'octopus').length).toBe(octopusCount);
+  });
+
+  it('leaves kinds without a model procedural', () => {
+    const life = new ExtraOceanLife(new THREE.Scene(), -30);
+    life.applyModels(new Map([['octopus', template()]]));
+    const squid = life.group.children.find((c) => c.userData.kind === 'squid')!;
+    expect(squid.getObjectByName('squidScan')).toBeUndefined();
+    let meshes = 0;
+    squid.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes++; });
+    expect(meshes).toBeGreaterThan(0);
+  });
+
+  it('adds cowfish only when their scan loads', () => {
+    const life = new ExtraOceanLife(new THREE.Scene(), -30);
+    const cowfish = () => life.group.children.filter((c) => c.userData.kind === 'cowfish');
+    expect(cowfish()).toHaveLength(0);
+    life.applyModels(new Map([['cowfish', template()]]));
+    expect(cowfish()).toHaveLength(8);
+    for (const c of cowfish()) expect(c.position.y).toBeGreaterThan(-30);
+    expect(() => life.update(0.016, 3)).not.toThrow();
+  });
+});

@@ -61,3 +61,25 @@ file is up +Y, base at y = 0, largest dimension 1. Many are dried museum skeleto
 | `reef/pocillopora.glb` | Cauliflower coral (*Pocillopora damicornis*) | [Sketchfab](https://sketchfab.com/3d-models/pocillopora-damicornis-caespitosa-662c5b9144334e678b871f1960c03392) | Smithsonian Institution | CC0 |
 
 The CC BY files were modified: decimated, re-oriented, rescaled, and textures downsized.
+
+# Critters
+
+Scanned bodies for the small ambient animals in `critters/`, swapped in by
+`ExtraOceanLife.applyModels`. Each scan is fitted to the procedural body it replaces
+(same longest side and centre; floor dwellers keep their underside on the sand), so
+position, size, and idle motion stay the same. A kind whose file fails to load stays
+procedural. `CRITTER_MODELS` maps kinds to files. Cowfish have no procedural body and
+appear only when their scan loads.
+
+| File | Replaces | Species | Source | Author | License |
+|------|----------|---------|--------|--------|---------|
+| `critters/octopus.glb` | octopus | Common octopus (*Octopus vulgaris*) | [Sketchfab](https://sketchfab.com/3d-models/cc0-common-octopus-octopus-vulgaris-db7cab212b95485d8257deaf951e3706) | ffish.asia / floraZia.com | CC0 |
+| `critters/cuttlefish.glb` | cuttlefish | Golden cuttlefish (*Sepia esculenta*) | [Sketchfab](https://sketchfab.com/3d-models/cc0-golden-cuttlefish-sepia-esculenta-0ddc83f783cd4f82ad06e71b07ef7e94) | ffish.asia / floraZia.com | CC0 |
+| `critters/hermitcrab.glb` | hermitcrab | Blue-striped hermit crab | [Sketchfab](https://sketchfab.com/3d-models/cc0-blue-stripped-hermit-crab-5ebe7794183346e998afb97b68021158) | ffish.asia / floraZia.com | CC0 |
+| `critters/balloonfish.glb` | pufferfish | Porcupinefish (*Diodon hystrix*) | [Sketchfab](https://sketchfab.com/3d-models/diodon-hystrix-6fc8b7bf018845ab84e56ea6ea0c0e94) | Smithsonian Institution | CC0 |
+| `critters/cowfish.glb` | (new) | Longhorn cowfish (*Lactoria cornuta*) | [Sketchfab](https://sketchfab.com/3d-models/longhorn-cowfish-abe1ac6f043840b1936012b83b4a19a1) | RISD Nature Lab | CC BY 4.0 |
+| `critters/seahorse.glb` | seahorse | Seahorse | [Sketchfab](https://sketchfab.com/3d-models/seahorse-0f47172461f64588af96f8380d38db4f) | RISD Nature Lab | CC BY 4.0 |
+
+The CC BY files were modified: decimated, re-oriented, rescaled, and textures downsized.
+A lobster scan was tried and dropped: it was fused to its display tray and could not be
+separated cleanly, so lobsters stay procedural.

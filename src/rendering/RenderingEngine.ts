@@ -13,7 +13,8 @@ import { KelpForest } from './KelpForest';
 import { FoamSystem } from './FoamSystem';
 import { SprayParticles } from './SprayParticles';
 import { HDRIEnvironment } from './HDRIEnvironment';
-import { ExtraOceanLife } from './ExtraOceanLife';
+import { CRITTER_MODELS, ExtraOceanLife } from './ExtraOceanLife';
+import { CreatureModelLoader } from '../creatures/CreatureModelLoader';
 import { ReefProps } from './ReefProps';
 import { HuntVisualEvents } from '../systems/HuntVisualEvents';
 
@@ -132,6 +133,16 @@ export class RenderingEngine {
 
     // Ambient mid-water / floor critters
     this.extraOceanLife = new ExtraOceanLife(this.scene, -30);
+    // Scanned critter bodies replace the procedural ones once loaded. This resolves after
+    // the décor merge below, so it swaps already-merged bodies; a failed file keeps the
+    // procedural one.
+    const critterUrls: Record<string, string> = {};
+    for (const [kind, spec] of Object.entries(CRITTER_MODELS)) critterUrls[kind] = spec.url;
+    CreatureModelLoader.loadTemplates(critterUrls)
+      .then((templates) => {
+        if (!this.disposed) this.extraOceanLife?.applyModels(templates);
+      })
+      .catch((err) => console.warn('[critter-models] load failed', err));
 
     // Add Water Surface - choose between FFT ocean (photorealistic) or basic water
     if (this.useFFTOcean) {

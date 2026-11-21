@@ -13,8 +13,10 @@ export class ExtraOceanLife {
   public group: THREE.Group;
   /** Time uniforms of every animated material, advanced once per frame. */
   private animatedMaterials: Array<{ time: { value: number } }> = [];
+  private readonly floorY: number;
 
   constructor(scene: THREE.Scene, floorDepth: number) {
+    this.floorY = floorDepth;
     this.group = new THREE.Group();
     this.group.name = 'extraOceanLife';
 
@@ -161,7 +163,113 @@ export class ExtraOceanLife {
     nautilus: 0.7,
     combjelly: 1.2,
     octopus: 0.4,
+    cowfish: 0.8,
   };
+
+  /**
+   * Replace procedural bodies with scanned ones (see `CRITTER_MODELS`). Each scan is fitted
+   * to the bounding box of the body it replaces: same longest side, same centre, and floor
+   * dwellers keep their underside on the sand. Position, size and the idle motion in
+   * `update()` stay as they were. Kinds without a loaded template stay procedural.
+   *
+   * Templates come from `CreatureModelLoader.loadTemplates`: centred, unit length along X.
+   * Their geometry and materials are shared by every copy.
+   */
+  applyModels(templates: Map<string, THREE.Group>): void {
+    const removed = new Set<THREE.BufferGeometry>();
+    const inverse = new THREE.Matrix4();
+    const relative = new THREE.Matrix4();
+    const part = new THREE.Box3();
+
+    for (const creature of [...this.group.children]) {
+      const kind = creature.userData.kind as string;
+      const spec = CRITTER_MODELS[kind];
+      const template = templates.get(kind);
+      if (!spec || !template) continue;
+
+      creature.updateMatrixWorld(true);
+      inverse.copy(creature.matrixWorld).invert();
+      const body = new THREE.Box3();
+      const old: THREE.Mesh[] = [];
+      creature.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.geometry.computeBoundingBox();
+        relative.multiplyMatrices(inverse, mesh.matrixWorld);
+        body.union(part.copy(mesh.geometry.boundingBox!).applyMatrix4(relative));
+        old.push(mesh);
+      });
+      if (body.isEmpty()) continue;
+      for (const mesh of old) {
+        mesh.removeFromParent();
+        removed.add(mesh.geometry);
+      }
+
+      const scan = ExtraOceanLife.copyTemplate(template, `${kind}Scan`, spec.upright);
+      const size = body.getSize(new THREE.Vector3());
+      ExtraOceanLife.fit(scan, body, Math.max(size.x, size.y, size.z), spec.floor);
+      if (spec.lift) scan.position.y += spec.lift * size.y;
+      creature.add(scan);
+    }
+
+    // Free the procedural geometry no remaining mesh still uses.
+    const kept = new Set<THREE.BufferGeometry>();
+    this.group.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) kept.add((o as THREE.Mesh).geometry);
+    });
+    for (const geometry of removed) if (!kept.has(geometry)) geometry.dispose();
+
+    const cowfish = templates.get('cowfish');
+    if (cowfish) this.spawnCowfish(cowfish, 8);
+  }
+
+  /** A copy of a template that shares its geometry and materials. */
+  private static copyTemplate(template: THREE.Group, name: string, upright = false): THREE.Group {
+    const scan = new THREE.Group();
+    scan.name = name;
+    for (const child of template.children) {
+      const src = child as THREE.Mesh;
+      if (!src.isMesh) continue;
+      const mesh = new THREE.Mesh(src.geometry, src.material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scan.add(mesh);
+    }
+    // Scans lie along X; an upright animal turns its head (+X in these files) to +Y.
+    if (upright) scan.rotation.z = Math.PI / 2;
+    return scan;
+  }
+
+  /** Scale `scan` so its longest side is `length`, then centre it in `target` (or sit it on its bottom). */
+  private static fit(scan: THREE.Group, target: THREE.Box3, length: number, floor = false): void {
+    scan.scale.setScalar(1);
+    scan.position.set(0, 0, 0);
+    scan.updateMatrixWorld(true);
+    const own = new THREE.Box3().setFromObject(scan);
+    const ownSize = own.getSize(new THREE.Vector3());
+    scan.scale.setScalar(length / (Math.max(ownSize.x, ownSize.y, ownSize.z) || 1));
+    scan.updateMatrixWorld(true);
+    own.setFromObject(scan);
+    const shift = target.getCenter(new THREE.Vector3()).sub(own.getCenter(new THREE.Vector3()));
+    if (floor) shift.y = target.min.y - own.min.y;
+    scan.position.copy(shift);
+  }
+
+  /** Boxfish have no procedural body, so they only appear once their scan loads. */
+  private spawnCowfish(template: THREE.Group, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const fish = new THREE.Group();
+      const scan = ExtraOceanLife.copyTemplate(template, 'cowfishScan');
+      const length = 0.9 + Math.random() * 0.4;
+      scan.scale.setScalar(length);
+      fish.add(scan);
+      const spot = this.floorSpot(this.floorY, 70);
+      fish.position.set(spot.x, spot.y + 1.2 + Math.random() * 3, spot.z);
+      fish.rotation.y = Math.random() * Math.PI * 2;
+      fish.userData.kind = 'cowfish';
+      this.group.add(fish);
+    }
+  }
 
   // === ANGLERFISH — deep-sea predator with a bioluminescent lure. The lure is an
   // unlit bright mesh so it blooms and, in the bioluminescent night look, becomes one
@@ -1072,3 +1180,29 @@ export class ExtraOceanLife {
     });
   }
 }
+
+export interface CritterModelSpec {
+  /** Sits on the sand: the scan keeps the procedural body's underside. */
+  floor?: boolean;
+  /** Stands head-up (seahorses) rather than lying along its length. */
+  upright?: boolean;
+  /** Raise the scan above the procedural body, as a multiple of that body's height. */
+  lift?: number;
+}
+
+/**
+ * Kind -> scanned body. Files are prepared in Blender like the large creatures (nose to -X,
+ * unit length); see `public/models/README.md` for sources and credits. A kind whose file is
+ * missing keeps its procedural body. `cowfish` has no procedural body and is only added
+ * when its scan loads.
+ */
+export const CRITTER_MODELS: Record<string, CritterModelSpec & { url: string }> = {
+  // The scan is in a jetting pose, arms trailing, so it swims just above the sand
+  // instead of lying flat on it.
+  octopus: { url: '/models/critters/octopus.glb', floor: true, lift: 2.5 },
+  cuttlefish: { url: '/models/critters/cuttlefish.glb' },
+  hermitcrab: { url: '/models/critters/hermitcrab.glb', floor: true },
+  pufferfish: { url: '/models/critters/balloonfish.glb' },
+  seahorse: { url: '/models/critters/seahorse.glb', upright: true },
+  cowfish: { url: '/models/critters/cowfish.glb' },
+};
