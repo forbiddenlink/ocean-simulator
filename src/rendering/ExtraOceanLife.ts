@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeBufferGeometries } from 'three-stdlib';
 import { sampleSandHeight } from './RealisticOceanFloor';
+import { normalizeGeometry } from './SceneOptimizer';
 import { CoralFormations } from './CoralFormations';
 
 /**
@@ -79,18 +80,14 @@ export class ExtraOceanLife {
             kept.push(child);
             continue;
           }
-          const geo = mesh.geometry.clone();
+          // Uniform attribute set so same-material parts merge cleanly.
+          const geo = normalizeGeometry(mesh.geometry);
+          if (!geo) {
+            kept.push(child);
+            continue;
+          }
           mesh.updateMatrix();
           geo.applyMatrix4(mesh.matrix); // parts are flat children of the creature group
-          // Uniform attribute set so same-material parts merge cleanly.
-          for (const name of Object.keys(geo.attributes)) {
-            if (name !== 'position' && name !== 'normal' && name !== 'uv') geo.deleteAttribute(name);
-          }
-          if (!geo.getAttribute('normal')) geo.computeVertexNormals();
-          if (!geo.getAttribute('uv')) {
-            const c = geo.getAttribute('position').count;
-            geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(c * 2), 2));
-          }
           const list = byMaterial.get(mat) ?? [];
           list.push(geo.index ? geo.toNonIndexed() : geo);
           byMaterial.set(mat, list);

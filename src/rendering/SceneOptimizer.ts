@@ -92,7 +92,7 @@ export function dedupeMaterials(root: THREE.Object3D): number {
 }
 
 /** Strip to the shared attribute set so geometries from different builders can merge. */
-function normalizeGeometry(source: THREE.BufferGeometry): THREE.BufferGeometry | null {
+export function normalizeGeometry(source: THREE.BufferGeometry): THREE.BufferGeometry | null {
   if (!source.attributes.position) return null;
 
   const geometry = new THREE.BufferGeometry();
