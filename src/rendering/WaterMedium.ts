@@ -100,22 +100,61 @@ export const SKY_DEPTH = 0.9999999;
  */
 export const SURFACE_Y = 0;
 
-const waterMediumShader = /* glsl */ `
+/**
+ * View ray and surface attenuation, shared by every shader that needs to see the scene
+ * through the water. Expects the uniforms declared here to share values with the water
+ * medium effect.
+ */
+const waterRayChunk = /* glsl */ `
   uniform mat4 uInvProjection;
   uniform mat4 uCameraWorld;
   uniform vec3 uCameraPos;
-  uniform vec3 uSunDir;
-  uniform float uSunStrength;
   uniform vec3 uExtinction;
   uniform vec3 uDownwelling;
-  uniform vec3 uMediumColor;
-  uniform vec3 uShaftColor;
   uniform float uDensity;
-  uniform float uShaftStrength;
   uniform float uExposure;
-  uniform float uTime;
 
   const float SKY_DISTANCE = 600.0;
+
+  struct WaterRay {
+    vec3 worldPos;
+    vec3 rd;
+    float dist;
+    bool isSky;
+  };
+
+  WaterRay waterRay(vec2 uv, float depth) {
+    WaterRay r;
+    r.isSky = depth >= ${SKY_DEPTH.toFixed(7)};
+    vec4 ndc = vec4(uv * 2.0 - 1.0, (r.isSky ? 1.0 : depth) * 2.0 - 1.0, 1.0);
+    vec4 viewPos = uInvProjection * ndc;
+    viewPos /= viewPos.w;
+    r.worldPos = (uCameraWorld * vec4(viewPos.xyz, 1.0)).xyz;
+    vec3 toP = r.worldPos - uCameraPos;
+    r.dist = r.isSky ? SKY_DISTANCE : length(toP);
+    r.rd = normalize(toP);
+    return r;
+  }
+
+  // Light from the surface behind the pixel as the camera sees it: sunlight lost on the
+  // way down to the surface, then light lost along the view ray. Open water has no
+  // surface behind the ray; additive sprites (marine snow, bubbles) drawn over the black
+  // background stay unfogged.
+  vec3 waterSurfaceLight(vec3 color, WaterRay r) {
+    if (r.isSky) return color;
+    vec3 sigma = uExtinction * uDensity;
+    return color * exp(-uDownwelling * max(-r.worldPos.y, 0.0)) * exp(-sigma * r.dist);
+  }
+`;
+
+const waterMediumShader = /* glsl */ `
+  ${waterRayChunk}
+  uniform vec3 uSunDir;
+  uniform float uSunStrength;
+  uniform vec3 uMediumColor;
+  uniform vec3 uShaftColor;
+  uniform float uShaftStrength;
+  uniform float uTime;
   const int SHAFT_STEPS = 22;
   const float SHAFT_RANGE = 55.0;
   // Share of the sunlight the surface redistributes into shafts (1 = gaps fully dark).
@@ -144,16 +183,10 @@ const waterMediumShader = /* glsl */ `
   }
 
   void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
-    bool isSky = depth >= ${SKY_DEPTH.toFixed(7)};
-    vec4 ndc = vec4(uv * 2.0 - 1.0, (isSky ? 1.0 : depth) * 2.0 - 1.0, 1.0);
-    vec4 viewPos = uInvProjection * ndc;
-    viewPos /= viewPos.w;
-    vec3 worldPos = (uCameraWorld * vec4(viewPos.xyz, 1.0)).xyz;
-
+    WaterRay ray = waterRay(uv, depth);
     vec3 ro = uCameraPos;
-    vec3 toP = worldPos - ro;
-    float dist = isSky ? SKY_DISTANCE : length(toP);
-    vec3 rd = normalize(toP);
+    float dist = ray.dist;
+    vec3 rd = ray.rd;
 
     vec3 sigma = uExtinction * uDensity;
     vec3 kd = uDownwelling;
@@ -165,15 +198,8 @@ const waterMediumShader = /* glsl */ `
       return;
     }
 
-    // 1. Sunlight that actually reached the surface we are looking at.
-    vec3 surface = inputColor.rgb;
-    if (!isSky) {
-      float pDepth = max(-worldPos.y, 0.0);
-      surface *= exp(-kd * pDepth);
-    }
-
-    // 2. Extinction along the view ray.
-    vec3 transmittance = exp(-sigma * dist);
+    // 1-2. Sunlight that reached the surface we are looking at, seen through the water.
+    vec3 surface = waterSurfaceLight(inputColor.rgb, ray);
 
     // 3. Single-scattered sunlight along the ray, closed form. Light at ray point t is
     //    exp(-kd * depth(t)); depth changes linearly with t, so the integral is analytic.
@@ -220,14 +246,7 @@ const waterMediumShader = /* glsl */ `
       shafts = uMediumColor * uShaftColor * sigma * acc * shaftPhase * uShaftStrength * uSunStrength;
     }
 
-    vec3 color;
-    if (isSky) {
-      // Open water: no surface behind the ray. Keep additive sprites (marine snow,
-      // bubbles) that were drawn over the black background.
-      color = inscatter + shafts + inputColor.rgb;
-    } else {
-      color = surface * transmittance + inscatter + shafts;
-    }
+    vec3 color = surface + inscatter + shafts;
     // Dark streaks between shafts subtract light; never below black.
     color = max(color, vec3(0.0));
 
