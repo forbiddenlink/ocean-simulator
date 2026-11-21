@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MultiScaleWaves } from './MultiScaleWaves';
 import { TilingPrevention } from './TilingPrevention';
 import { OceanCascade } from './OceanCascade';
+import { OceanWaveWorker } from './OceanWaveWorker';
 
 /**
  * Dual-cascade Tessendorf FFT ocean.
@@ -18,6 +19,7 @@ export class FFTOcean {
 
   private large: OceanCascade;
   private detail: OceanCascade;
+  private waves: OceanWaveWorker | null = null;
   private multiScaleWaves: MultiScaleWaves;
   private tilingPrevention: TilingPrevention;
   private geometry: THREE.PlaneGeometry;
@@ -76,8 +78,32 @@ export class FFTOcean {
     this.mesh = new THREE.Mesh(this.geometry, this.material);
     this.mesh.position.y = 0;
 
-    this.large.update(0);
-    this.detail.update(0);
+    this.waves = this.startWaveWorker();
+    if (!this.waves) {
+      this.large.update(0);
+      this.detail.update(0);
+    }
+  }
+
+  /** Null where workers are unavailable (tests, old browsers): waves then run inline. */
+  private startWaveWorker(): OceanWaveWorker | null {
+    if (typeof Worker === 'undefined') return null;
+    try {
+      return new OceanWaveWorker([this.large, this.detail]);
+    } catch (error) {
+      console.warn('Ocean wave worker unavailable; computing waves on the main thread.', error);
+      return null;
+    }
+  }
+
+  /** The spectrum changed (wind, amplitude, resolution): rebuild it and recompute. */
+  private regenerateWaves(): void {
+    if (this.waves && !this.waves.failed) {
+      this.waves.reset([this.large, this.detail]);
+    } else {
+      this.large.update(this.time);
+      this.detail.update(this.time);
+    }
   }
 
   private createOceanMaterial(): THREE.ShaderMaterial {
@@ -411,8 +437,11 @@ export class FFTOcean {
     this.material.uniforms.tilingOffset1.value.copy(offsets.offset1);
     this.material.uniforms.tilingOffset2.value.copy(offsets.offset2);
 
-    // ~28 Hz cascade update — enough for fluid motion, cheap enough for dual IFFT
-    if (Math.floor(this.time * 28) !== Math.floor((this.time - deltaTime) * 28)) {
+    if (this.waves && !this.waves.failed) {
+      // Off the main thread: request the next frame as soon as the last one lands.
+      this.waves.request(this.time);
+    } else if (Math.floor(this.time * 28) !== Math.floor((this.time - deltaTime) * 28)) {
+      // Inline fallback at ~28 Hz: enough for fluid motion, cheap enough for dual IFFT.
       this.large.update(this.time);
       this.detail.update(this.time);
     }
@@ -425,6 +454,7 @@ export class FFTOcean {
     this.material.uniforms.choppiness.value = choppiness;
     this.large.setChoppiness(choppiness);
     this.detail.setChoppiness(choppiness * 1.15);
+    this.waves?.setChoppiness([choppiness, choppiness * 1.15]);
   }
 
   public updateSunDirection(direction: THREE.Vector3): void {
@@ -459,8 +489,7 @@ export class FFTOcean {
       speed * 0.85,
       new THREE.Vector2(this.windDirection.x + 0.35, this.windDirection.y - 0.2).normalize()
     );
-    this.large.update(this.time);
-    this.detail.update(this.time);
+    this.regenerateWaves();
   }
 
   public setWindSpeed(speed: number): void {
@@ -518,15 +547,13 @@ export class FFTOcean {
     this.material.uniforms.detailOceanSize.value = this.detail.size;
 
     this.tilingPrevention.setResolution(newResolution);
-    this.large.update(this.time);
-    this.detail.update(this.time);
+    this.regenerateWaves();
   }
 
   public setAmplitude(amplitude: number): void {
     this.large.setWaveAmplitude(amplitude);
     this.detail.setWaveAmplitude(amplitude * 0.22);
-    this.large.update(this.time);
-    this.detail.update(this.time);
+    this.regenerateWaves();
   }
 
   public dispose(): void {
@@ -534,5 +561,6 @@ export class FFTOcean {
     this.material.dispose();
     this.large.dispose();
     this.detail.dispose();
+    this.waves?.dispose();
   }
 }
