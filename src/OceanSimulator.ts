@@ -1,5 +1,6 @@
 import { pipe, getAllEntities, query } from 'bitecs';
 import * as THREE from 'three';
+import type { CreatureModel } from './creatures/CreatureModelLoader';
 import { createOceanWorld, updateWorldTime } from './core/World';
 import type { OceanWorld } from './core/World';
 import { createFish, createShark, createDolphin, createJellyfish, createRay, createTurtle, createWhale, createCrab, createStarfish, createSeaUrchin } from './core/EntityFactory';
@@ -169,8 +170,8 @@ export class OceanSimulator {
     this.cameraController.playCinematic(this.introKeyframes, 15, false);
   }
 
-  /** Register optional GLTF creature models; large creatures spawned after this use them. */
-  public setCreatureModels(models: Map<string, THREE.BufferGeometry>): void {
+  /** Register loaded GLTF creature models; modelled species switch to them on the next frame. */
+  public setCreatureModels(models: Map<string, CreatureModel>): void {
     this.meshPool.setCreatureModels(models);
   }
 

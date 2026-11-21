@@ -1,42 +1,56 @@
 import * as THREE from 'three';
-import { GLTFLoader, mergeBufferGeometries } from 'three-stdlib';
+import { GLTFLoader } from 'three-stdlib';
 
 /**
- * Optional GLTF creature-model pipeline.
+ * How a model's vertex shader moves it, since the scanned models carry no skeleton.
+ *   lateral  - fish and sharks: a side-to-side wave that grows toward the tail.
+ *   vertical - dolphins and whales: the same wave, up and down (flukes are horizontal).
+ *   wing     - rays: the wing tips flap, the body barely moves.
+ *   paddle   - turtles: the flippers sweep, the shell stays still.
+ */
+export type SwimStyle = 'lateral' | 'vertical' | 'wing' | 'paddle';
+
+export interface CreatureModelEntry {
+  url: string;
+  /** World length of the animal nose to tail, before the ECS Scale component. */
+  length: number;
+  swim: SwimStyle;
+}
+
+export interface CreatureModel {
+  /**
+   * Meshes in model space: nose at x = -0.5, tail at x = +0.5, back toward +Y.
+   * Geometry and materials are shared by every clone, so callers must not dispose them.
+   */
+  template: THREE.Group;
+  length: number;
+  swim: SwimStyle;
+}
+
+/**
+ * Loads the scanned creature models in `public/models/`.
  *
- * Procedural geometry has a hard ceiling. Drop real modeled creatures into
- * `public/models/` and register them in `CREATURE_MODEL_PATHS` — they replace
- * procedural bodies for shark/dolphin/ray/turtle/whale while still getting
- * countershading / rim / caustic material treatment.
+ * The models are prepared offline in Blender (decimated, nose turned to -X, textures
+ * shrunk), so this loader only bakes node transforms into the geometry and normalizes
+ * every model to unit length along X. The GLTF materials, including their photo
+ * textures, are kept as they are.
  *
- * IMPORTANT for this project's cinematic look:
- *   Quaternius / poly.pizza "low poly animals" are stylized/cartoon. They improve
- *   silhouette recognition but usually look *worse* next to Beer-Lambert + AgX water.
- *   Prefer mid/high-poly CC0 sculpts with real proportions (or keep procedural).
- *
- * Loading is best-effort and per-file guarded — missing files never break startup.
+ * Loading is per-file guarded: a missing or broken file leaves that species procedural.
  */
 export class CreatureModelLoader {
-  /**
-   * Load every registered model. Returns species-key -> baked geometry for successes.
-   */
   static async preload(
-    entries: Record<string, string>
-  ): Promise<Map<string, THREE.BufferGeometry>> {
-    const out = new Map<string, THREE.BufferGeometry>();
-    const keys = Object.keys(entries);
-    if (keys.length === 0) return out;
-
+    entries: Record<string, CreatureModelEntry>
+  ): Promise<Map<string, CreatureModel>> {
+    const out = new Map<string, CreatureModel>();
     const loader = new GLTFLoader();
     await Promise.all(
-      keys.map(async (key) => {
-        const url = entries[key];
+      Object.entries(entries).map(async ([key, entry]) => {
         try {
-          const gltf = await loader.loadAsync(url);
-          const geo = CreatureModelLoader.bake(gltf.scene, key);
-          if (geo) out.set(key, geo);
+          const gltf = await loader.loadAsync(entry.url);
+          const template = CreatureModelLoader.normalize(gltf.scene);
+          if (template) out.set(key, { template, length: entry.length, swim: entry.swim });
         } catch (err) {
-          console.warn(`[creature-models] failed to load "${key}" from ${url}`, err);
+          console.warn(`[creature-models] failed to load "${key}" from ${entry.url}`, err);
         }
       })
     );
@@ -44,105 +58,76 @@ export class CreatureModelLoader {
   }
 
   /**
-   * Flatten a GLTF scene into one normalized BufferGeometry.
-   * Preserves position/normal/uv/color. Auto-orients so the longest horizontal
-   * axis faces -X (procedural convention) when the source faces +Z/+X.
+   * Photogrammetry scans ship as unlit (KHR_materials_unlit) because the photo already
+   * holds the studio lighting. Under water they must take the scene's light, depth
+   * colour and caustics like everything else, so unlit materials become lit ones that
+   * keep the same texture.
    */
-  private static bake(root: THREE.Object3D, speciesKey: string): THREE.BufferGeometry | null {
-    root.updateMatrixWorld(true);
-    const parts: THREE.BufferGeometry[] = [];
+  private static litMaterial(material: THREE.Material): THREE.Material {
+    const basic = material as THREE.MeshBasicMaterial;
+    if (!basic.isMeshBasicMaterial) return material;
+    const lit = new THREE.MeshStandardMaterial({
+      name: basic.name,
+      map: basic.map,
+      color: basic.color,
+      side: basic.side,
+      transparent: basic.transparent,
+      opacity: basic.opacity,
+      alphaTest: basic.alphaTest,
+      roughness: 0.6,
+      metalness: 0,
+    });
+    basic.dispose();
+    return lit;
+  }
 
+  /** Flatten the scene into identity-transform meshes, centered, unit length along X. */
+  private static normalize(root: THREE.Object3D): THREE.Group | null {
+    root.updateMatrixWorld(true);
+    const parts: THREE.Mesh[] = [];
     root.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh || !mesh.geometry) return;
-      const g = mesh.geometry.clone();
-      g.applyMatrix4(mesh.matrixWorld);
-
-      // Bake vertex colors from the mesh material when the geometry has none
-      // (many Quaternius/low-poly assets color via MeshStandardMaterial.color).
-      if (!g.getAttribute('color')) {
-        const mat = mesh.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
-        const m = Array.isArray(mat) ? mat[0] : mat;
-        const c = m?.color;
-        const count = g.getAttribute('position').count;
-        const colors = new Float32Array(count * 3);
-        const r = c?.r ?? 0.7;
-        const gC = c?.g ?? 0.75;
-        const b = c?.b ?? 0.8;
-        for (let i = 0; i < count; i++) {
-          colors[i * 3] = r;
-          colors[i * 3 + 1] = gC;
-          colors[i * 3 + 2] = b;
-        }
-        g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      }
-
-      for (const name of Object.keys(g.attributes)) {
-        if (name !== 'position' && name !== 'normal' && name !== 'uv' && name !== 'color') {
-          g.deleteAttribute(name);
-        }
-      }
-      if (!g.getAttribute('normal')) g.computeVertexNormals();
-      if (!g.getAttribute('uv')) {
-        const count = g.getAttribute('position').count;
-        g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(count * 2), 2));
-      }
-      parts.push(g.index ? g.toNonIndexed() : g);
+      const geometry = mesh.geometry.clone();
+      geometry.applyMatrix4(mesh.matrixWorld);
+      const material = Array.isArray(mesh.material)
+        ? mesh.material.map(CreatureModelLoader.litMaterial)
+        : CreatureModelLoader.litMaterial(mesh.material);
+      parts.push(new THREE.Mesh(geometry, material));
     });
-
     if (parts.length === 0) return null;
-    let merged = parts.length === 1 ? parts[0] : mergeBufferGeometries(parts, false);
-    if (!merged) merged = parts[0];
 
-    // Normalize: center + unit max-dimension
-    merged.computeBoundingBox();
-    const bb = merged.boundingBox;
-    if (bb) {
-      const center = new THREE.Vector3();
-      bb.getCenter(center);
-      merged.translate(-center.x, -center.y, -center.z);
-      const size = new THREE.Vector3();
-      bb.getSize(size);
-      const maxDim = Math.max(size.x, size.y, size.z) || 1;
-      merged.scale(1 / maxDim, 1 / maxDim, 1 / maxDim);
-
-      // Re-measure after scale; if Z is the long axis (common GLTF forward),
-      // rotate so nose faces -X like procedural bodies.
-      merged.computeBoundingBox();
-      const size2 = new THREE.Vector3();
-      merged.boundingBox!.getSize(size2);
-      if (size2.z >= size2.x * 0.95) {
-        merged.rotateY(-Math.PI / 2);
-      }
+    const box = new THREE.Box3();
+    for (const part of parts) {
+      part.geometry.computeBoundingBox();
+      box.union(part.geometry.boundingBox!);
     }
+    const center = box.getCenter(new THREE.Vector3());
+    const length = box.max.x - box.min.x || 1;
 
-    // Optional per-species axis tweaks if a pack still swims sideways
-    const yawFix: Record<string, number> = {
-      // e.g. ray: Math.PI,
-    };
-    if (yawFix[speciesKey]) merged.rotateY(yawFix[speciesKey]);
-
-    merged.computeVertexNormals();
-    return merged;
+    const template = new THREE.Group();
+    for (const part of parts) {
+      part.geometry.translate(-center.x, -center.y, -center.z);
+      part.geometry.scale(1 / length, 1 / length, 1 / length);
+      part.geometry.computeBoundingSphere();
+      part.castShadow = true;
+      part.receiveShadow = true;
+      template.add(part);
+    }
+    template.userData.sharedModel = true;
+    return template;
   }
 }
 
 /**
- * Species-key -> model path.
- *
- * Leave empty to stay fully procedural (recommended until you have mid/high-poly
- * models that match the cinematic look). When ready:
- *
- *   1. Drop `shark.glb`, `dolphin.glb`, `ray.glb`, `turtle.glb`, `whale.glb`
- *      into `public/models/` (see that folder's README).
- *   2. Uncomment the entries below.
- *
- * Keys must match `MODEL_KEY_BY_TYPE` in BatchedMeshPool.
+ * Species key -> model. Keys must match `MODEL_KEY_BY_TYPE` in BatchedMeshPool.
+ * Lengths match the procedural bodies they replace. The ray's length includes its
+ * whip tail, so 2.2 gives the same 1.8 wingspan as the procedural ray.
  */
-export const CREATURE_MODEL_PATHS: Record<string, string> = {
-  // shark: '/models/shark.glb',
-  // dolphin: '/models/dolphin.glb',
-  // ray: '/models/ray.glb',
-  // turtle: '/models/turtle.glb',
-  // whale: '/models/whale.glb',
+export const CREATURE_MODEL_PATHS: Record<string, CreatureModelEntry> = {
+  shark: { url: '/models/shark.glb', length: 2.0, swim: 'lateral' },
+  dolphin: { url: '/models/dolphin.glb', length: 1.5, swim: 'vertical' },
+  ray: { url: '/models/ray.glb', length: 2.2, swim: 'wing' },
+  turtle: { url: '/models/turtle.glb', length: 1.15, swim: 'paddle' },
+  whale: { url: '/models/whale.glb', length: 5.0, swim: 'vertical' },
 };
