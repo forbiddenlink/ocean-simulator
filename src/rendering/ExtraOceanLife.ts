@@ -13,6 +13,8 @@ export class ExtraOceanLife {
   public group: THREE.Group;
   /** Time uniforms of every animated material, advanced once per frame. */
   private animatedMaterials: Array<{ time: { value: number } }> = [];
+  /** Sun strength, 1 = noon and 0 = night. Shared by every material that only shows by daylight. */
+  private daylight = { value: 1 };
   private readonly floorY: number;
 
   constructor(scene: THREE.Scene, floorDepth: number) {
@@ -113,6 +115,11 @@ export class ExtraOceanLife {
         /* leave this creature as-is (unoptimized but correct) */
       }
     }
+  }
+
+  /** Sun strength, 1 = noon and 0 = night. Fades the shimmer that only daylight makes. */
+  setDaylight(strength: number): void {
+    this.daylight.value = THREE.MathUtils.clamp(strength, 0, 1);
   }
 
   update(deltaTime: number, elapsed: number): void {
@@ -568,6 +575,7 @@ export class ExtraOceanLife {
         uniforms: {
           time: { value: 0 },
           phase: { value: Math.random() * Math.PI * 2 },
+          daylight: this.daylight,
         },
         vertexShader: /* glsl */ `
           varying float vY;
@@ -579,13 +587,15 @@ export class ExtraOceanLife {
         fragmentShader: /* glsl */ `
           uniform float time;
           uniform float phase;
+          uniform float daylight;
           varying float vY;
           void main() {
             float hue = fract(vY * 0.55 + time * 0.35 + phase);
-            // Cheap HSV→RGB rainbow for comb-row bioluminescence
+            // Cheap HSV to RGB rainbow. The shimmer is daylight diffracted by the beating
+            // cilia, not the animal's own light, so it fades out at night.
             vec3 rgb = clamp(abs(mod(hue * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
             float pulse = 0.65 + 0.35 * sin(time * 2.4 + vY * 8.0 + phase);
-            gl_FragColor = vec4(rgb * 1.15, 0.85 * pulse);
+            gl_FragColor = vec4(rgb * 1.15, 0.85 * pulse * mix(0.04, 1.0, daylight));
           }
         `,
       });

@@ -51,7 +51,7 @@ describe('ExtraOceanLife', () => {
   it('lights opaque bodies with the scene lights instead of a fixed fake light', () => {
     // Only the comb-jelly glow rows may use a custom shader: they are emissive light, not skin.
     const unlit: string[] = [];
-    life.group.traverse((o) => {
+    life.group.traverse((o: THREE.Object3D) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
@@ -67,7 +67,7 @@ describe('ExtraOceanLife', () => {
   it('drives the body sway from elapsed time', () => {
     life.update(0.016, 7.25);
     let swaying = 0;
-    life.group.traverse((o) => {
+    life.group.traverse((o: THREE.Object3D) => {
       const mat = (o as THREE.Mesh).material as THREE.Material | undefined;
       const time = mat?.userData?.swayUniforms?.time;
       if (time) {
@@ -91,7 +91,7 @@ describe('ExtraOceanLife', () => {
 
   it('builds every creature from real mesh geometry', () => {
     let meshes = 0;
-    life.group.traverse((o) => {
+    life.group.traverse((o: THREE.Object3D) => {
       if ((o as THREE.Mesh).isMesh) meshes++;
     });
     expect(meshes).toBeGreaterThan(100);
@@ -163,5 +163,26 @@ describe('ExtraOceanLife.applyModels', () => {
     expect(cowfish()).toHaveLength(8);
     for (const c of cowfish()) expect(c.position.y).toBeGreaterThan(-30);
     expect(() => life.update(0.016, 3)).not.toThrow();
+  });
+
+  it('dims the comb-jelly shimmer with the daylight', () => {
+    // The rainbow on comb rows is daylight diffracted by the cilia, not their own light,
+    // so at night it must fade instead of glowing as bright stripes.
+    const life = new ExtraOceanLife(new THREE.Scene(), -30);
+    const rowMaterial = (): THREE.ShaderMaterial | undefined => {
+      let found: THREE.ShaderMaterial | undefined;
+      life.group.traverse((o: THREE.Object3D) => {
+        const m = (o as THREE.Mesh).material as THREE.ShaderMaterial | undefined;
+        if (!found && m?.isShaderMaterial && m.uniforms?.daylight) found = m;
+      });
+      return found;
+    };
+    const material = rowMaterial();
+    expect(material).toBeDefined();
+    life.setDaylight(0);
+    expect(material!.uniforms.daylight.value).toBe(0);
+    life.setDaylight(2);
+    expect(material!.uniforms.daylight.value).toBe(1);
+    expect(material!.fragmentShader).toMatch(/daylight/);
   });
 });
