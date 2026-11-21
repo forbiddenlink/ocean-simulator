@@ -589,8 +589,10 @@ export class OceanSimulator {
   /**
    * Main game loop
    */
-  private loop = (): void => {
+  private loop = (timestamp?: number): void => {
     this.animationFrameId = requestAnimationFrame(this.loop);
+    // The first call comes from start(), not from rAF, and has no frame timestamp.
+    if (timestamp !== undefined) this.renderEngine.trackFrame(timestamp);
     
     // Update world time (scaled by time scale)
     updateWorldTime(this.world);

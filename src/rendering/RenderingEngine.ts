@@ -17,6 +17,7 @@ import { CRITTER_MODELS, ExtraOceanLife } from './ExtraOceanLife';
 import { CreatureModelLoader } from '../creatures/CreatureModelLoader';
 import { ReefProps } from './ReefProps';
 import { HuntVisualEvents } from '../systems/HuntVisualEvents';
+import { DynamicResolution } from './DynamicResolution';
 
 // Debug flag - set to true for development debugging
 const DEBUG = false;
@@ -58,6 +59,9 @@ export class RenderingEngine {
   private _dofFocus = 16;
   private _sunStrength = 1;
   private _pixelRatioCap = 2;
+  private dynamicResolution = new DynamicResolution({ targetMs: 1000 / 60 });
+  private lastFrameAt = 0;
+  private renderedCssSize = '';
   private _sprayScratch = new THREE.Vector3();
   private _flashPos = new THREE.Vector3();
 
@@ -92,6 +96,7 @@ export class RenderingEngine {
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(this.budgetedPixelRatio());
+    this.renderedCssSize = `${window.innerWidth}x${window.innerHeight}`;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     
@@ -245,23 +250,36 @@ export class RenderingEngine {
    * Pixel ratio that keeps the drawing buffer under MAX_RENDER_PIXELS. Every
    * post pass is a full-screen read and write, so on a large window at native
    * resolution the GPU spent most of each frame on bandwidth, not on the image.
+   * The dynamic resolution scale then lowers it further on GPUs that still miss
+   * the frame budget.
    */
   private budgetedPixelRatio(): number {
     const cssPixels = Math.max(1, window.innerWidth * window.innerHeight);
     const budget = Math.sqrt(MAX_RENDER_PIXELS / cssPixels);
-    return Math.min(window.devicePixelRatio, this._pixelRatioCap, budget);
+    return Math.min(window.devicePixelRatio, this._pixelRatioCap, budget) * this.dynamicResolution.scale;
+  }
+
+  private applyRenderScale(): void {
+    this.renderer.setPixelRatio(this.budgetedPixelRatio());
+    this.postProcessing.setSize(window.innerWidth, window.innerHeight);
   }
 
   /** Quality presets set an upper bound; the pixel budget can still lower it. */
   public setPixelRatioCap(cap: number): void {
     this._pixelRatioCap = cap;
-    this.renderer.setPixelRatio(this.budgetedPixelRatio());
-    this.postProcessing.setSize(window.innerWidth, window.innerHeight);
+    this.dynamicResolution.reset();
+    this.applyRenderScale();
   }
 
   private onWindowResize(): void {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
+    // A new pixel count invalidates what the controller learned about the old one.
+    // Resize events also fire without a size change, and resetting on those would let
+    // the controller probe a scale it already knows misses the refresh.
+    const cssSize = `${window.innerWidth}x${window.innerHeight}`;
+    if (cssSize !== this.renderedCssSize) this.dynamicResolution.reset();
+    this.renderedCssSize = cssSize;
     this.renderer.setPixelRatio(this.budgetedPixelRatio());
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.postProcessing.setSize(window.innerWidth, window.innerHeight);
@@ -270,6 +288,17 @@ export class RenderingEngine {
   public render(deltaTime?: number): void {
     // Use post-processing for bloom and effects (pass deltaTime for distortion animation)
     this.postProcessing.render(deltaTime);
+  }
+
+  /**
+   * Feeds the animation-frame timestamp to the dynamic resolution and applies any
+   * change. It needs the rAF timestamp, not performance.now() inside the frame:
+   * script time varies from frame to frame and hid most of the late frames.
+   */
+  public trackFrame(timestamp: number): void {
+    const changed = this.lastFrameAt > 0 && this.dynamicResolution.addFrameDelta(timestamp - this.lastFrameAt);
+    this.lastFrameAt = timestamp;
+    if (changed) this.applyRenderScale();
   }
 
   public update(deltaTime: number): void {
