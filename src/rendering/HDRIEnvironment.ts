@@ -75,79 +75,54 @@ export class HDRIEnvironment {
         uniform vec3 horizonColor;
         uniform vec3 zenithColor;
         uniform float timeOfDay;
-        
+
         varying vec3 vWorldPosition;
         varying vec3 vViewDirection;
-        
-        const vec3 UP = vec3(0.0, 1.0, 0.0);
-        const float PI = 3.14159265359;
-        const float SUN_ANGULAR_DIAMETER = 0.00935 / 2.0;
-        const float CUTOFF_ANGLE = PI / 1.95;
-        const float STEEPNESS = 1.5;
-        
-        // Rayleigh scattering phase function
-        float rayleighPhase(float cosTheta) {
-          return (3.0 / (16.0 * PI)) * (1.0 + cosTheta * cosTheta);
+
+        const float SUN_RADIUS = 0.0094;
+
+        float hash(vec3 p) {
+          return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
         }
-        
-        // Mie scattering phase function (Henyey-Greenstein)
-        float hgPhase(float cosTheta, float g) {
-          float g2 = g * g;
-          float denom = 1.0 + g2 - 2.0 * g * cosTheta;
-          return (1.0 / (4.0 * PI)) * ((1.0 - g2) / pow(denom, 1.5));
-        }
-        
-        // Sun disk
-        vec3 sunDisk(vec3 viewDir, vec3 sunDir) {
-          float sunDist = acos(dot(viewDir, sunDir));
-          float sunStrength = 1.0 - smoothstep(0.0, SUN_ANGULAR_DIAMETER, sunDist);
-          return vec3(sunStrength);
-        }
-        
+
         void main() {
-          vec3 direction = normalize(vViewDirection);
-          
-          // Angle from zenith
-          float zenithAngle = acos(max(0.0, dot(UP, direction)));
-          float cosTheta = dot(direction, sunPosition);
-          
-          // Atmospheric scattering
-          float rayleigh = rayleighPhase(cosTheta);
-          float mie = hgPhase(cosTheta, mieDirectionalG);
-          
-          // Extinction (Beer's law)
-          float zenithFactor = 1.0 / (cos(zenithAngle) + 0.15 * pow(93.885 - ((zenithAngle * 180.0) / PI), -1.253));
-          float rayleighExtinction = exp(-rayleighCoefficient * zenithFactor);
-          float mieExtinction = exp(-mieCoefficient * zenithFactor);
-          
-          // Sky color gradient
-          float heightFactor = smoothstep(0.0, 1.0, direction.y);
-          vec3 skyGradient = mix(horizonColor, zenithColor, pow(heightFactor, STEEPNESS));
-          
-          // Atmospheric scattering color
-          vec3 scattering = skyGradient * (rayleigh * rayleighExtinction + mie * mieExtinction);
-          
-          // Sun disk
-          vec3 sun = sunDisk(direction, sunPosition) * vec3(1.0, 0.9, 0.8) * sunLuminance;
-          
-          // Time of day tint
-          vec3 timeOfDayTint = mix(
-            vec3(0.2, 0.3, 0.6),  // Night
-            vec3(1.0, 1.0, 1.0),  // Day
-            smoothstep(0.2, 0.8, timeOfDay)
-          );
-          
-          // Sunrise/sunset tint
-          float sunsetFactor = exp(-abs(timeOfDay - 0.25) * 8.0) + exp(-abs(timeOfDay - 0.75) * 8.0);
-          vec3 sunsetTint = vec3(1.5, 0.7, 0.3) * sunsetFactor * 0.5;
-          
-          vec3 finalColor = (scattering + sun) * timeOfDayTint + sunsetTint;
-          
-          // Add turbidity (atmospheric haze)
-          float haze = exp(-zenithAngle * turbidity);
-          finalColor = mix(vec3(0.8, 0.85, 0.9), finalColor, haze);
-          
-          gl_FragColor = vec4(finalColor, 1.0);
+          vec3 dir = normalize(vViewDirection);
+          vec3 sun = normalize(sunPosition);
+          // Below the horizon the sea covers the sky; reuse the horizon colour there.
+          float up = clamp(dir.y, 0.0, 1.0);
+          float cosSun = dot(dir, sun);
+
+          // Daylight from the sun's height, with a short twilight as it crosses the horizon.
+          float day = smoothstep(-0.12, 0.25, sun.y);
+
+          // Gradient: a thin bright band at the horizon, the weather's zenith colour above.
+          float horizonBand = pow(1.0 - up, 4.0);
+          vec3 daySky = mix(zenithColor, horizonColor, horizonBand);
+          vec3 nightSky = mix(vec3(0.004, 0.007, 0.018), vec3(0.02, 0.03, 0.055), horizonBand);
+          vec3 color = mix(nightSky, daySky, day);
+
+          // Haze: turbid weather greys the sky out, strongest at the horizon.
+          float haze = clamp((turbidity - 2.0) / 18.0, 0.0, 1.0) * (0.4 + 0.6 * horizonBand);
+          color = mix(color, vec3(0.62, 0.64, 0.67) * (0.15 + 0.85 * day), haze);
+
+          // Sunrise and sunset: warm glow on the horizon, strongest toward the sun.
+          float twilight = exp(-abs(sun.y) * 7.0);
+          vec3 sunFlat = normalize(vec3(sun.x, 0.0, sun.z) + vec3(1e-4));
+          float towardSun = pow(max(dot(normalize(vec3(dir.x, 0.0, dir.z) + vec3(1e-4)), sunFlat), 0.0), 3.0);
+          color += vec3(1.0, 0.42, 0.14) * twilight * horizonBand * (0.25 + 0.9 * towardSun);
+
+          // Forward scattering around the sun, then the disc itself.
+          float aboveHorizon = smoothstep(-0.02, 0.02, sun.y);
+          color += vec3(1.0, 0.85, 0.65) * pow(max(cosSun, 0.0), 48.0) * 0.5 * aboveHorizon * (1.0 - haze);
+          float disc = 1.0 - smoothstep(SUN_RADIUS * 0.8, SUN_RADIUS, acos(clamp(cosSun, -1.0, 1.0)));
+          color += vec3(1.0, 0.92, 0.8) * disc * sunLuminance * 12.0 * aboveHorizon;
+
+          // Stars on clear nights.
+          vec3 cell = floor(dir * 420.0);
+          float star = step(0.9975, hash(cell)) * (0.4 + 0.6 * hash(cell + 7.0));
+          color += vec3(star) * (1.0 - day) * (1.0 - haze) * smoothstep(0.02, 0.2, up);
+
+          gl_FragColor = vec4(color, 1.0);
         }
       `,
       side: THREE.BackSide,
@@ -222,6 +197,15 @@ export class HDRIEnvironment {
     pmrem.dispose();
     gradGeo.dispose();
     gradMat.dispose();
+  }
+
+  /**
+   * Shows the sky only while the camera is above the surface (under water the water
+   * medium is the backdrop) and keeps it centred on the camera.
+   */
+  public followCamera(cameraPosition: THREE.Vector3): void {
+    this.skyMesh.visible = cameraPosition.y > 0;
+    this.skyMesh.position.copy(cameraPosition);
   }
 
   /**

@@ -355,6 +355,7 @@ export class RenderingEngine {
     // Update HDRI environment and day/night cycle
     if (this.hdriEnvironment) {
       this.hdriEnvironment.update(deltaTime);
+      this.hdriEnvironment.followCamera(this.camera.position);
 
       // Get time of day for lighting adjustments
       const timeOfDay = this.hdriEnvironment.getTimeOfDay();
