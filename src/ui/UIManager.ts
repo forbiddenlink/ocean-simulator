@@ -352,7 +352,7 @@ export class UIManager {
         <div>Volumetric light shafts</div>
         <div>Beer&ndash;Lambert depth grading</div>
         <div>Real-time schooling AI</div>
-        <div>AgX filmic tonemap &middot; depth of field</div>
+        <div>Hue-preserving filmic tonemap</div>
       </div>
       <p class="op-note">Physically-graded underwater rendering over a living, self-balancing ecosystem.</p>
     `;

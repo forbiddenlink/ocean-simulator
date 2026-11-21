@@ -145,24 +145,20 @@ export class BatchedMeshPool {
   private createFishMaterial(): THREE.MeshPhysicalMaterial {
     const material = new THREE.MeshPhysicalMaterial({
       color: 0xffffff,
-      metalness: 0.32,
-      roughness: 0.22,
+      // Fish skin is a wet dielectric under a thin mucus layer: low metalness, a soft
+      // clearcoat for the wet sheen. Full iridescence + sheen + mirror clearcoat made
+      // every fish read as chrome plastic, and those three lobes were the most
+      // expensive fragment shading in the frame.
+      metalness: 0.06,
+      roughness: 0.42,
       flatShading: false,
       side: THREE.DoubleSide,
       vertexColors: true, // Eyes, gills, countershade baked into SimpleFishGeometry
       emissive: new THREE.Color(0x1a3044),
-      emissiveIntensity: 0.12,
-      iridescence: 1.0,
-      iridescenceIOR: 1.45,
-      iridescenceThicknessRange: [80, 580],
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.03,
-      sheen: 0.65,
-      sheenRoughness: 0.18,
-      sheenColor: new THREE.Color(0x88bbff),
-      transmission: 0.0,
-      thickness: 0.0,
-      specularIntensity: 1.2,
+      emissiveIntensity: 0.08,
+      clearcoat: 0.35,
+      clearcoatRoughness: 0.25,
+      specularIntensity: 0.8,
     });
 
     // Inject GPU swimming animation + procedural scale pattern

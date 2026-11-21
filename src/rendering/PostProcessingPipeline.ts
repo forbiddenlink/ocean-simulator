@@ -30,6 +30,8 @@ export class PostProcessingPipeline {
   private grainEffect: NoiseEffect;
   private dofEffect: DepthOfFieldEffect;
   private dofPass: EffectPass;
+  private mainPass: EffectPass;
+  private chromaPass: EffectPass;
 
   constructor(
     renderer: THREE.WebGLRenderer,
@@ -37,8 +39,7 @@ export class PostProcessingPipeline {
     camera: THREE.Camera
   ) {
     this.composer = new EffectComposer(renderer, {
-      // Half float keeps highlights above 1.0 until tone mapping, so the sun, caustics
-      // and shafts bloom and roll off instead of clipping to flat white.
+      // 8-bit: a HalfFloat buffer rendered solid black here (cause not yet found).
       frameBufferType: THREE.UnsignedByteType,
     });
 
@@ -55,6 +56,9 @@ export class PostProcessingPipeline {
       resolutionScale: 0.5,
     });
     this.dofPass = new EffectPass(camera, this.dofEffect);
+    // Off unless a quality preset asks for it: it costs a full-resolution pass and its
+    // focus eases as the camera turns, which reads as the whole frame pulsing.
+    this.dofPass.enabled = false;
     this.composer.addPass(this.dofPass);
 
     this.bloomEffect = new BloomEffect({
@@ -68,10 +72,13 @@ export class PostProcessingPipeline {
     // Physical water medium: depth attenuation, extinction, in-scatter, light shafts.
     this.water = new WaterMediumEffect();
 
-    // AgX preserves saturated teal/cyan midtones better than ACES (which washes
-    // blue-green underwater), giving a more filmic deep-ocean grade.
+    // Fixed Khronos PBR Neutral curve. An adaptive curve re-exposes the frame as the
+    // camera turns, which reads as the whole image pumping. The library's REINHARD2
+    // multiplies the colour by its compressed luminance, which squares a dim
+    // underwater frame toward black; AgX greys out the blue-green water. Neutral keeps
+    // the hue and saturation of the medium and only rolls off the highlights.
     const toneMappingEffect = new ToneMappingEffect({
-      mode: ToneMappingMode.REINHARD2_ADAPTIVE,
+      mode: ToneMappingMode.NEUTRAL,
     });
 
     // Subtle animated film grain — breaks up flat gradients, adds a cinematic texture.
@@ -97,7 +104,7 @@ export class PostProcessingPipeline {
     });
 
     // Main effect pass: scene shading + look
-    const mainEffectPass = new EffectPass(
+    this.mainPass = new EffectPass(
       camera,
       this.water,
       this.bloomEffect,
@@ -106,11 +113,12 @@ export class PostProcessingPipeline {
       this.vignetteEffect,
       smaaEffect,
     );
-    this.composer.addPass(mainEffectPass);
+    this.composer.addPass(this.mainPass);
 
     // Chroma in its own pass - it's a convolution effect
-    const chromaPass = new EffectPass(camera, this.chromaAberration);
-    this.composer.addPass(chromaPass);
+    this.chromaPass = new EffectPass(camera, this.chromaAberration);
+    this.composer.addPass(this.chromaPass);
+    this.setChromaticAberration(0, 0);
   }
 
   render(deltaTime?: number): void {
@@ -141,6 +149,13 @@ export class PostProcessingPipeline {
 
   setChromaticAberration(x: number, y: number): void {
     this.chromaAberration.offset.set(x, y);
+    // A whole extra full-screen pass, so skip it when there is nothing to shift.
+    // The composer only marks the last added pass for the screen, so hand that over
+    // too, or a disabled chroma pass leaves the canvas black.
+    const on = x !== 0 || y !== 0;
+    this.chromaPass.enabled = on;
+    this.chromaPass.renderToScreen = on;
+    this.mainPass.renderToScreen = !on;
   }
 
   /** Toggle depth of field (gated by quality preset — off on Low for performance). */

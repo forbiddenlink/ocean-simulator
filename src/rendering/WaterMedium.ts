@@ -104,13 +104,16 @@ const waterMediumShader = /* glsl */ `
   const float SHAFT_RANGE = 55.0;
 
   // Low-frequency focusing pattern for the shafts: from a distance, caustic
-  // filaments integrate into streaks rather than a fine net.
+  // filaments integrate into streaks rather than a fine net. Mean 1 over the
+  // surface (measured: E[v^4] = 0.13), because the surface focuses sunlight,
+  // it does not add any.
   float shaftPattern(vec2 q, float t) {
     float a = sin(q.x * 0.55 + t * 0.35 + 1.6 * sin(q.y * 0.31 + t * 0.21));
     float b = sin(q.y * 0.5 - t * 0.29 + 1.6 * sin(q.x * 0.27 - t * 0.17));
     float c = sin((q.x - q.y) * 0.37 + t * 0.23);
     float v = clamp(a * b * 0.6 + c * 0.4, -1.0, 1.0) * 0.5 + 0.5;
-    return pow(v, 5.0) * 3.2;
+    float v2 = v * v;
+    return v2 * v2 * 7.7;
   }
 
   float phaseHG(float mu, float g) {
@@ -164,28 +167,30 @@ const waterMediumShader = /* glsl */ `
     float phase = 0.55 + 0.45 * phaseHG(mu, 0.45) * 0.35;
     vec3 inscatter = uMediumColor * sigma * column * lightAtCam * phase * uSunStrength;
 
-    // 4. Light shafts: march the ray through sunlight focused by the surface.
+    // 4. Light shafts. The same single scattering as step 3, except the sunlight at
+    //    each sample is focused or defocused by the surface (pattern mean 1). Only the
+    //    deviation from 1 is marched, so shafts move the water's own light into
+    //    streaks and leave its average colour alone instead of laying a pale veil.
     vec3 shafts = vec3(0.0);
     if (uShaftStrength > 0.001 && uSunStrength > 0.02) {
       float tMax = min(dist, SHAFT_RANGE);
       float dt = tMax / float(SHAFT_STEPS);
-      float jitter = ign(uv * resolution + fract(uTime * 7.31) * 113.0);
+      // Fixed per pixel: a jitter that changes every frame shimmers without TAA.
+      float jitter = ign(uv * resolution);
       vec3 acc = vec3(0.0);
       for (int i = 0; i < SHAFT_STEPS; i++) {
         float t = (float(i) + jitter) * dt;
         vec3 p = ro + rd * t;
         if (p.y > -0.2) continue;
-        float pathUp = -p.y / max(uSunDir.y, 0.15);
-        vec2 q = p.xz + uSunDir.xz * pathUp;
-        float beam = shaftPattern(q, uTime);
+        float depthP = -p.y;
+        vec2 q = p.xz + uSunDir.xz * (depthP / max(uSunDir.y, 0.15));
         // Focus is sharpest a few metres down and smears out with depth.
-        beam = mix(1.0, beam, exp(-max(-p.y - 2.0, 0.0) * 0.035));
-        acc += beam * exp(-kd * pathUp) * exp(-sigma * t) * dt;
+        float focus = (shaftPattern(q, uTime) - 1.0) * exp(-max(depthP - 2.0, 0.0) * 0.035);
+        acc += focus * exp(-kd * depthP) * exp(-sigma * t) * dt;
       }
-      float shaftPhase = 0.25 + phaseHG(mu, 0.62) * 0.5;
-      shafts = uShaftColor * sigma * acc * shaftPhase * uShaftStrength * uSunStrength;
-      // Remove the mean so shafts redistribute light instead of adding a second fog.
-      shafts = max(shafts - inscatter * 0.35 * uShaftStrength, vec3(0.0));
+      // Shafts are seen mostly looking toward the sun: extra forward lobe.
+      float shaftPhase = phase + 0.35 * phaseHG(mu, 0.7);
+      shafts = uMediumColor * uShaftColor * sigma * acc * shaftPhase * uShaftStrength * uSunStrength;
     }
 
     vec3 color;
@@ -196,6 +201,8 @@ const waterMediumShader = /* glsl */ `
     } else {
       color = surface * transmittance + inscatter + shafts;
     }
+    // Dark streaks between shafts subtract light; never below black.
+    color = max(color, vec3(0.0));
 
     outputColor = vec4(color * uExposure, inputColor.a);
   }

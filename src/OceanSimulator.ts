@@ -59,8 +59,8 @@ export class OceanSimulator {
     shaftStrength: 1.2,
     vignetteOffset: 0.35,
     vignetteDarkness: 0.35,
-    chromaX: 0.001,
-    chromaY: 0.0006,
+    chromaX: 0,
+    chromaY: 0,
 
     // Lighting
     ambientIntensity: 1.2,
@@ -208,7 +208,7 @@ export class OceanSimulator {
       'tropical-clear': {
         waterDensity: 0.6, shaftStrength: 0.9, mediumHex: 0x2fa6c4,
         bloomIntensity: 0.6, bloomThreshold: 0.8, exposure: 1.1,
-        vignetteOffset: 0.4, vignetteDarkness: 0.28, chromaX: 0.0008, chromaY: 0.0005,
+        vignetteOffset: 0.4, vignetteDarkness: 0.28, chromaX: 0, chromaY: 0,
         ambientIntensity: 0.25, sunIntensity: 2.6, hemiIntensity: 0.45, fillIntensity: 0.1,
         timeOfDay: 0.5,
       },
@@ -217,7 +217,7 @@ export class OceanSimulator {
       'inky-cinematic': {
         waterDensity: 1.0, shaftStrength: 1.2, mediumHex: 0x1a6a8c,
         bloomIntensity: 0.75, bloomThreshold: 0.85, exposure: 1.0,
-        vignetteOffset: 0.25, vignetteDarkness: 0.6, chromaX: 0.0012, chromaY: 0.0008,
+        vignetteOffset: 0.25, vignetteDarkness: 0.6, chromaX: 0, chromaY: 0,
         ambientIntensity: 0.15, sunIntensity: 2.4, hemiIntensity: 0.3, fillIntensity: 0.06,
         timeOfDay: 0.5,
       },
@@ -226,7 +226,7 @@ export class OceanSimulator {
       'bioluminescent': {
         waterDensity: 1.4, shaftStrength: 0.0, mediumHex: 0x0a3550,
         bloomIntensity: 1.6, bloomThreshold: 0.25, exposure: 1.15,
-        vignetteOffset: 0.16, vignetteDarkness: 0.82, chromaX: 0.0018, chromaY: 0.0012,
+        vignetteOffset: 0.16, vignetteDarkness: 0.82, chromaX: 0, chromaY: 0,
         ambientIntensity: 0.03, sunIntensity: 0.08, hemiIntensity: 0.03, fillIntensity: 0.12,
         timeOfDay: 0.02,
       },
@@ -747,7 +747,7 @@ export class OceanSimulator {
         choppiness: 2.0,
         amplitude: 2.0,
         pixelRatio: Math.min(window.devicePixelRatio, 1.5),
-        dof: true,
+        dof: false,
       },
       'high': {
         message: 'High quality (better visuals)',
@@ -783,7 +783,7 @@ export class OceanSimulator {
       this.renderEngine.setOceanParam('amplitude', config.amplitude);
 
       // Adjust renderer pixel ratio
-      this.renderEngine.renderer.setPixelRatio(config.pixelRatio);
+      this.renderEngine.setPixelRatioCap(config.pixelRatio);
 
       // Gate the expensive depth-of-field pass by preset.
       this.renderEngine.postProcessing.setDofEnabled(config.dof);

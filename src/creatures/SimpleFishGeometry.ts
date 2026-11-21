@@ -18,7 +18,9 @@ export type FishBodyType = typeof FishBodyType[keyof typeof FishBodyType];
 function createCurvedFin(
   points: THREE.Vector2[],
   thickness: number,
-  segments: number = 12
+  // Fins are a few pixels thick at schooling distance; one bevel step rounds the
+  // edge, and more multiplied the triangle count of every instanced fish.
+  segments: number = 8
 ): THREE.BufferGeometry {
   // Create a smooth shape from control points
   const shape = new THREE.Shape();
@@ -46,7 +48,7 @@ function createCurvedFin(
     bevelEnabled: true,
     bevelThickness: thickness * 0.3,
     bevelSize: thickness * 0.2,
-    bevelSegments: 3,
+    bevelSegments: 1,
     curveSegments: segments
   });
 
@@ -100,8 +102,8 @@ function createForkedTail(
     bevelEnabled: true,
     bevelThickness: thickness * 0.4,
     bevelSize: thickness * 0.3,
-    bevelSegments: 3,
-    curveSegments: 16
+    bevelSegments: 1,
+    curveSegments: 10
   });
 
   return geom;
@@ -141,8 +143,8 @@ function createSmoothDorsalFin(
     bevelEnabled: true,
     bevelThickness: thickness * 0.3,
     bevelSize: thickness * 0.2,
-    bevelSegments: 2,
-    curveSegments: 14
+    bevelSegments: 1,
+    curveSegments: 9
   });
 
   return geom;
@@ -176,8 +178,8 @@ function createLeafFin(
     bevelEnabled: true,
     bevelThickness: thickness * 0.4,
     bevelSize: thickness * 0.3,
-    bevelSegments: 2,
-    curveSegments: 14
+    bevelSegments: 1,
+    curveSegments: 9
   });
 
   return geom;
@@ -200,8 +202,10 @@ export class SimpleFishGeometry {
     width: number,
     kind: 'standard' | 'slender' | 'disc' | 'chunky'
   ): THREE.BufferGeometry {
-    const segments = 72;
-    const radial = 36;
+    // 40x24 keeps the silhouette smooth at close range; 72x36 cost 5k triangles a
+    // body, times several hundred instanced fish (plus their shadow pass).
+    const segments = 40;
+    const radial = 24;
     const positions: number[] = [];
     const normals: number[] = [];
     const indices: number[] = [];
@@ -447,9 +451,9 @@ export class SimpleFishGeometry {
   ): void {
     // Oversized slightly so eyes read at schooling distance
     const r = radius * 1.4;
-    const scleraGeom = new THREE.SphereGeometry(r, 18, 14);
-    const irisGeom = new THREE.SphereGeometry(r * 0.72, 14, 12);
-    const pupilGeom = new THREE.SphereGeometry(r * 0.38, 12, 10);
+    const scleraGeom = new THREE.SphereGeometry(r, 12, 8);
+    const irisGeom = new THREE.SphereGeometry(r * 0.72, 10, 6);
+    const pupilGeom = new THREE.SphereGeometry(r * 0.38, 8, 5);
 
     for (const side of [1, -1] as const) {
       const sclera = new THREE.Mesh(scleraGeom);

@@ -19,6 +19,10 @@ import { HuntVisualEvents } from '../systems/HuntVisualEvents';
 // Debug flag - set to true for development debugging
 const DEBUG = false;
 
+
+/** About 1080p worth of pixels; see budgetedPixelRatio. */
+const MAX_RENDER_PIXELS = 2_300_000;
+
 export class RenderingEngine {
   public scene: THREE.Scene;
   public camera: THREE.PerspectiveCamera;
@@ -49,6 +53,7 @@ export class RenderingEngine {
   private _viewDir = new THREE.Vector3();
   private _dofFocus = 16;
   private _sunStrength = 1;
+  private _pixelRatioCap = 2;
   private _sprayScratch = new THREE.Vector3();
   private _flashPos = new THREE.Vector3();
 
@@ -82,7 +87,7 @@ export class RenderingEngine {
       preserveDrawingBuffer: true, // Required for screenshots/toDataURL
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(this.budgetedPixelRatio());
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     
@@ -221,9 +226,28 @@ export class RenderingEngine {
     if (DEBUG) console.log('💡 Underwater lighting configured - blue-tinted for 30m depth');
   }
 
+  /**
+   * Pixel ratio that keeps the drawing buffer under MAX_RENDER_PIXELS. Every
+   * post pass is a full-screen read and write, so on a large window at native
+   * resolution the GPU spent most of each frame on bandwidth, not on the image.
+   */
+  private budgetedPixelRatio(): number {
+    const cssPixels = Math.max(1, window.innerWidth * window.innerHeight);
+    const budget = Math.sqrt(MAX_RENDER_PIXELS / cssPixels);
+    return Math.min(window.devicePixelRatio, this._pixelRatioCap, budget);
+  }
+
+  /** Quality presets set an upper bound; the pixel budget can still lower it. */
+  public setPixelRatioCap(cap: number): void {
+    this._pixelRatioCap = cap;
+    this.renderer.setPixelRatio(this.budgetedPixelRatio());
+    this.postProcessing.setSize(window.innerWidth, window.innerHeight);
+  }
+
   private onWindowResize(): void {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
+    this.renderer.setPixelRatio(this.budgetedPixelRatio());
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.postProcessing.setSize(window.innerWidth, window.innerHeight);
   }
@@ -357,6 +381,7 @@ export class RenderingEngine {
         const nightFactor = 1.0 - sunAngle; // 0 at noon, 1 at midnight
         const bioIntensity = 0.25 + nightFactor * 3.6; // ~0.25 noon → ~3.85 midnight
         this.bioluminescence.setIntensity(bioIntensity);
+        this.bioluminescence.setNightFactor(nightFactor);
       }
     }
     
