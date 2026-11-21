@@ -204,6 +204,7 @@ export class SeaAnemones {
       vertexColors: true,
       emissive: new THREE.Color(0xffffff),
     });
+    material.userData.noonEmissive = material.emissiveIntensity;
     this.applySwayShader(material);
 
     const mesh = new THREE.Mesh(merged, material);
@@ -260,6 +261,18 @@ vec3 tiltXZ(vec3 v, float ax, float az) {
       );
     };
     material.customProgramCacheKey = () => `anemone-sway-${material.transparent ? 't' : 'o'}`;
+  }
+
+  /**
+   * Sun strength, 1 = noon and 0 = night. The emissive term keeps the colonies readable in
+   * daylight fog; at night anemones do not glow, so it falls to a tenth.
+   */
+  setDaylight(strength: number): void {
+    const scale = THREE.MathUtils.lerp(0.1, 1, THREE.MathUtils.clamp(strength, 0, 1));
+    for (const mesh of this.meshes) {
+      const material = mesh.material as THREE.MeshPhysicalMaterial;
+      material.emissiveIntensity = (material.userData.noonEmissive as number) * scale;
+    }
   }
 
   update(deltaTime: number): void {

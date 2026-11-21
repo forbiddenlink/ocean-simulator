@@ -19,6 +19,8 @@ export class KelpForest {
   private holdfastMesh?: THREE.InstancedMesh;
   private bladderMesh?: THREE.InstancedMesh;
   private readonly timeUniform = { value: 0 };
+  /** Sun strength, 1 = noon and 0 = night. */
+  private readonly daylightUniform = { value: 1 };
 
   constructor(scene: THREE.Scene, floorY: number, count: number = 70) {
     this.scene = scene;
@@ -192,6 +194,7 @@ export class KelpForest {
 
     material.onBeforeCompile = (shader) => {
       shader.uniforms.uKelpTime = this.timeUniform;
+      shader.uniforms.uKelpDaylight = this.daylightUniform;
 
       shader.vertexShader = shader.vertexShader.replace(
         '#include <common>',
@@ -218,6 +221,7 @@ varying float vKelpTip;`
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <common>',
         `#include <common>
+uniform float uKelpDaylight;
 varying float vKelpTip;`
       );
       shader.fragmentShader = shader.fragmentShader.replace(
@@ -226,6 +230,8 @@ varying float vKelpTip;`
 {
   float tip = pow(clamp(vKelpTip, 0.0, 1.0), 1.6);
   totalEmissiveRadiance += diffuseColor.rgb * tip * 0.4;
+  // Both terms stand in for sunlight through the blades, so they fade with the sun.
+  totalEmissiveRadiance *= mix(0.06, 1.0, uKelpDaylight);
 }`
       );
     };
@@ -273,6 +279,11 @@ varying float vKelpTip;`
     mesh.instanceMatrix.needsUpdate = true;
     this.bladderMesh = mesh;
     this.scene.add(mesh);
+  }
+
+  /** Sun strength, 1 = noon and 0 = night. Fades the light the blades pass through. */
+  public setDaylight(strength: number): void {
+    this.daylightUniform.value = THREE.MathUtils.clamp(strength, 0, 1);
   }
 
   public update(deltaTime: number): void {
