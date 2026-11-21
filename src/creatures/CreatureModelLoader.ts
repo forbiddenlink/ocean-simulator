@@ -65,16 +65,32 @@ export class CreatureModelLoader {
   static async preload(
     entries: Record<string, CreatureModelEntry>
   ): Promise<Map<string, CreatureModel>> {
+    const urls: Record<string, string> = {};
+    for (const [key, entry] of Object.entries(entries)) urls[key] = entry.url;
+    const templates = await CreatureModelLoader.loadTemplates(urls);
     const out = new Map<string, CreatureModel>();
+    for (const [key, template] of templates) {
+      const entry = entries[key];
+      out.set(key, { template, length: entry.length, swim: entry.swim });
+    }
+    return out;
+  }
+
+  /**
+   * Load each file as a template: meshes in model space, nose at x = -0.5, unit length
+   * along X. A missing or broken file is skipped with a warning.
+   */
+  static async loadTemplates(urls: Record<string, string>): Promise<Map<string, THREE.Group>> {
+    const out = new Map<string, THREE.Group>();
     const loader = new GLTFLoader();
     await Promise.all(
-      Object.entries(entries).map(async ([key, entry]) => {
+      Object.entries(urls).map(async ([key, url]) => {
         try {
-          const gltf = await loader.loadAsync(entry.url);
+          const gltf = await loader.loadAsync(url);
           const template = CreatureModelLoader.normalize(gltf.scene);
-          if (template) out.set(key, { template, length: entry.length, swim: entry.swim });
+          if (template) out.set(key, template);
         } catch (err) {
-          console.warn(`[creature-models] failed to load "${key}" from ${entry.url}`, err);
+          console.warn(`[creature-models] failed to load "${key}" from ${url}`, err);
         }
       })
     );
