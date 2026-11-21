@@ -40,6 +40,7 @@ export function litMaterial(material: THREE.Material): THREE.Material {
     name: basic.name,
     map: basic.map,
     color: basic.color,
+    vertexColors: basic.vertexColors,
     side: basic.side,
     transparent: basic.transparent,
     opacity: basic.opacity,
