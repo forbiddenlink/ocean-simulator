@@ -19,7 +19,7 @@ import { WaterMediumEffect } from './WaterMedium';
 
 /**
  * Cinematic underwater post-processing pipeline.
- * Chain: Render -> DOF -> [WaterMedium + Bloom + ToneMap + Grain + Vignette + SMAA] -> Chroma.
+ * Chain: Render -> DOF -> [WaterMedium + Bloom + ToneMap + Grain + Vignette] -> SMAA -> Chroma.
  */
 export class PostProcessingPipeline {
   private composer: EffectComposer;
@@ -31,6 +31,7 @@ export class PostProcessingPipeline {
   private dofEffect: DepthOfFieldEffect;
   private dofPass: EffectPass;
   private mainPass: EffectPass;
+  private smaaPass: EffectPass;
   private chromaPass: EffectPass;
 
   constructor(
@@ -111,9 +112,16 @@ export class PostProcessingPipeline {
       toneMappingEffect,
       this.grainEffect,
       this.vignetteEffect,
-      smaaEffect,
     );
     this.composer.addPass(this.mainPass);
+
+    // SMAA in its own pass, after the water. An EffectPass runs convolution effects
+    // first, so merged into the main pass it blended each edge pixel with its
+    // neighbours before the water medium read that pixel's depth. Along every far edge
+    // a pixel with open-water depth picked up lit sand or surface colour, which the
+    // open-water branch adds unfogged: a dashed bright line across the horizon.
+    this.smaaPass = new EffectPass(camera, smaaEffect);
+    this.composer.addPass(this.smaaPass);
 
     // Chroma in its own pass - it's a convolution effect
     this.chromaPass = new EffectPass(camera, this.chromaAberration);
@@ -155,7 +163,7 @@ export class PostProcessingPipeline {
     const on = x !== 0 || y !== 0;
     this.chromaPass.enabled = on;
     this.chromaPass.renderToScreen = on;
-    this.mainPass.renderToScreen = !on;
+    this.smaaPass.renderToScreen = !on;
   }
 
   /** Toggle depth of field (gated by quality preset — off on Low for performance). */
