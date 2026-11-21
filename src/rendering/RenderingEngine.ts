@@ -149,7 +149,7 @@ export class RenderingEngine {
       this.fftOcean = this.createFFTOcean();
 
       // Add foam and spray for FFT ocean
-      this.foamSystem = new FoamSystem(this.scene, 1500);
+      this.foamSystem = new FoamSystem(this.scene, this.fftOcean.getOceanSize());
       this.sprayParticles = new SprayParticles(this.scene, 2000);
     } else {
       this.highFidelityWater = new HighFidelityWater(this.scene, this.sunLight);

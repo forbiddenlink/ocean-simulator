@@ -14,12 +14,15 @@ export class FoamSystem {
   private foamMaterial: THREE.ShaderMaterial;
   private foamMesh: THREE.Mesh;
   private time: number = 0;
+  /** Side length the geometry was built with; the mesh is scaled from it. */
+  private readonly baseSize: number;
 
   constructor(scene: THREE.Scene, oceanSize: number = 1000) {
     this.scene = scene;
 
     this.foamMaterial = this.createFoamMaterial(oceanSize);
 
+    this.baseSize = oceanSize;
     const geometry = new THREE.PlaneGeometry(oceanSize, oceanSize, 128, 128);
     geometry.rotateX(-Math.PI / 2);
 
@@ -177,6 +180,10 @@ export class FoamSystem {
     this.foamMaterial.uniforms.hasWaterHeight.value = texture ? 1.0 : 0.0;
     if (oceanSize !== undefined) {
       this.foamMaterial.uniforms.oceanSize.value = oceanSize;
+      // Foam must not reach past the ocean. Out there it has no surface behind it, so from
+      // below it lands on open-water pixels, which the water fog skips.
+      const scale = oceanSize / this.baseSize;
+      this.foamMesh.scale.set(scale, 1, scale);
     }
   }
 
