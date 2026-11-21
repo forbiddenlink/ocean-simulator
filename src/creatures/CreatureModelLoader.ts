@@ -28,6 +28,30 @@ export interface CreatureModel {
 }
 
 /**
+ * Photogrammetry scans ship as unlit (KHR_materials_unlit) because the photo already holds
+ * the studio lighting. Under water they must take the scene's light, depth colour and
+ * caustics like everything else, so unlit materials become lit ones that keep the same
+ * texture. Other materials are returned unchanged.
+ */
+export function litMaterial(material: THREE.Material): THREE.Material {
+  const basic = material as THREE.MeshBasicMaterial;
+  if (!basic.isMeshBasicMaterial) return material;
+  const lit = new THREE.MeshStandardMaterial({
+    name: basic.name,
+    map: basic.map,
+    color: basic.color,
+    side: basic.side,
+    transparent: basic.transparent,
+    opacity: basic.opacity,
+    alphaTest: basic.alphaTest,
+    roughness: 0.6,
+    metalness: 0,
+  });
+  basic.dispose();
+  return lit;
+}
+
+/**
  * Loads the scanned creature models in `public/models/`.
  *
  * The models are prepared offline in Blender (decimated, nose turned to -X, textures
@@ -57,30 +81,6 @@ export class CreatureModelLoader {
     return out;
   }
 
-  /**
-   * Photogrammetry scans ship as unlit (KHR_materials_unlit) because the photo already
-   * holds the studio lighting. Under water they must take the scene's light, depth
-   * colour and caustics like everything else, so unlit materials become lit ones that
-   * keep the same texture.
-   */
-  private static litMaterial(material: THREE.Material): THREE.Material {
-    const basic = material as THREE.MeshBasicMaterial;
-    if (!basic.isMeshBasicMaterial) return material;
-    const lit = new THREE.MeshStandardMaterial({
-      name: basic.name,
-      map: basic.map,
-      color: basic.color,
-      side: basic.side,
-      transparent: basic.transparent,
-      opacity: basic.opacity,
-      alphaTest: basic.alphaTest,
-      roughness: 0.6,
-      metalness: 0,
-    });
-    basic.dispose();
-    return lit;
-  }
-
   /** Flatten the scene into identity-transform meshes, centered, unit length along X. */
   private static normalize(root: THREE.Object3D): THREE.Group | null {
     root.updateMatrixWorld(true);
@@ -91,8 +91,8 @@ export class CreatureModelLoader {
       const geometry = mesh.geometry.clone();
       geometry.applyMatrix4(mesh.matrixWorld);
       const material = Array.isArray(mesh.material)
-        ? mesh.material.map(CreatureModelLoader.litMaterial)
-        : CreatureModelLoader.litMaterial(mesh.material);
+        ? mesh.material.map(litMaterial)
+        : litMaterial(mesh.material);
       parts.push(new THREE.Mesh(geometry, material));
     });
     if (parts.length === 0) return null;
