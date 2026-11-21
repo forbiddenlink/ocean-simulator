@@ -178,8 +178,15 @@ const waterMediumShader = /* glsl */ `
     // 3. Single-scattered sunlight along the ray, closed form. Light at ray point t is
     //    exp(-kd * depth(t)); depth changes linearly with t, so the integral is analytic.
     //    Looking up (rd.y > 0) the water gets brighter, looking down it falls into blue-black.
-    vec3 a = max(sigma - kd * rd.y, vec3(1e-4));
-    vec3 column = (1.0 - exp(-a * dist)) / a;
+    //    Looking up, the light can grow along the ray faster than the water absorbs it, so
+    //    the coefficient can be negative. Keep its sign, take the limit dist only near zero,
+    //    and stop the ray at the surface so the growing term stays bounded.
+    float waterDist = rd.y > 1e-4 ? min(dist, camDepth / rd.y) : dist;
+    vec3 a = sigma - kd * rd.y;
+    vec3 nearZero = step(abs(a), vec3(1e-4));
+    // Divide by 1 where a is near zero: dividing by zero gives NaN, which mix() keeps.
+    vec3 aSafe = mix(a, vec3(1.0), nearZero);
+    vec3 column = mix((1.0 - exp(-aSafe * waterDist)) / aSafe, vec3(waterDist), nearZero);
     vec3 lightAtCam = exp(-kd * camDepth);
     float mu = dot(rd, uSunDir);
     float phase = 0.55 + 0.45 * phaseHG(mu, 0.45) * 0.35;

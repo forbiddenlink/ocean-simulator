@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { SKY_DEPTH } from '../rendering/WaterMedium'
+import { SKY_DEPTH, WaterMediumEffect } from '../rendering/WaterMedium'
 
 /** Depth-buffer value (0..1) the GPU writes for a point straight ahead at `distance`. */
 function bufferDepth(camera: THREE.PerspectiveCamera, distance: number): number {
@@ -25,5 +25,23 @@ describe('WaterMedium open-water test', () => {
   it('treats the far plane and the cleared background as open water', () => {
     expect(bufferDepth(camera, 1000)).toBeGreaterThanOrEqual(SKY_DEPTH)
     expect(1.0).toBeGreaterThanOrEqual(SKY_DEPTH)
+  })
+})
+
+describe('WaterMedium single scattering', () => {
+  const shader = new WaterMediumEffect().getFragmentShader()
+
+  it('keeps the sign of the attenuation coefficient', () => {
+    // Looking up, the light grows along the ray faster than the water absorbs it in the red
+    // channel, so the coefficient is negative. Clamping it to a tiny positive value changes
+    // the integral; only a near-zero coefficient takes the limiting value.
+    expect(shader).not.toMatch(/max\(sigma - kd \* rd\.y, vec3\(1e-4\)\)/)
+    expect(shader).toMatch(/abs\(a\)/)
+  })
+
+  it('integrates only the part of the ray that is under water', () => {
+    // With a negative coefficient the integrand grows along the ray, so a ray that leaves
+    // through the surface must stop there.
+    expect(shader).toMatch(/camDepth \/ /)
   })
 })
