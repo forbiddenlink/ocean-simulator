@@ -79,10 +79,17 @@ appear only when their scan loads.
 | `critters/balloonfish.glb` | pufferfish | Porcupinefish (*Diodon hystrix*) | [Sketchfab](https://sketchfab.com/3d-models/diodon-hystrix-6fc8b7bf018845ab84e56ea6ea0c0e94) | Smithsonian Institution | CC0 |
 | `critters/cowfish.glb` | (new) | Longhorn cowfish (*Lactoria cornuta*) | [Sketchfab](https://sketchfab.com/3d-models/longhorn-cowfish-abe1ac6f043840b1936012b83b4a19a1) | RISD Nature Lab | CC BY 4.0 |
 | `critters/seahorse.glb` | seahorse | Seahorse | [Sketchfab](https://sketchfab.com/3d-models/seahorse-0f47172461f64588af96f8380d38db4f) | RISD Nature Lab | CC BY 4.0 |
+| `critters/moray.glb` | eel | Brutal moray (*Gymnothorax kidako*) | [Sketchfab](https://sketchfab.com/3d-models/cc0-brutal-moray-gymnothorax-kidako-f7b2e7e06e454392bf7d7ab739658d57) | ffish.asia / floraZia.com | CC0 |
+| `critters/lobster.glb` | lobster | Japanese spiny lobster (*Panulirus japonicus*) | [Sketchfab](https://sketchfab.com/3d-models/cc0-japanese-spiny-lobster-p-japonicus-56a178ef439c413199551554e430b7c3) | ffish.asia / floraZia.com | CC0 |
+| `critters/squid.glb` | squid | Bigfin reef squid (*Sepioteuthis lessoniana*) | [Sketchfab](https://sketchfab.com/3d-models/cc0-bigfin-reef-squid-s-lessoniana-8457fc5fb9bc4db8a00fdec43a3f4456) | ffish.asia / floraZia.com | CC0 |
+| `critters/nautilus.glb` | nautilus | Chambered nautilus (*Nautilus pompilius*), shell | [Sketchfab](https://sketchfab.com/3d-models/cephalopod-nautilus-pompilius-pri-70573-ff2344351c384ee4be2adb73c22250e7) | Digital Atlas of Ancient Life | CC0 |
+| `critters/nudibranch.glb` | nudibranch | *Felimida britoi* | [Sketchfab](https://sketchfab.com/3d-models/felimida-britoi-c5b4b517ef5643d5915289e49aeb4daa) | Israel Fernández | CC BY 4.0 |
+| `critters/seacucumber.glb` | seacucumber | Japanese common sea cucumber | [Sketchfab](https://sketchfab.com/3d-models/cc0-japanese-common-sea-cucumber-c8fcb7b084df432c9d5765eee264ee02) | ffish.asia / floraZia.com | CC0 |
+| `reef/tridacna.glb` | giantclam | Boring clam (*Tridacna crocea*), reused from the reef props | see Reef props | ffish.asia / floraZia.com | CC0 |
 
 The CC BY files were modified: decimated, re-oriented, rescaled, and textures downsized.
-A lobster scan was tried and dropped: it was fused to its display tray and could not be
-separated cleanly, so lobsters stay procedural.
+The nautilus scan is an empty museum shell, tipped so its opening leads as it swims. The
+angler, sea snake, and comb jelly stay procedural.
 
 # School fish
 

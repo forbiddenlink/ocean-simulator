@@ -1217,4 +1217,13 @@ export const CRITTER_MODELS: Record<string, CritterModelSpec & { url: string }> 
   pufferfish: { url: '/models/critters/balloonfish.glb' },
   seahorse: { url: '/models/critters/seahorse.glb', upright: true },
   cowfish: { url: '/models/critters/cowfish.glb' },
+  // Reuses the reef prop scan (Tridacna crocea); it is already up +Y with its base at y = 0.
+  giantclam: { url: '/models/reef/tridacna.glb', floor: true },
+  // The scan is a straight moray, so it lies along the reef rather than rising out of it.
+  eel: { url: '/models/critters/moray.glb', floor: true },
+  lobster: { url: '/models/critters/lobster.glb', floor: true },
+  squid: { url: '/models/critters/squid.glb' },
+  nautilus: { url: '/models/critters/nautilus.glb' },
+  nudibranch: { url: '/models/critters/nudibranch.glb', floor: true },
+  seacucumber: { url: '/models/critters/seacucumber.glb', floor: true },
 };
