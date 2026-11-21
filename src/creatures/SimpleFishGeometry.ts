@@ -224,15 +224,16 @@ export class SimpleFishGeometry {
         yMul = 0.85;
         zMul = 0.7;
       } else if (kind === 'disc') {
-        if (t < 0.2) profile = 0.35 + (t / 0.2) * 0.65;
-        else if (t < 0.72) profile = 1.0;
-        else profile = Math.pow(1 - (t - 0.72) / 0.28, 0.85);
+        // Near-round side profile (angelfish / butterflyfish). The old linear ramps
+        // plus a flat plateau drew a hexagon outline that read as a hex nut, not a fish.
+        profile = Math.pow(Math.sin(Math.PI * Math.min(t, 0.999)), 0.55);
         yMul = 1.35;
         zMul = 0.45;
       } else if (kind === 'chunky') {
-        if (t < 0.22) profile = 0.4 + (t / 0.22) * 0.6;
-        else if (t < 0.62) profile = 1.0;
-        else profile = 0.95 * Math.pow(1 - (t - 0.62) / 0.38, 1.1);
+        // Smooth shoulders and taper; linear ramps and the 1.0 -> 0.95 step creased the hull.
+        if (t < 0.22) profile = 0.4 + Math.sin((t / 0.22) * Math.PI * 0.5) * 0.6;
+        else if (t < 0.5) profile = 1.0;
+        else profile = Math.pow(Math.cos(((t - 0.5) / 0.5) * Math.PI * 0.5), 0.9);
         yMul = 1.15;
         zMul = 1.05;
       } else {

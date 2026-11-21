@@ -126,37 +126,19 @@ export class JellyfishGeometry {
     // Create dome-shaped bell
     let geometry: THREE.BufferGeometry;
     
-    if (species === 'box') {
-      // Box jellyfish has more cubic bell
-      geometry = new THREE.BoxGeometry(size, size * proportions.bellHeight, size);
-      // Round the edges
-      const positionAttribute = geometry.getAttribute('position');
-      for (let i = 0; i < positionAttribute.count; i++) {
-        const x = positionAttribute.getX(i);
-        const y = positionAttribute.getY(i);
-        const z = positionAttribute.getZ(i);
-        const factor = 0.7;
-        positionAttribute.setXYZ(
-          i,
-          x * factor,
-          y,
-          z * factor
-        );
-      }
-      geometry.computeVertexNormals();
-    } else {
-      // Most jellyfish have dome-shaped bells
-      geometry = new THREE.SphereGeometry(
-        size / 2,
-        48,
-        40,
-        0,
-        Math.PI * 2,
-        0,
-        Math.PI * proportions.bellRoundness
-      );
-    }
-    
+    // Dome bell for every species. Box jellies get a taller, squarer-shouldered dome;
+    // the old BoxGeometry read as a faceted lantern from any distance.
+    geometry = new THREE.SphereGeometry(
+      size / 2,
+      48,
+      40,
+      0,
+      Math.PI * 2,
+      0,
+      Math.PI * (species === 'box' ? 0.55 : proportions.bellRoundness)
+    );
+    if (species === 'box') geometry.scale(1, 1.5, 1);
+
     const material = new THREE.MeshPhysicalMaterial({
       color: colors.bell,
       transparent: true,
@@ -169,7 +151,7 @@ export class JellyfishGeometry {
       // Bioluminescent self-glow — without emissive the bell was a flat pale disc in
       // the dim deep. This makes it a luminous, cinematic jelly that reads as alive.
       emissive: new THREE.Color(colors.biolum),
-      emissiveIntensity: 1.35,
+      emissiveIntensity: 0.6,
     });
 
     // Fresnel edge glow: brighten the rim of the bell (classic backlit-jelly look).

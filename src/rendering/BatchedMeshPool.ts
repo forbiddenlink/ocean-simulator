@@ -753,7 +753,7 @@ diffuseColor.rgb = patterned;
           transparent: true,
           opacity: 0.45,          // Very see-through
           emissive: new THREE.Color(0x6699cc),
-          emissiveIntensity: 2.4, // Strong bioluminescent glow for night look
+          emissiveIntensity: 0.9, // Soft self-glow; bloom carries it at night
 
           side: THREE.DoubleSide,
           depthWrite: false,      // Proper transparency sorting
