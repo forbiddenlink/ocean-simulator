@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.11...v1.1.0) (2026-11-22)
+
+
+### Features
+
+* physical water medium, scanned creatures and adaptive render scale ([#114](https://github.com/forbiddenlink/ocean-simulator/issues/114)) ([b098492](https://github.com/forbiddenlink/ocean-simulator/commit/b098492f4da15e76d485978790b45c12b71bba3f))
+
+
+### Bug Fixes
+
+* **render:** extract bloom highlights from the scene as the water shows it ([#116](https://github.com/forbiddenlink/ocean-simulator/issues/116)) ([8d900bb](https://github.com/forbiddenlink/ocean-simulator/commit/8d900bb11adc0197946599e39be8f3f77bc79a49))
+
 ## [1.0.11](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.10...v1.0.11) (2026-11-15)
 
 
