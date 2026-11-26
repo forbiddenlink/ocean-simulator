@@ -264,6 +264,41 @@ export class UIManager {
         flex: none;
         opacity: 0.7;
       }
+
+      /* Phone widths: the four corner panels and the lil-gui debug panel overlap and
+         cover the scene below ~720px. Keep a compact stats strip at the top and one
+         environment sheet at the bottom; drop the feature list, the per-species rows,
+         the keyboard legend on touch screens, and the debug GUI. Inline panel styles
+         set position, so these rules need !important. */
+      @media (max-width: 720px) {
+        #ocean-ui .op { padding: 10px 12px; }
+        #ocean-ui #info-panel { display: none; }
+        #ocean-ui #stats-panel {
+          top: 10px !important; left: 10px !important; right: 10px !important;
+          width: auto !important;
+          display: flex; align-items: center; gap: 14px;
+        }
+        #ocean-ui #stats-panel .op-eyebrow,
+        #ocean-ui #stats-panel .op-total { margin: 0; }
+        #ocean-ui #stats-panel .op-eyebrow::after { display: none; }
+        #ocean-ui #stats-panel .stat-grid { display: none; }
+        #ocean-ui #stats-panel .op-split { margin: 0; padding: 0; border: 0; flex: 1; }
+        #ocean-ui #controls-panel {
+          left: 10px !important; bottom: 10px !important; width: 130px !important;
+        }
+        #ocean-ui #ocean-panel {
+          right: 10px !important; bottom: 10px !important;
+          left: 150px !important; width: auto !important;
+          max-height: 42vh !important;
+        }
+        #ocean-ui #stats-panel .op-total .l { display: none; }
+        .lil-gui.lil-root { display: none !important; }
+      }
+      @media (max-width: 720px) and (pointer: coarse) {
+        #ocean-ui #controls-panel .keys { display: none; }
+        #ocean-ui #controls-panel .keys + div { margin-top: 0 !important; padding-top: 0 !important; border-top: 0 !important; }
+        #ocean-ui #controls-panel .op-eyebrow { display: none; }
+      }
     `;
     document.head.appendChild(style);
   }
