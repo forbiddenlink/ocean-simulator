@@ -20,6 +20,28 @@ export function clampToSwimVolume(position: THREE.Vector3): void {
   position.y = Math.max(floor, Math.min(SURFACE_LIMIT, position.y));
 }
 
+/** Finger travel, in CSS pixels, that gives full swim speed on a two-finger drag. */
+const TOUCH_SWIM_RADIUS = 80;
+/** Finger travel ignored around the start point so a resting hand does not drift. */
+const TOUCH_DEADZONE = 0.15;
+
+/**
+ * Converts how far a two-finger drag has moved from where it started into a swim axis.
+ * Dragging up swims forward, down swims back, sideways strafes. Each axis is in [-1, 1].
+ */
+export function touchSwimAxis(dx: number, dy: number): { forward: number; strafe: number } {
+  const axis = (v: number): number => {
+    const n = Math.max(-1, Math.min(1, v / TOUCH_SWIM_RADIUS));
+    return Math.abs(n) < TOUCH_DEADZONE ? 0 : n;
+  };
+  return { forward: axis(-dy), strafe: axis(dx) };
+}
+
+/** Touches that start on a HUD panel or the debug GUI belong to the UI, not the camera. */
+function isUiTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('#ocean-ui .op, .lil-gui') !== null;
+}
+
 export class CameraController {
   private camera: THREE.PerspectiveCamera;
   private moveSpeed: number = 5.0;
@@ -55,12 +77,20 @@ export class CameraController {
   private cinematicLookCurve?: THREE.CatmullRomCurve3;
   private _look: THREE.Vector3 = new THREE.Vector3();
 
+  // Touch: one finger looks, two fingers swim.
+  private touchLookId: number | null = null;
+  private touchSwimStart: { x: number; y: number } | null = null;
+  private touchSwim = { forward: 0, strafe: 0 };
+
   // Bound event handlers for proper cleanup
   private boundOnKeyDown: (e: KeyboardEvent) => void;
   private boundOnKeyUp: (e: KeyboardEvent) => void;
   private boundOnMouseDown: (e: MouseEvent) => void;
   private boundOnMouseUp: () => void;
   private boundOnMouseMove: (e: MouseEvent) => void;
+  private boundOnTouchStart: (e: TouchEvent) => void;
+  private boundOnTouchMove: (e: TouchEvent) => void;
+  private boundOnTouchEnd: (e: TouchEvent) => void;
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
@@ -99,7 +129,65 @@ export class CameraController {
       }
     };
 
+    this.boundOnTouchStart = (e: TouchEvent) => this.onTouchStart(e);
+    this.boundOnTouchMove = (e: TouchEvent) => this.onTouchMove(e);
+    this.boundOnTouchEnd = (e: TouchEvent) => this.onTouchEnd(e);
+
     this.setupEventListeners();
+  }
+
+  private centroid(touches: TouchList): { x: number; y: number } {
+    let x = 0;
+    let y = 0;
+    for (let i = 0; i < touches.length; i++) {
+      x += touches[i].clientX;
+      y += touches[i].clientY;
+    }
+    return { x: x / touches.length, y: y / touches.length };
+  }
+
+  private onTouchStart(e: TouchEvent): void {
+    if (isUiTarget(e.target)) return;
+    if (this.cinematicActive) this.stopCinematic();
+    if (e.touches.length >= 2) {
+      this.touchLookId = null;
+      this.touchSwimStart = this.centroid(e.touches);
+      this.touchSwim = { forward: 0, strafe: 0 };
+    } else {
+      const t = e.touches[0];
+      this.touchLookId = t.identifier;
+      this.lastMouseX = t.clientX;
+      this.lastMouseY = t.clientY;
+    }
+    e.preventDefault();
+  }
+
+  private onTouchMove(e: TouchEvent): void {
+    if (this.touchSwimStart && e.touches.length >= 2) {
+      const c = this.centroid(e.touches);
+      this.touchSwim = touchSwimAxis(c.x - this.touchSwimStart.x, c.y - this.touchSwimStart.y);
+      e.preventDefault();
+      return;
+    }
+    if (this.touchLookId === null) return;
+    for (let i = 0; i < e.touches.length; i++) {
+      const t = e.touches[i];
+      if (t.identifier !== this.touchLookId) continue;
+      this.yaw -= (t.clientX - this.lastMouseX) * this.rotateSpeed * 1.5;
+      this.pitch += (t.clientY - this.lastMouseY) * this.rotateSpeed * 1.5;
+      this.pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.pitch));
+      this.lastMouseX = t.clientX;
+      this.lastMouseY = t.clientY;
+      e.preventDefault();
+    }
+  }
+
+  private onTouchEnd(e: TouchEvent): void {
+    if (e.touches.length < 2) {
+      this.touchSwimStart = null;
+      this.touchSwim = { forward: 0, strafe: 0 };
+    }
+    if (e.touches.length === 0) this.touchLookId = null;
   }
 
   private setupEventListeners(): void {
@@ -108,6 +196,11 @@ export class CameraController {
     window.addEventListener('mousedown', this.boundOnMouseDown);
     window.addEventListener('mouseup', this.boundOnMouseUp);
     window.addEventListener('mousemove', this.boundOnMouseMove);
+    // passive: false so preventDefault stops the page from scrolling or zooming.
+    window.addEventListener('touchstart', this.boundOnTouchStart, { passive: false });
+    window.addEventListener('touchmove', this.boundOnTouchMove, { passive: false });
+    window.addEventListener('touchend', this.boundOnTouchEnd);
+    window.addEventListener('touchcancel', this.boundOnTouchEnd);
   }
 
   /**
@@ -199,10 +292,13 @@ export class CameraController {
     if (this.keys.has('a')) this._velocity.sub(this._right);
     if (this.keys.has('e')) this._velocity.add(this._up);
     if (this.keys.has('q')) this._velocity.sub(this._up);
-
+    if (this.touchSwim.forward) this._velocity.addScaledVector(this._forward, this.touchSwim.forward);
+    if (this.touchSwim.strafe) this._velocity.addScaledVector(this._right, this.touchSwim.strafe);
 
     if (this._velocity.length() > 0) {
-      this._velocity.normalize().multiplyScalar(this.moveSpeed * deltaTime);
+      // Keys give full speed; a partial two-finger drag gives partial speed.
+      const throttle = Math.min(1, this._velocity.length());
+      this._velocity.normalize().multiplyScalar(this.moveSpeed * deltaTime * throttle);
       this.camera.position.add(this._velocity);
 
       clampToSwimVolume(this.camera.position);
@@ -219,5 +315,9 @@ export class CameraController {
     window.removeEventListener('mousedown', this.boundOnMouseDown);
     window.removeEventListener('mouseup', this.boundOnMouseUp);
     window.removeEventListener('mousemove', this.boundOnMouseMove);
+    window.removeEventListener('touchstart', this.boundOnTouchStart);
+    window.removeEventListener('touchmove', this.boundOnTouchMove);
+    window.removeEventListener('touchend', this.boundOnTouchEnd);
+    window.removeEventListener('touchcancel', this.boundOnTouchEnd);
   }
 }
