@@ -118,13 +118,12 @@ export class OceanSimulator {
     this.debugGui = new GUI({ title: 'Ocean Simulator Debug', closeFolders: true });
     this.debugGui.close(); // Start collapsed so ocean is visible
     
-    // Style the debug GUI to prevent HUD conflicts
-    const guiContainer = this.debugGui.domElement.parentElement;
-    if (guiContainer) {
-      guiContainer.style.zIndex = '900'; // Below custom UI panels (z-index: 1000)
-      guiContainer.style.top = '280px';  // Below info panel
-      guiContainer.style.right = '20px';
-    }
+    // Place the debug GUI below the top-right info panel. The styles go on the GUI's own
+    // element: its parent is <body>, so styling the parent never moved the panel.
+    const guiEl = this.debugGui.domElement;
+    guiEl.style.zIndex = '900'; // Below custom UI panels (z-index: 1000)
+    guiEl.style.top = '240px';  // Below info panel
+    guiEl.style.right = '22px';
     
     this.setupDebugGui();
 
