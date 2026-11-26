@@ -294,9 +294,11 @@ export class UIManager {
         #ocean-ui #stats-panel .op-total .l { display: none; }
         .lil-gui.lil-root { display: none !important; }
       }
+      #ocean-ui .touch-hint { display: none; margin: 0 0 8px; font-size: 11px; line-height: 1.35; color: #9fb9c1; }
+      @media (pointer: coarse) { #ocean-ui .touch-hint { display: block; } }
       @media (max-width: 720px) and (pointer: coarse) {
         #ocean-ui #controls-panel .keys { display: none; }
-        #ocean-ui #controls-panel .keys + div { margin-top: 0 !important; padding-top: 0 !important; border-top: 0 !important; }
+        #ocean-ui #controls-panel .keys ~ div { margin-top: 0 !important; padding-top: 0 !important; border-top: 0 !important; }
         #ocean-ui #controls-panel .op-eyebrow { display: none; }
       }
     `;
@@ -365,6 +367,7 @@ export class UIManager {
         <div><kbd>Mouse</kbd> Look</div>
         <div><kbd>H</kbd> Hide interface</div>
       </div>
+      <p class="touch-hint">Drag to look. Two fingers to swim.</p>
       <div style="display: grid; gap: 7px; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--line);">
         <button id="btn-pause" class="op-btn">Pause</button>
         <button id="btn-speed" class="op-btn">Speed &middot; 1&times;</button>
