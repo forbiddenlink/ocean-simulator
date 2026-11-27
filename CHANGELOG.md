@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/forbiddenlink/ocean-simulator/compare/v1.2.0...v1.2.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* **hud:** stop loading label colliding with counters, refresh stats on wall clock; feat: capture photo ([#123](https://github.com/forbiddenlink/ocean-simulator/issues/123)) ([8d44ff7](https://github.com/forbiddenlink/ocean-simulator/commit/8d44ff71ff8351f3b15cef1ec96fd1730ce48cc1))
+
 ## [1.2.0](https://github.com/forbiddenlink/ocean-simulator/compare/v1.1.0...v1.2.0) (2026-11-27)
 
 
