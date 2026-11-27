@@ -16,6 +16,8 @@ import { createPopulationSystem } from './systems/PopulationSystem';
 import { createOceanCurrentsSystem } from './systems/OceanCurrentsSystem';
 import { createBiomechanicalAnimationSystem } from './systems/BiomechanicalAnimationSystem';
 import { UIManager } from './ui/UIManager';
+import { shouldRefreshStats } from './ui/hudState';
+import { canvasToPngBlob, deliverPhoto } from './ui/photoCapture';
 import { FIRA, SchoolLeader } from './components/Behavior';
 import GUI from 'lil-gui';
 
@@ -39,7 +41,8 @@ export class OceanSimulator {
   private populationSystem: ReturnType<typeof createPopulationSystem>;
   private oceanCurrentsSystem: ReturnType<typeof createOceanCurrentsSystem>;
   private animationSystem: ReturnType<typeof createBiomechanicalAnimationSystem>;
-  private statsUpdateTimer: number = 0;
+  /** Wall-clock time of the last HUD refresh; null until the first one. */
+  private lastStatsUpdateMs: number | null = null;
   private isPaused: boolean = false;
   private timeScale: number = 1.0;
   private debugGui: GUI;
@@ -86,6 +89,7 @@ export class OceanSimulator {
     this.uiManager.onSpeedChange((speed) => this.setTimeScale(speed));
     this.uiManager.onLookToggle(() => this.toggleLookPreset());
     this.uiManager.onIntroReplay(() => this.replayIntro());
+    this.uiManager.onCapture(() => void this.capturePhoto());
     
     // Setup ocean controls
     this.setupOceanControls();
@@ -641,18 +645,18 @@ export class OceanSimulator {
     // Render (always runs) - pass deltaTime for post-processing distortion animation
     this.renderEngine.render(this.world.time.delta);
     
-    // Update UI stats periodically
-    this.statsUpdateTimer += deltaTime;
-    if (this.statsUpdateTimer >= 1.0) {
+    // Update UI stats about once a second of real time. Sim time is clamped per frame and
+    // frozen while paused, so a sim-time timer starves on slow renderers and when paused.
+    const nowMs = performance.now();
+    if (shouldRefreshStats(nowMs, this.lastStatsUpdateMs)) {
       this.uiManager.updateStats(this.world);
+      this.lastStatsUpdateMs = nowMs;
 
       // Debug: Log entity count every second to verify creatures exist
       if (DEBUG) {
         const entityCount = getAllEntities(this.world).length;
         console.log(`Entity count: ${entityCount} | Camera at Z=${this.renderEngine.camera.position.z.toFixed(1)}`);
       }
-
-      this.statsUpdateTimer = 0;
     }
   };
   
@@ -669,6 +673,35 @@ export class OceanSimulator {
     if (DEBUG) console.log('🗑️  Ocean Simulator disposed');
   }
   
+  /**
+   * Render the current view and save it as a PNG (native share sheet where the browser
+   * can share files, otherwise a download). Canvas only, so the HUD is not in the photo.
+   */
+  public async capturePhoto(): Promise<void> {
+    this.uiManager.setCaptureStatus('Capturing...');
+    try {
+      // Render right before reading so the buffer holds a complete, current frame.
+      this.renderEngine.render(0);
+      const blob = await canvasToPngBlob(this.renderEngine.renderer.domElement);
+      if (!blob) {
+        this.uiManager.setCaptureStatus('Capture failed');
+        setTimeout(() => this.uiManager.setCaptureStatus(null), 2500);
+        return;
+      }
+      const result = await deliverPhoto(blob);
+      if (result === 'failed') {
+        this.uiManager.setCaptureStatus('Capture failed');
+        setTimeout(() => this.uiManager.setCaptureStatus(null), 2500);
+        return;
+      }
+      this.uiManager.setCaptureStatus(result === 'cancelled' ? null : 'Saved');
+      if (result !== 'cancelled') setTimeout(() => this.uiManager.setCaptureStatus(null), 1500);
+    } catch {
+      this.uiManager.setCaptureStatus('Capture failed');
+      setTimeout(() => this.uiManager.setCaptureStatus(null), 2500);
+    }
+  }
+
   /**
    * Toggle pause state
    */

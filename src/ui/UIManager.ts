@@ -1,5 +1,6 @@
 import type { OceanWorld } from '../core/World';
 import { getPopulationStats } from '../systems/PopulationSystem';
+import { formatHudCount, getHudTotalState } from './hudState';
 
 /**
  * UI Manager for ocean simulator
@@ -23,6 +24,7 @@ export class UIManager {
   private onQualityChange?: (quality: string) => void;
   private onToggleLook?: () => 'tropical-clear' | 'inky-cinematic' | 'bioluminescent';
   private onReplayIntro?: () => void;
+  private onCapturePhoto?: () => void;
 
   constructor(parentElement: HTMLElement = document.body) {
     this.injectStyles();
@@ -289,6 +291,9 @@ export class UIManager {
       #ocean-ui #ocean-panel.collapsed { overflow: hidden; }
       #ocean-ui #ocean-panel.collapsed > :not(.op-eyebrow) { display: none; }
       #ocean-ui #ocean-panel.collapsed .op-eyebrow { margin-bottom: 0; }
+      #ocean-ui .op-total .l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #ocean-ui .op-total { gap: 10px; }
+      #ocean-ui .op-btn:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
       #ocean-ui .op-total.loading .l { animation: op-loading-pulse 1.6s ease-in-out infinite; }
       @keyframes op-loading-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
       @media (max-width: 720px) {
@@ -309,10 +314,15 @@ export class UIManager {
         }
         #ocean-ui #ocean-panel {
           right: 10px !important; bottom: 10px !important;
-          left: 150px !important; width: auto !important;
+          left: 172px !important; width: auto !important;
           max-height: 42vh !important;
         }
         #ocean-ui #stats-panel .op-total:not(.loading) .l { display: none; }
+        /* While loading, the strip holds only the wordmark and the loading label. The
+           counters have nothing to show yet, and the label would otherwise collide with them. */
+        #ocean-ui #stats-panel .op-total.loading { flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
+        #ocean-ui #stats-panel .op-total.loading .n,
+        #ocean-ui #stats-panel.is-loading .op-split { display: none; }
         .lil-gui.lil-root { display: none !important; }
       }
       #ocean-ui .touch-hint { display: none; margin: 0 0 8px; font-size: 11px; line-height: 1.35; color: #9fb9c1; }
@@ -346,7 +356,7 @@ export class UIManager {
   private createStatsPanel(): HTMLElement {
     const panel = document.createElement('div');
     panel.id = 'stats-panel';
-    panel.className = 'ocean-panel op';
+    panel.className = 'ocean-panel op is-loading';
     panel.style.cssText = 'top: 22px; left: 22px; width: 226px;';
 
     const species: Array<[string, string]> = [
@@ -355,19 +365,19 @@ export class UIManager {
       ['starfish', 'Starfish'], ['urchin', 'Urchins'],
     ];
     const rows = species
-      .map(([id, label]) => `<div class="stat-row"><span class="k">${label}</span><span class="v" id="stat-${id}">0</span></div>`)
+      .map(([id, label]) => `<div class="stat-row"><span class="k">${label}</span><span class="v" id="stat-${id}">\u2013</span></div>`)
       .join('');
 
     panel.innerHTML = `
       <div class="op-eyebrow"><span class="wordmark">Ocean<b>Sim</b></span></div>
       <div class="op-total loading" id="stat-total-wrap" role="status" aria-live="polite">
-        <span class="n" id="stat-total">0</span>
-        <span class="l" id="stat-total-label">Loading ocean life...</span>
+        <span class="n" id="stat-total">–</span>
+        <span class="l" id="stat-total-label">Loading ocean life</span>
       </div>
       <div class="stat-grid">${rows}</div>
-      <div class="op-split">
-        <div class="pred"><span class="k">Predators</span><span class="v" id="stat-predators">0</span></div>
-        <div class="prey"><span class="k">Prey</span><span class="v" id="stat-prey">0</span></div>
+      <div class="op-split" id="stat-split">
+        <div class="pred"><span class="k">Predators</span><span class="v" id="stat-predators">–</span></div>
+        <div class="prey"><span class="k">Prey</span><span class="v" id="stat-prey">–</span></div>
       </div>
     `;
 
@@ -392,6 +402,7 @@ export class UIManager {
       <div style="display: grid; gap: 7px; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--line);">
         <button id="btn-pause" class="op-btn">Pause</button>
         <button id="btn-speed" class="op-btn">Speed &middot; 1&times;</button>
+        <button id="btn-capture" class="op-btn" type="button" aria-label="Capture photo of the current view">Capture photo</button>
       </div>
     `;
 
@@ -670,16 +681,20 @@ export class UIManager {
     
     const updateElement = (id: string, value: number) => {
       const el = document.getElementById(id);
-      if (el) el.textContent = value.toString();
+      if (el) el.textContent = formatHudCount(value);
     };
-    
-    updateElement('stat-total', stats.total);
-    if (!this.hasSpawned && stats.total > 0) {
+
+    // Until the first entities exist, show a placeholder rather than a misleading 0.
+    const total = getHudTotalState(stats.total, this.hasSpawned);
+    if (total.ready && !this.hasSpawned) {
       this.hasSpawned = true;
       document.getElementById('stat-total-wrap')?.classList.remove('loading');
-      const label = document.getElementById('stat-total-label');
-      if (label) label.textContent = 'Living entities';
+      this.statsPanel.classList.remove('is-loading');
     }
+    if (!total.ready) return;
+    updateElement('stat-total', stats.total);
+    const label = document.getElementById('stat-total-label');
+    if (label) label.textContent = total.label;
     updateElement('stat-fish', stats.fish);
     updateElement('stat-shark', stats.shark);
     updateElement('stat-dolphin', stats.dolphin);
@@ -694,6 +709,20 @@ export class UIManager {
     updateElement('stat-prey', stats.prey);
   }
   
+  /** Register the capture-photo button. The callback should render and save the canvas. */
+  public onCapture(callback: () => void): void {
+    this.onCapturePhoto = callback;
+    document.getElementById('btn-capture')?.addEventListener('click', () => this.onCapturePhoto?.());
+  }
+
+  /** Brief status text on the capture button (also announced via the label). */
+  public setCaptureStatus(text: string | null): void {
+    const btn = document.getElementById('btn-capture');
+    if (!btn) return;
+    btn.textContent = text ?? 'Capture photo';
+    (btn as HTMLButtonElement).disabled = text === 'Capturing...';
+  }
+
   /**
    * Hook up pause button
    */
