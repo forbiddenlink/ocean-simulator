@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0](https://github.com/forbiddenlink/ocean-simulator/compare/v1.1.0...v1.2.0) (2026-11-27)
+
+
+### Features
+
+* **controls:** let phones look and swim with touch ([#121](https://github.com/forbiddenlink/ocean-simulator/issues/121)) ([031f109](https://github.com/forbiddenlink/ocean-simulator/commit/031f1097e0af984c46b0d7badde0d3d3d82509ef))
+
+
+### Bug Fixes
+
+* **ui,csp:** allow blob: fetches, add loading state, collapse env panel on phones ([#122](https://github.com/forbiddenlink/ocean-simulator/issues/122)) ([3225029](https://github.com/forbiddenlink/ocean-simulator/commit/322502980db84522f8f93e04c2fe69ebcc2714b3))
+* **ui:** stop HUD panels covering the scene on phones ([#119](https://github.com/forbiddenlink/ocean-simulator/issues/119)) ([db66fea](https://github.com/forbiddenlink/ocean-simulator/commit/db66fea80e178907d78eadbcb5c639dcff8ab055))
+
 ## [1.1.0](https://github.com/forbiddenlink/ocean-simulator/compare/v1.0.11...v1.1.0) (2026-11-22)
 
 
