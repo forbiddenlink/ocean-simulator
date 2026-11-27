@@ -12,6 +12,8 @@ export class UIManager {
   private infoPanel: HTMLElement;
   private oceanPanel: HTMLElement;
   private isVisible: boolean = true;
+  /** Latches once the first entities spawn; until then the HUD shows a loading state. */
+  private hasSpawned: boolean = false;
   
   // Callbacks for ocean controls
   private onWindSpeedChange?: (speed: number) => void;
@@ -37,7 +39,18 @@ export class UIManager {
     this.container.appendChild(this.infoPanel);
     this.container.appendChild(this.oceanPanel);
     
+    // Small screens: start with the Environment panel collapsed so it doesn't cover the scene.
+    if (window.matchMedia?.('(max-width: 720px)').matches) {
+      this.setOceanPanelCollapsed(true);
+    }
+
     this.setupEventListeners();
+  }
+
+  private setOceanPanelCollapsed(collapsed: boolean): void {
+    this.oceanPanel.classList.toggle('collapsed', collapsed);
+    const header = this.oceanPanel.querySelector('.op-eyebrow');
+    header?.setAttribute('aria-expanded', String(!collapsed));
   }
   
   /**
@@ -270,6 +283,14 @@ export class UIManager {
          environment sheet at the bottom; drop the feature list, the per-species rows,
          the keyboard legend on touch screens, and the debug GUI. Inline panel styles
          set position, so these rules need !important. */
+      #ocean-ui #ocean-panel .op-eyebrow { cursor: pointer; user-select: none; }
+      #ocean-ui #ocean-panel .op-eyebrow::before { content: "\\25BE"; font-size: 10px; }
+      #ocean-ui #ocean-panel.collapsed .op-eyebrow::before { content: "\\25B8"; }
+      #ocean-ui #ocean-panel.collapsed { overflow: hidden; }
+      #ocean-ui #ocean-panel.collapsed > :not(.op-eyebrow) { display: none; }
+      #ocean-ui #ocean-panel.collapsed .op-eyebrow { margin-bottom: 0; }
+      #ocean-ui .op-total.loading .l { animation: op-loading-pulse 1.6s ease-in-out infinite; }
+      @keyframes op-loading-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
       @media (max-width: 720px) {
         #ocean-ui .op { padding: 10px 12px; }
         #ocean-ui #info-panel { display: none; }
@@ -291,7 +312,7 @@ export class UIManager {
           left: 150px !important; width: auto !important;
           max-height: 42vh !important;
         }
-        #ocean-ui #stats-panel .op-total .l { display: none; }
+        #ocean-ui #stats-panel .op-total:not(.loading) .l { display: none; }
         .lil-gui.lil-root { display: none !important; }
       }
       #ocean-ui .touch-hint { display: none; margin: 0 0 8px; font-size: 11px; line-height: 1.35; color: #9fb9c1; }
@@ -339,9 +360,9 @@ export class UIManager {
 
     panel.innerHTML = `
       <div class="op-eyebrow"><span class="wordmark">Ocean<b>Sim</b></span></div>
-      <div class="op-total">
+      <div class="op-total loading" id="stat-total-wrap" role="status" aria-live="polite">
         <span class="n" id="stat-total">0</span>
-        <span class="l">Living entities</span>
+        <span class="l" id="stat-total-label">Loading ocean life...</span>
       </div>
       <div class="stat-grid">${rows}</div>
       <div class="op-split">
@@ -453,6 +474,22 @@ export class UIManager {
   }
   
   private setupEventListeners(): void {
+    // Environment panel header toggles collapse (keyboard accessible).
+    const oceanHeader = this.oceanPanel.querySelector<HTMLElement>('.op-eyebrow');
+    if (oceanHeader) {
+      oceanHeader.setAttribute('role', 'button');
+      oceanHeader.tabIndex = 0;
+      const toggle = () => this.setOceanPanelCollapsed(!this.oceanPanel.classList.contains('collapsed'));
+      oceanHeader.addEventListener('click', toggle);
+      oceanHeader.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          toggle();
+        }
+      });
+    }
+
     // Toggle UI visibility
     document.addEventListener('keydown', (e) => {
       if (e.key === 'h' || e.key === 'H') {
@@ -637,6 +674,12 @@ export class UIManager {
     };
     
     updateElement('stat-total', stats.total);
+    if (!this.hasSpawned && stats.total > 0) {
+      this.hasSpawned = true;
+      document.getElementById('stat-total-wrap')?.classList.remove('loading');
+      const label = document.getElementById('stat-total-label');
+      if (label) label.textContent = 'Living entities';
+    }
     updateElement('stat-fish', stats.fish);
     updateElement('stat-shark', stats.shark);
     updateElement('stat-dolphin', stats.dolphin);
