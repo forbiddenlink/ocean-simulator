@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "units": "metres",
+  "axes": "+X east, +Y up, +Z south; sea level y = 0; shelf floor y = -34",
+  "seed": 1177,
+  "seedNote": "Provisional. Slice 3 freezes the final seed so that relic sockets S2, S3, S4, S6, S8 are active.",
+  "fovDegrees": 70,
+  "near": 0.2,
+  "far": 400,
+  "sunDirectionTowardSun": [-0.35, 0.86, -0.36],
+  "sway": false,
+  "shots": [
+    {
+      "key": 1,
+      "id": "over-the-edge",
+      "name": "Over the edge",
+      "position": [40, -14, 230],
+      "lookAt": [0, -18, 0],
+      "purpose": "Hero reveal and silhouette test: mole, colonnade axis, Spire, forge row, reef wall."
+    },
+    {
+      "key": 2,
+      "id": "processional-way",
+      "name": "Processional Way",
+      "position": [0, -27, 120],
+      "lookAt": [0, -22, 20],
+      "purpose": "Calm perspective down the colonnade with kelp, shafts and a school."
+    },
+    {
+      "key": 3,
+      "id": "spire-rings",
+      "name": "Spire rings",
+      "position": [22, -16, 44],
+      "lookAt": [0, -14, 0],
+      "purpose": "Signature shot: bronze rings and moving bars of light on the court."
+    },
+    {
+      "key": 4,
+      "id": "basilica-shaft",
+      "name": "Basilica shaft",
+      "position": [0, -27, -70],
+      "lookAt": [0, -24, -118],
+      "purpose": "Contrast shot: dark vaulted hall, one wide shaft, a warm relic glimmer at the apse."
+    },
+    {
+      "key": 5,
+      "id": "bathhouse-overgrowth",
+      "name": "Bathhouse overgrowth",
+      "position": [-60, -24, 40],
+      "lookAt": [-120, -28, -10],
+      "purpose": "Overgrowth rules: kelp over arches, drifted sand, coral crust on stone."
+    },
+    {
+      "key": 6,
+      "id": "toward-the-sun",
+      "name": "Toward the sun",
+      "position": [140, -26, 60],
+      "lookAt": [60, -12, -20],
+      "purpose": "Backlit shot: Foundry Row against the bright surface, kelp translucency, motes."
+    }
+  ],
+  "flyThrough": {
+    "durationSeconds": 60,
+    "peakSpeedMetresPerSecond": 30,
+    "maxYawDegreesPerSecond": 40,
+    "keyframes": [
+      { "t": 0,  "position": [60, -8, 260],   "lookAt": [0, -20, 100] },
+      { "t": 8,  "position": [30, -18, 215],  "lookAt": [0, -22, 120] },
+      { "t": 18, "position": [6, -27, 110],   "lookAt": [0, -22, 20] },
+      { "t": 28, "position": [20, -16, 48],   "lookAt": [0, -14, 0] },
+      { "t": 36, "position": [-20, -14, 10],  "lookAt": [0, -12, 0] },
+      { "t": 44, "position": [-110, -22, 20], "lookAt": [-120, -26, -10] },
+      { "t": 52, "position": [-40, -27, -70], "lookAt": [0, -24, -118] },
+      { "t": 60, "position": [0, -20, -40],   "lookAt": [0, -16, 0] }
+    ]
+  },
+  "relicSockets": [
+    { "id": "S1", "position": [0, -30, -4],     "place": "Spire plinth" },
+    { "id": "S2", "position": [0, -26, -122],   "place": "Basilica apse altar" },
+    { "id": "S3", "position": [-118, -30, -8],  "place": "lowest Bathhouse pool" },
+    { "id": "S4", "position": [128, -31, 22],   "place": "Foundry bell-forge" },
+    { "id": "S5", "position": [-30, -30, 118],  "place": "fallen column nest, Processional Way" },
+    { "id": "S6", "position": [34, -29, 180],   "place": "Threshold Gate keystone" },
+    { "id": "S7", "position": [-150, -31, 165], "place": "wreck on the Harbour Mole" },
+    { "id": "S8", "position": [95, -24, -70],   "place": "reef wall cave" },
+    { "id": "S9", "position": [-70, -27, -90],  "place": "overgrown kelp cistern" }
+  ]
+}
